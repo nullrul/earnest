@@ -187,7 +187,7 @@ upstream's stages, agents and harness integrations arrive unchanged.
 - **G7** Build one index that the check and the judge share, so both report the same graph. (T3; SC1)
 - **G8** Keep judge overrides in the prose files next to the item they override, keyed by id, revision and commit, so they expire with the revision and flag drift in the code. (T5, T7; SC11)
 - **G9** Emit findings as SARIF plus a human summary, so one command's output tells an agent every change it needs. (T6, T8; SC2, SC10)
-- **G10** Gate the judge on calibration against a maintainer's hand verdicts before the first unit executes. (T7, T3; SC4)
+- **G10** Gate the judge on calibration against a maintainer's hand verdicts before the first AI-DLC unit the fork runs through Earnest. (T7, T3; SC4)
 - **G11** Flag every item linked to an old revision, and every body edited without a new revision, in the same run. (T1, T4; SC5)
 - **G12** Compute each stage's status from its items, place every finding behind, at or ahead of the frontier, and bind each approval AI-DLC records to the assessment it rests on. (T1, T4; SC8, SC9)
 - **G13** Adopt AI-DLC's lifecycle, agents and harness integrations, replace its agent-written trace with the derived one, and deliver `earnest check` as an AI-DLC sensor. (T8, T2; SC1)
@@ -264,8 +264,8 @@ and "maintainer" everywhere else, and both name the same person.
 ### UC8 Run the calibration gate
 
 - Actor: repo maintainer.
-- Trigger: before the first unit executes, and whenever the judge model or
-  prompt changes.
+- Trigger: before the first AI-DLC unit the fork runs through Earnest, and
+  whenever the judge model or prompt changes.
 - Outcome: the maintainer runs `earnest calibrate` against a fixture; the judge
   runs over ten hand-tagged requirements, its verdicts are compared with the
   maintainer's, and the gate passes at eight or more matches (SC4).
@@ -335,8 +335,10 @@ items.
 | `task` | a step of AI-DLC's `code-generation-plan.md`; spec-kit tasks file | — | `Delivers:` `req` or `dsn`; `Depends:` `task` | plan status |
 
 Only `req` has a body rule. The use-case form for `feat` and the MADR sections
-for `dsn` are writing conventions the scanner leaves unchecked. Only `tenet`,
-`goal`, `unit` and `task` are additions to what OFT ships. OFT treats
+for `dsn` are writing conventions the scanner leaves unchecked. A Markdown
+heading ends an item (see Grammar), so those sections are labelled paragraphs
+or list items inside the body, as in the Key design decisions section. Only
+`tenet`, `goal`, `unit` and `task` are additions to what OFT ships. OFT treats
 artifact types as free-form strings and reads the new key lines as prose, so
 the prose files stay readable by OFT.
 
@@ -420,8 +422,10 @@ the declared tier stays a gap until a cover of that tier exists.
 
 Every finding has a rule id, a level, a location and a position (see Frontier
 and position). The Level column is the SARIF level at position behind or
-current; at position ahead every finding is a note. The first five reuse OFT's
-link-status names; the rest are Earnest's.
+current; at position ahead every finding is a note. A finding that reaches no
+stage, such as an orphaned or near-miss tag, takes position current in every
+run, keeps the level in the table and counts as blocking. The first five reuse
+OFT's link-status names; the rest are Earnest's.
 
 | Rule id | Level | Meaning |
 | --- | --- | --- |
@@ -430,7 +434,7 @@ link-status names; the rest are Earnest's.
 | `earnest/unwanted` | warning | a cover by a type the parent never needs, so it counts toward nothing |
 | `earnest/orphaned` | error | a tag or edge names an id absent from the index, or an item covers no parent; the message suggests the closest existing id |
 | `earnest/duplicate` | error | two items share an id, or two `Override:` lines share an id and kind |
-| `earnest/near-miss` | error | text nearly matches a tag surface; the message gives the canned fix |
+| `earnest/near-miss` | error | text nearly matches a tag surface, an id line or a key-line value; the message gives the canned fix |
 | `earnest/req-not-ears` | error | a `req` body fails the EARS grammar; the message lists the five templates |
 | `earnest/gap` | error | an item lacks a child its `Needs:` requires |
 | `earnest/unplanned` | warning | a `req` is delivered by no task |
@@ -516,6 +520,15 @@ out-of-task finding counts against the current task:
   "expected at construction/u1/code-generation", and the agent takes no action
   on it.
 
+A finding that reaches no stage takes position current and names no stage.
+Such findings include an orphaned or near-miss tag, which covers nothing a task
+delivers; a malformed id, which resolves to no item; and every finding of
+a run with no plan, where no `Scope` gives a route and so no stage exists.
+Current is a blocking position, so such a finding counts as blocking in every
+run, `--stage` runs included, and keeps its level whatever the frontier. At
+error level it makes the exit code non-zero and fails the `earnest` sensor at
+each gate until it is fixed, so it is never lost.
+
 At the start of an intent the frontier is the first stage on the route, so
 only that stage's work reads as current and everything further along reads as
 expected; each approval moves the frontier on and brings the next stage's
@@ -591,7 +604,10 @@ change (SC5).
 1. A spec item's body changes, and the maintainer bumps its revision in the
    same change. Edits to key lines alone need no bump.
 2. A body that changed at the same revision, detected because its hash differs
-   from the one in the assessment record, raises `unbumped-change`.
+   from the one in the assessment record, raises `unbumped-change`. The hash
+   covers the body's non-blank lines, with the body as the Grammar section
+   delimits it, so adding, moving or removing a key line and the blank lines
+   around it leaves the hash as it was.
 3. Staleness propagates exactly one edge: bumping X makes every tag, `Covers:`
    and `Delivers:` that names X at the old revision `outdated`, located at that
    line.
@@ -671,11 +687,12 @@ revision    = nonzero , { digit } ;                   (* positive integer *)
 commit      = hexchar , { hexchar } ;                 (* git short sha *)
 hexchar     = digit | "a" | "b" | "c" | "d" | "e" | "f" ;
 
-(* Markdown item block *)
-item        = id_line , body , { key_line } ;
+(* Markdown item block: from its id line to the next id line, the next
+   Markdown heading or the end of the file *)
+item        = id_line , { key_line | body_line } ;
 id_line     = ( "`" id "`" | heading_marks " " "`" id "`" ) , newline ;
 heading_marks = "#" , { "#" } ;
-body        = prose_line , { prose_line } ;
+body_line   = { char } , newline ;                    (* every other line *)
 key_line    = key , ":" , " " , value , newline ;
 key         = "Needs" | "Covers" | "Drivers" | "Delivers" | "Depends"
             | "Override" ;
@@ -699,6 +716,20 @@ ears        = [ "Where" , feature , "," ]
               "the" , system , "shall" , response , "." ;
 ```
 
+An item runs from its id line to the next id line, the next Markdown heading
+or the end of the file. Within that span, lines matching `key_line` are key
+lines, and every other line, including blank lines and fenced code, is body. A
+line that opens with a key, a colon and a space is a key line even when its
+value fails to parse, so a malformed id there raises a near-miss (see
+Near-miss) and leaves the body and its hash as they were. Fenced code is read
+as code: inside an item every line of a fence is body, and only lines outside
+fences start or end an item. A line that the Near-miss superset catches as a
+malformed id line ends the item above it as an id line would. A `req` body is
+one EARS sentence, which the parse reads as one text with line breaks and blank
+lines taken as spaces, so the sentence may wrap as in the Prose item example.
+Prose that belongs to the section rather than the item sits under a heading of
+its own.
+
 The five EARS forms fall out of which optional clauses are present:
 ubiquitous (none), event-driven (`When`), state-driven (`While`), unwanted
 behavior (`If ... then`), and optional feature (`Where`). Complex requirements
@@ -707,18 +738,27 @@ clause's text span, and those spans are what the judge asks about.
 
 ### Near-miss
 
-A near-miss is any text matching a loose superset of the tag surfaces (a
-bracketed or `@`-prefixed token with a `~` inside) that fails the strict
-grammar. The scanner checks it against a fixed table of patterns and reports it
-with file, line and the pattern's canned fix. OFT and similar tools read these
-as ordinary comments, so the coverage they intended silently disappears.
+A near-miss is any text matching a loose superset of the tag surfaces and of
+the places a prose file writes an id, that fails the strict grammar. The
+superset has three parts: a bracketed or `@`-prefixed token with a `~` inside;
+a Markdown line that holds one backticked token with a `~` inside, alone or
+after heading marks, where an id line goes; and the value of any key line, each
+comma-separated entry of a `Covers:`, `Drivers:`, `Delivers:` or `Depends:`
+value standing for an id. The scanner checks each near-miss against a fixed
+table of patterns in order and reports it with file, line and the canned fix of
+the first pattern that fits. The last row fits whatever the rows above it
+leave, so every near-miss carries a canned fix. OFT and similar tools read
+these as ordinary comments or prose, so the coverage and links they intended
+silently disappear.
 
 | Pattern | Example | Canned fix |
 | --- | --- | --- |
 | missing `>` | `[impl-req~x~1]` | write `->` between the artifact type and the id |
-| missing revision | `[impl->req~x]` | append `~` and the item's current revision |
-| uppercase name | `@stest:feat~Login~1` | lower-case the name |
+| missing revision | `[impl->req~x]`, `` `req~x` ``, `Covers: feat~x` | append `~` and the item's current revision |
+| uppercase name | `@stest:feat~Login~1`, `Delivers: req~Login~1` | lower-case the name |
 | `@` tag without `:` | `@stest feat~login~1` | put `:` between the artifact type and the id |
+| AI-DLC id | `Covers: FR1.2` | lower-case it, turn dots into hyphens, and add the type and the revision, as the id rule under Adopting AI-DLC does: `req~fr1-2~1` |
+| any other mismatch | `` `req~login_rate~1` ``, `Needs: impl utest` | rewrite it in the form its place takes, which the message quotes from the Grammar section, such as `type~name~revision` with a name of lower-case letters, digits and hyphens |
 
 ## Key design decisions
 
@@ -868,9 +908,14 @@ as ordinary comments, so the coverage they intended silently disappears.
 ### D13 Findings as SARIF plus a human summary
 
 - Decision: all findings are emitted as SARIF 2.1.0 with a human summary.
-- Alternatives considered: a bespoke JSON format.
+  `earnest check` writes the SARIF log to stdout and the summary to stderr.
+- Alternatives considered: a bespoke JSON format; both on stdout; the SARIF log
+  in a file named by a flag.
 - Rationale: SARIF is already read by editors, code scanning and PR views, so
   findings reach agents and humans with no Earnest integration (T8, T6).
+  Separate streams keep stdout one SARIF document that the sensor's script and
+  a CI job parse as it stands, while a person at the terminal still reads the
+  summary (T6).
 
 ### D14 The EARS parse drives the judge
 
@@ -1040,7 +1085,8 @@ Each layer runs only when requested and only over what the layers before it
 passed: the judge reads only items that reach traced, and the evidence layer
 reads only items that reach judged, so `--evidence` implies `--judge`. The
 route from the profile and the approvals from the audit rows fix the
-frontier, and every finding takes its position from it before output.
+frontier, and every finding takes its position from it before output; a
+finding that reaches no stage takes position current.
 Out-of-task, impact, plan and stage status are side reports computed from the
 index plus the diff and the record. The check and the judge read one index, so
 they cannot disagree about the graph. At a stage boundary the `earnest` sensor
@@ -1053,7 +1099,7 @@ the `GATE_APPROVED` row only on an approval.
 
 | Command | Output |
 | --- | --- |
-| `earnest check [--task <id>] [--stage <stage>] [--judge] [--evidence]` | SARIF plus a summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged implemented, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items, runs the layers its items need, prints the assessment hash and writes the stage's run header to the record; this is the command the `earnest` sensor's script runs at each gate. |
+| `earnest check [--task <id>] [--stage <stage>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage, runs the layers its items need, prints the assessment hash in the summary and writes the stage's run header to the record; this is the command the `earnest` sensor's script runs at each gate. |
 | `earnest plan` | the route with each stage's computed status and approval, the frontier, and the unit and task graph with each item's computed status, plus plan findings; read-only |
 | `earnest calibrate <fixture>` | the judge's verdicts on the fixture beside the maintainer's, the match count and pass or fail against SC4; writes the result to the assessment record |
 
@@ -1062,13 +1108,17 @@ each gate through the `earnest` sensor, whose script reports `pass: true`
 exactly when `earnest check` exits zero. The exit code is non-zero only when an
 error-level finding
 exists at position behind or current, so the agent, the human at the gate and
-a CI job can each act on it. While the record holds no
+a CI job can each act on it. A finding that reaches no stage sits at position
+current in every run, so an error-level one always makes the exit code
+non-zero. While the record holds no
 passing calibration for the current model id and prompt hash, every judge run
 raises `judge-uncalibrated`.
 
 ### SARIF 2.1.0
 
-SARIF is the only findings contract.
+SARIF is the only findings contract. `earnest check` writes the log to stdout
+as one SARIF 2.1.0 document and the human summary to stderr, so the `earnest`
+sensor's script or a CI job reads stdout as the log.
 
 - Each finding is one SARIF `result` with `ruleId`, `level`, `message` and a
   `physicalLocation`. The rule ids and levels are exactly those in the Findings
@@ -1078,7 +1128,11 @@ SARIF is the only findings contract.
   `current` or `ahead`, and the stage it counts against as `properties.stage`.
   The message text opens with the position: `regression in approved stage
   <stage>` for behind, `in scope at <stage>` for current, and `expected at
-  <stage>` for ahead, where the result's `level` is `note`.
+  <stage>` for ahead, where the result's `level` is `note`. A finding that
+  reaches no stage has `properties.position` `current`, omits
+  `properties.stage`, and its message opens with `in scope`.
+- Each requirement's trace level and the three percentages travel under the
+  run's `properties`, so stdout alone carries what the summary leads with.
 - The commit, the model id, the prompt hash and the layers run travel under the
   run's `invocations` and provenance properties.
 
@@ -1146,7 +1200,14 @@ status, and the frontier run entirely on the local repository.
 | --- | --- | --- |
 | Whether the judge applies tenets to observations | maintainer | after the calibration gate reports |
 | Judge model choice and prompt | maintainer | the calibration gate |
-| SC4 calibration gate | maintainer | unrun; a precondition to the first unit |
+| SC4 calibration gate | maintainer | unrun; a precondition to the first AI-DLC unit the fork runs through Earnest |
+| What the assessment hash hashes, the value an approval's `Assessment Hash` carries | maintainer | before milestone `stage_status` of `03-implementation-plan.md` |
+| The task's base commit, which the out-of-task check diffs against | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
+| When the coverage map of the Impact rule is taken, and where the map is stored; the record keeps only its commit | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
+| How a test plugs a stub model into `--judge` | maintainer | before milestone `judge_check` of `03-implementation-plan.md` |
+| Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
+| A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
+| Which existing repository SC4's ten hand-written requirements come from | maintainer | before milestone `calibration_gate` of `03-implementation-plan.md` |
 
 ## Scope
 

@@ -236,7 +236,8 @@ its line says "Owns", and each such rule has exactly one owner.
   tag lines with their line numbers, and the grammar decides what parses.
 - `adapters/__init__.py`: picks the adapter by file suffix for each file that
   `git.py` lists.
-- `adapters/markdown.py`: the lines and headings of Markdown stage artifacts.
+- `adapters/markdown.py`: the lines, headings and code fences of Markdown stage
+  artifacts.
 - `adapters/python.py`: `#` comments, through `tokenize`.
 - `adapters/typescript.py`: `//` and block comments outside string and template
   literals.
@@ -332,10 +333,12 @@ Each decision refers to the tree in the File and directory tree section.
   `packages/<name>/` with the targets `install`, `build`, `lint`, `test`,
   `package` and `clean`; a root `Makefile` that delegates over `SUBPROJECTS`;
   and the Python SDK template's src layout, uv with hatchling, ruff,
-  `mypy --strict` and vulture, and pytest with an 80% coverage floor.
+  `mypy --strict` and vulture, and pytest with pytest-cov reporting coverage.
   `packages/earnest/Makefile` matches the template's
   `_templates/python_sdk/Makefile` byte for byte, and `pyproject.toml` differs
-  from the template only by its substitutions. The template's TypeScript, Rust
+  from the template by its substitutions and by dropping the template's
+  `fail_under = 80`, so every test run reports coverage and passes or fails on
+  its tests alone. The template's TypeScript, Rust
   and Go packages stay unselected: the engine is Python, and the fork's
   TypeScript lives in the fork under upstream's Bun and Biome toolchain. From
   `~/Projects/workspace/lint-configs`, `python/ruff.toml` sets the bar the
@@ -383,7 +386,8 @@ Each decision refers to the tree in the File and directory tree section.
   that resolves nowhere. Each upstream release arrives by `git fetch upstream`
   and a merge, with the Fork delta reapplied. The two repositories meet at the
   Command surface of `01`: the fork's sensor script runs
-  `earnest check --stage` and reads its exit code and SARIF output.
+  `earnest check --stage` and reads its exit code and the SARIF log on its
+  stdout.
 - Alternatives considered: vendoring AI-DLC into this repository as a subtree
   under `packages/`; a fork inside GitHub's fork network, with
   `gh repo set-default` pointing at the fork.
@@ -424,7 +428,7 @@ Each decision refers to the tree in the File and directory tree section.
 | Command surface | `argparse` | `click` or `typer`, a dependency for three commands |
 | Python comments | `tokenize` | `ast`, which drops comments |
 | TypeScript comments | a string-aware scan for `//` and block comments | the TypeScript compiler, which brings Node |
-| Markdown items | a line scan for headings, id lines and key lines | a CommonMark parser |
+| Markdown items | a line scan for code fences, headings, id lines and key lines | a CommonMark parser |
 | Gherkin tags | a line scan for `@` lines | the official Gherkin parser |
 | SARIF output | `json` | a SARIF object-model package |
 | Coverage, tests and mutants | `subprocess` running the repository's tools, `json` reading their reports | importing coverage.py and mutmut as libraries |
@@ -432,14 +436,17 @@ Each decision refers to the tree in the File and directory tree section.
 
 ### L5 Three test tiers, with pytest-bdd for behavior
 
-- Decision: one runner, pytest, and one gate, the package's 80% coverage floor,
-  over three tiers: `tests/unit/`, `tests/integration/`, and Gherkin features
-  in `tests/features/` bound by pytest-bdd step modules in `tests/steps/`. A
+- Decision: one runner, pytest, which reports coverage on every run, over three
+  tiers: `tests/unit/`, `tests/integration/`, and Gherkin features in
+  `tests/features/` bound by pytest-bdd step modules in `tests/steps/`. A
   milestone's feature and step module share one snake_case slug, since the
-  slug also names a Python module. `pyproject.toml` gains `pytest-bdd` in the
+  slug also names a Python module, and the milestone's exit command,
+  `uv run pytest tests/steps/test_<milestone>.py`, passes exactly when its
+  scenarios pass. `pyproject.toml` gains `pytest-bdd` in the
   `dev` extra and `bdd_features_base_dir = "tests/features"` under
   `[tool.pytest.ini_options]`.
-- Alternatives considered: behave, a second runner beside pytest-cov's gate;
+- Alternatives considered: behave, a second runner outside pytest and its
+  coverage report;
   the cookiecutter's Cucumber scaffold, which it emits under
   `tests/integration/` for TypeScript packages and which needs Node to test a
   Python package; pytest without Gherkin.
@@ -482,7 +489,7 @@ Each decision refers to the tree in the File and directory tree section.
 - The AI-DLC fork in its own downstream-only repository, changed at exactly
   the paths of the Fork delta section.
 - A runtime on the standard library, plus the judge's model SDK.
-- One test runner and one coverage gate.
+- One test runner, pytest, with coverage reported on every run.
 
 ## Future directions
 
