@@ -1,0 +1,98 @@
+{
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "pyright-lsp@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": true,
+    "ponytail@ponytail": true,
+    "dev-process@claude-skills": true,
+    "python-tooling@claude-skills": true,
+    "git-workflow@claude-skills": true,
+    "ci-build@claude-skills": true,
+    "testing@claude-skills": true,
+    "autoresearch@autoresearch": true,
+    "codex@openai-codex": true,
+    "context-mode@context-mode": true
+  },
+  "extraKnownMarketplaces": {
+    "claude-skills": {
+      "source": {
+        "repo": "cajias/claude-skills",
+        "source": "github"
+      }
+    },
+    "ponytail": {
+      "source": {
+        "repo": "DietrichGebert/ponytail",
+        "source": "github"
+      }
+    },
+    "autoresearch": {
+      "source": {
+        "repo": "uditgoenka/autoresearch",
+        "source": "github"
+      }
+    },
+    "openai-codex": {
+      "source": {
+        "repo": "openai/codex-plugin-cc",
+        "source": "github"
+      }
+    },
+    "context-mode": {
+      "autoUpdate": true,
+      "source": {
+        "repo": "mksglu/claude-context-mode",
+        "source": "github"
+      }
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // empty'); [ -n \"$f\" ] || exit 0; [ -L \"$f\" ] && exit 0; case \"$f\" in *.py|*.md|*.yml|*.yaml|*.sh) ;; *) exit 0 ;; esac; case \"$f\" in \"$CLAUDE_PROJECT_DIR\"/*) ;; *) exit 0 ;; esac; rel=\"${f#\"$CLAUDE_PROJECT_DIR\"/}\"; case \"$rel\" in ''|*[!A-Za-z0-9._/-]*) exit 0 ;; esac; case \"$rel\" in *..*) exit 0 ;; esac; cd \"$CLAUDE_PROJECT_DIR\" && LINT_FILE=\"$rel\" make -s lint-file >&2 || exit 2",
+            "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PostToolUse\", \"additionalContext\": \"Subagent finished. NEXT STEP: Call TaskList to see the task list, mark this task done with TaskUpdate, then immediately dispatch the next pending task to a new subagent. Do not stop until all tasks are complete.\"}}'",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); printf '%s' \"$input\" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || exit 0; c=$(printf '%s' \"$input\" | jq -r '.tool_input.command // empty' | tr '\\n\\\\' '  '); gh='(^|[^A-Za-z0-9_-])gh[[:space:]]([^;&|]*[[:space:]])?'; if printf '%s' \"$c\" | grep -Eq \"${gh}pr[[:space:]]+(create|new|ready)([^A-Za-z0-9_-]|\\$)\"; then :; elif printf '%s' \"$c\" | grep -Eq \"${gh}api[[:space:]]\" && printf '%s' \"$c\" | grep -Eq \"pulls([[:space:]\\\"'?]|\\$)\" && printf '%s' \"$c\" | grep -Eiq \"(-X|--method)[[:space:]=]*POST|[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]=]|\\$)\"; then :; else exit 0; fi; cd \"$CLAUDE_PROJECT_DIR\" || exit 0; sha=$(git rev-parse --verify -q HEAD); f=\"$(git rev-parse --git-dir)/pre-pr-review\"; saved=$(cat \"$f\" 2>/dev/null); [ -n \"$sha\" ] && [ \"$saved\" = \"$sha\" ] && exit 0; echo 'Pre-PR review required for HEAD '\"${sha:-<no commits>}\"': run the /pre-pr-review skill (code-review, ponytail:ponytail-review, simplify, security-review on the branch diff), fix or answer findings, commit, then retry.' >&2; exit 2",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git status --short; git diff --stat; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

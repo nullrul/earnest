@@ -1,0 +1,17 @@
+# Build output — `make all` runs build before lint, so these exist by the time
+# prettier runs. A minified bundle is never prettier-clean.
+dist/
+coverage/
+cdk.out/
+node_modules/
+target/
+bin/
+
+# Lockfiles are tool-owned.
+pnpm-lock.yaml
+
+# The generator rewrites tsconfig.json with json.dump when wiring inter-package
+# project references, which always expands arrays. Prettier's `json` parser
+# keeps short arrays inline, so the two disagree on a file neither a human nor
+# prettier owns.
+tsconfig.json

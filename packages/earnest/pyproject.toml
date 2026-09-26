@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "earnest"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy",
+    "pre-commit",
+    "ruff",
+    "taskipy",
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "hypothesis>=6.100",
+    "vulture>=2.14",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/earnest"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "I", "B", "W", "C90", "SIM", "PIE", "PLR", "RET",
+    "ANN", "UP", "D", "N", "S", "BLE", "A", "COM", "C4", "DTZ",
+    "T10", "EM", "ISC", "ICN", "G", "INP", "PT", "Q", "RSE",
+    "SLOT", "TID", "TCH", "ARG", "PTH", "ERA", "PGH", "PL",
+    "TRY", "FLY", "PERF", "RUF",
+]
+ignore = ["E203", "E501", "D100", "D104", "COM812", "ISC001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 12
+max-returns = 6
+max-statements = 50
+
+[tool.ruff.lint.isort]
+known-first-party = ["earnest"]
+force-single-line = false
+lines-after-imports = 2
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106", "S108", "S603", "S607", "D101", "D102", "D103", "ANN", "PLR2004", "ARG001", "PLR0913", "ARG002"]
+
+[tool.mypy]
+strict = true
+
+[tool.vulture]
+min_confidence = 80
+paths = ["src/"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "--cov=earnest --cov-report=term-missing"
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:hypothesis.*",
+    "ignore::DeprecationWarning:pytest_asyncio.*",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["earnest"]
+
+[tool.coverage.report]
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+    "@overload",
+    "raise NotImplementedError",
+]
+
+[tool.taskipy.tasks]
+lint = "pre-commit run --all-files"
+test = "pytest --cov-report=xml:coverage.xml"
+build = "uv build"

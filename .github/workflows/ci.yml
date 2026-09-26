@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '**'
+  pull_request:
+
+jobs:
+  lint-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: make -C packages/earnest install lint
+
+  lint-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: pip install yamllint
+      - run: pnpm dlx markdownlint-cli2 "**/*.md" --ignore node_modules --ignore dist
+      - run: yamllint -c .yamllint.yml .
+
+  test-python:
+    needs: lint-python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: make -C packages/earnest install test
+
+  build-earnest:
+    needs: test-python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: make -C packages/earnest build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: earnest-dist
+          path: |
+            packages/earnest/dist/*.whl
+            packages/earnest/dist/*.tar.gz

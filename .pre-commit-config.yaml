@@ -1,0 +1,68 @@
+fail_fast: false
+default_install_hook_types: [pre-commit]
+
+# Every hook runs through the repo's own env (uv run --project) or a
+# dlx'd tool, never the laptop PATH, except yamllint which pre-commit
+# expects on PATH (installed via pipx/homebrew).
+repos:
+  # Python
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --project packages/earnest --all-extras ruff format --force-exclude
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+      - id: ruff-check
+        name: ruff check --fix
+        entry: uv run --project packages/earnest --all-extras ruff check --force-exclude --fix --exit-non-zero-on-fix
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+      # Whole-package, not staged-file-only: mypy/vulture need the full tree to resolve imports.
+      - id: mypy
+        name: mypy --strict (packages/earnest/src)
+        entry: >-
+          uv run --project packages/earnest --all-extras mypy
+          --config-file packages/earnest/pyproject.toml packages/earnest/src
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      # keep in sync with mypy (above)
+      - id: vulture
+        name: vulture (packages/earnest/src)
+        entry: uv run --project packages/earnest --all-extras vulture --min-confidence 80 packages/earnest/src
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Docs, config, shell
+  - repo: local
+    hooks:
+      - id: markdownlint
+        name: markdownlint --fix
+        entry: pnpm dlx markdownlint-cli2 --fix
+        language: system
+        types: [markdown]
+        stages: [pre-commit]
+
+      - id: yamllint
+        name: yamllint
+        entry: yamllint -c .yamllint.yml
+        language: system
+        types: [yaml]
+        stages: [pre-commit]
+
+      # bash -n only checks its first argument, so loop over every file pre-commit passes.
+      - id: bash-syntax
+        name: bash -n
+        entry: bash -c 'for f in "$@"; do bash -n -- "$f" || exit 1; done' --
+        language: system
+        types: [shell]
+        stages: [pre-commit]
