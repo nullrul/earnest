@@ -4,60 +4,141 @@ Status: draft, derived from `00-project-intent.md`, September 2026.
 
 ## Context and problem
 
-Requirement tracing tools check that a link exists. OpenFastTrace (OFT) reads a
-coverage tag in a comment, finds the matching item in a Markdown spec, and
-reports the requirement as covered. StrictDoc, sphinx-needs and LOBSTER do the
-same with different syntax. That model worked while people wrote the tags,
-because a person typing a tag usually meant it. Coding agents produce
-well-formed, correctly revisioned tags at scale on code that only loosely
-relates to the requirement, so a coverage report can read 100% while nobody can
-tell how far "traced" has drifted from "done". A tag with nothing behind it is
-hearsay.
+Delivery methods built for coding agents keep them on course with phases,
+stages and human approvals. AI-DLC (`awslabs/aidlc-workflows`) is one such
+method. It carries an intent from ideation through inception and construction
+to operation, with an approval gate after each stage and an automated
+verification gate at each phase boundary. It also records traceability, and the
+agent that did the work writes it: each stage that traces writes a
+`traceability.json` marking every upstream id `OK` against a target file, and
+each unit of work writes a `source-manifest.json` listing the paths it changed.
+A sensor then checks that the file is complete and that each target exists. In
+the vocabulary of `00-project-intent.md` that trace is hearsay: a claim the
+agent makes about its own work, checked for form.
 
-Earnest is a steering tool for that situation. Humans own intent, goals,
-features, requirements and decisions; agents implement, and run Earnest on
-demand, from an editor or an agent session, to see where their work drifted
-from the chain and from their current task. For every requirement Earnest
+Requirement tracing tools take the other route and derive links from tags in
+the code. OpenFastTrace (OFT) reads a coverage tag in a comment, finds the
+matching item in a Markdown spec, and reports the requirement as covered.
+StrictDoc, sphinx-needs and LOBSTER do the same with different syntax. They
+check that a link exists and stop there. Coding agents produce well-formed,
+correctly revisioned tags at scale on code that only loosely relates to the
+requirement, so a coverage report can read 100% while nobody can tell how far
+"traced" has drifted from "done".
+
+Earnest joins the two. It is a fork of AI-DLC that keeps the lifecycle and
+replaces the agent-written trace with a derived one. Every stage artifact is
+written with a small shared Markdown item syntax, code and tests carry tags in
+OFT's syntax, and Earnest derives one trace from them. For every requirement it
 answers in three layers of rising cost and confidence: traced (the tags
 resolve), judged (a model, asked narrow questions, agrees the code and tests
 match the clause), and evidenced (the tagged tests pass and kill mutants of the
-tagged code).
+tagged code). Agents run it on demand, from an editor or an agent session, to
+see where their work drifted from the chain and from their current task. At
+each stage boundary Earnest reports that stage's trace, verdicts and evidence,
+and the maintainer approves.
 
 This document follows the fixed high-level design shape in
 [[hld-documents-separate-solution-intent-from-implementation-detail-via-a-fixed-7]]:
-`00-project-intent.md` holds intent (tenets T1–T7 and success criteria
-SC1–SC10), and this document decides mechanism: the domain model, the grammar,
-the key decisions, the logical architecture, the interfaces and the runtime
-model. File and module layout belongs to `02-structural-design.md`.
+`00-project-intent.md` holds intent (tenets T1–T8 and success criteria
+SC1–SC11), and this document decides mechanism: how AI-DLC is adopted, the
+domain model, the grammar, the key decisions, the logical architecture, the
+interfaces and the runtime model. File and module layout belongs to
+`02-structural-design.md`.
+
+## Adopting AI-DLC
+
+Earnest is a fork of `awslabs/aidlc-workflows`. It keeps AI-DLC's method and
+changes two things: what the stage artifacts are written in, and where the
+trace comes from (T8).
+
+- **Kept.** The phases (Initialization, Ideation, Inception, Construction,
+  Operation) and their stages; the specialist agents that lead and support each
+  stage, such as the product, architect, design, developer, quality and
+  delivery agents; the workflow profiles, such as classic, express, feature,
+  enterprise and bugfix, that select which stages run; the human approval gate
+  after each stage; the reviewer agents and the deterministic sensors such as
+  the linter and the type check; the audit trail; and the harness integrations
+  that run the same workflow in Claude Code, Codex CLI, Copilot, Cursor, Kiro
+  and OpenCode, which gives the same results whichever agent tool drives the
+  work.
+- **Adapted.** Each stage artifact that states something the chain depends on
+  is written with Earnest's item syntax, so its intent, features, requirements,
+  decisions, units and plan steps are items with ids, revisions and edges (T5).
+  The prose around the items stays AI-DLC's.
+- **Replaced.** The agent-written trace and the automated checks over it.
+  Every `traceability.json`, the `traceability` sensor that checks it, and each
+  unit's `source-manifest.json` give way to the trace Earnest derives from the
+  artifacts and the code (T2). The phase-boundary verification gate, which
+  writes a pass or fail `verification/phase-check-*.md`, gives way to
+  `earnest check` output shown to the maintainer at each stage's approval gate.
+  The maintainer's approval is the gate; Earnest supplies what the maintainer
+  reads before approving and records the approval beside it (SC9).
+
+A unit of work is a milestone, and the steps of its code generation plan are
+its tasks. The table maps the AI-DLC artifacts that carry items; every other
+artifact stays as AI-DLC writes it.
+
+| AI-DLC stage | Artifact | Earnest item types | Treatment |
+| --- | --- | --- | --- |
+| Intent Capture | `intent-statement.md` | `tenet`, `goal` | adapted |
+| Scope Definition | `scope-document.md` | `feat` | adapted |
+| Approval and Handoff | `decision-log.md` | `dsn` | adapted |
+| Requirements Analysis | `requirements.md` | `req` in EARS form; its FR and NFR ids become lower-case `req` names | adapted |
+| User Stories | `stories.md`, `personas.md` | prose citing `feat` and `req` ids | kept |
+| Domain Design | `decisions.md` | `dsn` | adapted |
+| Units Generation | `unit-of-work.md`, `unit-of-work-dependency.md` | `milestone`, with `Delivers:` and `Depends:` | adapted |
+| Delivery Planning | `bolt-plan.md` | prose grouping milestones into Bolts | kept |
+| Code Generation | `code-generation-plan.md` | `task`; computed status replaces the plan's checkboxes | adapted |
+| Code Generation | application code and tests | `impl`, `utest`, `itest`, `stest` tags | adapted |
+| Code Generation | `code-summary.md` | prose, the agent's account of its work | kept |
+| Code Generation | `source-manifest.json` | the scope check on the diff since the task's base | replaced |
+| Build and Test | `test-results.md` | prose; the evidence layer runs the tests itself | kept |
+| every stage that traces | `traceability.json` and its `traceability` sensor | the derived trace | replaced |
+| each phase boundary | `verification/phase-check-*.md` | `earnest check` output at the approval gate, and the approval record | replaced |
+
+Each edge points to an item owned by the same stage or an earlier one, so each
+stage can reach done at its own approval: a decision in `decision-log.md` names
+goals, and one in `decisions.md` names requirements or goals. The kept artifacts carry no weight as
+evidence (T2).
+
+The fork tracks upstream releases. Earnest's changes live in the stage
+definitions and sensors they touch, and each upstream release is merged with
+those changes reapplied, so upstream's stages, agents and harness integrations
+arrive unchanged.
 
 ## Goals
 
-- **G1** Trace the whole chain from tenet to test on OFT's item model, keeping OFT's ID syntax, coverage semantics and link-status names as the reference. (T2, T7; SC1, SC2)
-- **G2** Parse every `req` body as one of the five EARS forms so each requirement reads as prose and still yields a structure. (T1, T6; SC1, SC5)
-- **G3** Report every requirement at exactly one level (untraced, traced, judged, evidenced) with located reasons and three separate percentages. (T4, T5; SC1, SC7)
-- **G4** Model plan items (milestones and tasks) whose done-status is recomputed on every run from the levels of what they deliver, never typed. (T7; SC10)
-- **G5** Check each change against the current task and turn anything outside it into a finding with exactly three exits. (T4, T7; SC8)
-- **G6** Name the features a change impacts and the tests worth running, without running the full suite. (T4, T6; SC9)
-- **G7** Build one index that the check and the judge share, so both report the same graph. (T6; SC5)
-- **G8** Keep judge overrides in the prose files next to the item they override, keyed by id, revision and commit, so they expire with the revision and flag drift in the code. (T1, T5; SC4)
-- **G9** Emit findings as SARIF plus a human summary, so one command's output tells an agent every change it needs. (T3, T4; SC2, SC3)
-- **G10** Gate the judge on calibration against a maintainer's hand verdicts before the first milestone executes. (T5, T6; SC6)
+- **G1** Trace the whole chain from tenet to test on OFT's item model, keeping OFT's ID syntax, coverage semantics and link-status names as the reference. (T2, T8; SC1, SC2)
+- **G2** Parse every `req` body as one of the five EARS forms so each requirement reads as prose and still yields a structure. (T5, T3; SC3, SC1)
+- **G3** Report every requirement at exactly one level (untraced, traced, judged, evidenced) with located reasons and three separate percentages. (T6, T7; SC3)
+- **G4** Model plan items (milestones and tasks) whose done-status is recomputed on every run from the levels of what they deliver, never typed. (T4; SC8)
+- **G5** Check each change against the current task and turn anything outside it into a finding with exactly three exits. (T1, T6; SC6)
+- **G6** Name the features a change impacts and the tests worth running, without running the full suite. (T6, T3; SC7)
+- **G7** Build one index that the check and the judge share, so both report the same graph. (T3; SC1)
+- **G8** Keep judge overrides in the prose files next to the item they override, keyed by id, revision and commit, so they expire with the revision and flag drift in the code. (T5, T7; SC11)
+- **G9** Emit findings as SARIF plus a human summary, so one command's output tells an agent every change it needs. (T6, T8; SC2, SC10)
+- **G10** Gate the judge on calibration against a maintainer's hand verdicts before the first milestone executes. (T7, T3; SC4)
+- **G11** Flag every item linked to an old revision, and every body edited without a new revision, in the same run. (T1, T4; SC5)
+- **G12** Compute each stage's status from its items, and record the maintainer's approval together with the assessment they saw. (T1, T4; SC8, SC9)
+- **G13** Adopt AI-DLC's lifecycle, agents and harness integrations, and replace its agent-written trace with the derived one. (T8, T2; SC1)
 
 ## Actors and use cases
 
 Two actors use Earnest. The **coding agent** implements work, tags code and
-tests, and runs Earnest to learn what to fix before it claims a task is done.
-The **repo maintainer** writes and revises the chain, rules on judge verdicts,
-and reads the plan. Either can run any command; the use cases name who
-typically does.
+tests, and runs Earnest to learn what to fix before it asks for approval. The
+**repo maintainer** states and revises the chain, rules on judge verdicts,
+approves each stage, and reads the plan. Either can run the reporting commands;
+the use cases name who typically does.
 
 ### UC1 Write the chain
 
 - Actor: repo maintainer.
-- Trigger: a new capability is wanted.
-- Outcome: Markdown items exist for the goal, the features that refine it, the
-  EARS requirements derived from each feature, and the `dsn` decisions that
-  shape them; `earnest check` reports each parent without children as a gap.
+- Trigger: a new capability is wanted, and AI-DLC's Ideation and Inception
+  stages run.
+- Outcome: Markdown items exist in the stage artifacts for the goal, the
+  features that refine it, the EARS requirements derived from each feature, and
+  the `dsn` decisions that shape them; `earnest check` reports each parent
+  without children as a gap.
 
 ### UC2 Tag and check before claiming done
 
@@ -65,7 +146,7 @@ typically does.
 - Trigger: the agent believes its implementation is complete.
 - Outcome: the agent has tagged code and tests, run `earnest check`, and
   received every gap, near-miss and weak verdict with file and line; it fixes
-  them or reports them before claiming done.
+  them or reports them before asking for approval.
 
 ### UC3 Check a change against the current task
 
@@ -79,9 +160,9 @@ typically does.
 
 - Actor: repo maintainer.
 - Trigger: a requirement's meaning changes.
-- Outcome: the maintainer edits the item and bumps its revision; every tag or
-  edge at the old revision becomes an outdated finding, and that list is the
-  agent's work list; overrides at the old revision expire.
+- Outcome: the maintainer edits the item and bumps its revision; every tag,
+  edge or stage approval at the old revision becomes an outdated finding, and
+  that list is the agent's work list; overrides at the old revision expire.
 
 ### UC5 Override a judge verdict
 
@@ -102,9 +183,10 @@ typically does.
 ### UC7 Ask the plan for status
 
 - Actor: coding agent or repo maintainer.
-- Trigger: someone wants the next milestone and what remains in it.
-- Outcome: `earnest plan` prints the milestone and task graph with each item's
-  computed status and the plan findings.
+- Trigger: someone wants the next stage or milestone and what remains in it.
+- Outcome: `earnest plan` prints the stages with their computed status and
+  approvals, and the milestone and task graph with each item's computed status
+  and the plan findings.
 
 ### UC8 Run the calibration gate
 
@@ -113,22 +195,36 @@ typically does.
   prompt changes.
 - Outcome: the maintainer runs `earnest calibrate` against a fixture; the judge
   runs over ten hand-tagged requirements, its verdicts are compared with the
-  maintainer's, and the gate passes at eight or more matches (SC6).
+  maintainer's, and the gate passes at eight or more matches (SC4).
+
+### UC9 Approve a stage
+
+- Actor: repo maintainer.
+- Trigger: AI-DLC reaches the approval gate at the end of a stage.
+- Outcome: the gate shows `earnest check --stage <stage>`: the stage's trace,
+  verdicts, evidence and computed status, with the hash of that assessment. The
+  maintainer answers the gate as AI-DLC offers it, approve or request changes.
+  On approve, `earnest approve <stage> <hash>` records the approval with the
+  assessment the maintainer saw (SC9). Earnest reports; the maintainer decides.
 
 ## Capabilities
 
 Each capability satisfies named success criteria and surfaces in the output of
-one command, `earnest check`.
+one of the commands in the Command surface.
 
-| Capability | SC it satisfies | Where `earnest check` shows it |
+| Capability | SC it satisfies | Where it shows |
 | --- | --- | --- |
-| Trace | SC1, SC2, SC5 | trace findings and the traced percentage, on every run |
-| Judge | SC1, SC4, SC6 | judge findings and the judged percentage, with `--judge` |
-| Evidence | SC1, SC7 | evidence findings and the evidenced percentage, with `--evidence` |
-| Scope check | SC8 | out-of-task findings, when a current task is known |
-| Impact | SC9 | the impact section, when a diff exists |
-| Plan status | SC10 | the plan status section and plan findings, also printed by `earnest plan` |
-| Report | SC3, SC7 | SARIF plus a summary that leads with three percentages |
+| Trace | SC1, SC2 | `earnest check`: trace findings and the traced percentage, on every run |
+| Revision propagation | SC5 | `earnest check`: `outdated` and `unbumped-change` findings, on every run |
+| Judge | SC3, SC4 | `earnest check --judge`: judge findings and the judged percentage |
+| Calibration | SC4 | `earnest calibrate`: match count and pass or fail; `judge-uncalibrated` otherwise |
+| Evidence | SC3 | `earnest check --evidence`: evidence findings and the evidenced percentage |
+| Scope check | SC6 | `earnest check`: out-of-task findings, when a current task is known |
+| Impact | SC7 | `earnest check`: the impact section, when a diff exists |
+| Plan and stage status | SC8 | `earnest plan`, and the plan status section of `earnest check` |
+| Stage approval | SC9 | `earnest approve`: the approval record; `earnest plan` lists approvals |
+| Overrides | SC11 | `earnest check`: the override as the observation of record, `override-expired` and `override-drift` |
+| Report | SC3, SC10 | SARIF plus a summary that leads with three percentages |
 
 ## Domain model
 
@@ -136,10 +232,9 @@ one command, `earnest check`.
 
 The item types fall into three groups, and every type belongs to exactly one.
 
-- **Spec**: `tenet`, `goal`, `feat`, `req`, `dsn`. The repo maintainer
-  authors these in prose files, and every change to a spec item is a human
-  decision. The spec says what must be true and why. `00-project-intent.md`
-  calls the narrower, requirement-only part of it "the requirement set".
+- **Spec**: `tenet`, `goal`, `feat`, `req`, `dsn`. These live in prose files,
+  and every change to a spec item is the maintainer's decision. The spec says
+  what must be true and why.
 - **Plan**: `milestone`, `task`. These also live in prose files. The plan says
   in what order the spec gets delivered.
 - **Artifacts**: `impl`, `utest`, `itest`, `stest`. These are tags in code and
@@ -147,7 +242,8 @@ The item types fall into three groups, and every type belongs to exactly one.
   Artifacts claim to satisfy or verify spec items.
 
 Throughout this document, "spec" means the first group, "the plan" the second,
-and "prose files" the Markdown files that hold both spec and plan items.
+and "prose files" the Markdown stage artifacts that hold both spec and plan
+items.
 
 ### Item types
 
@@ -249,7 +345,7 @@ link-status names; the rest are Earnest's.
 
 | Rule id | Level | Meaning |
 | --- | --- | --- |
-| `earnest/outdated` | error | a tag or edge names an older revision of an existing item; the message names the current revision |
+| `earnest/outdated` | error | a tag, edge or stage approval names an older revision of an existing item; the message names the current revision |
 | `earnest/predated` | error | a tag or edge names a revision above the item's current one |
 | `earnest/unwanted` | warning | a cover by a type the parent never needs, so it counts toward nothing |
 | `earnest/orphaned` | error | a tag or edge names an id absent from the index, or an item covers no parent; the message suggests the closest existing id |
@@ -287,6 +383,31 @@ Status is recomputed from the graph on every run.
 | `task` | every `Delivers:` id resolves at its current revision, each delivered `req` is at level evidenced, and each delivered `dsn` is traced (an `impl` covers it) |
 | `milestone` | every milestone it depends on is done, every `feat` it delivers has its `stest` green, and every `req` deriving from those features is delivered by a done task |
 
+### Stages
+
+A stage is one AI-DLC stage run, named by its path in the intent's record
+directory, such as `inception/requirements-analysis` or
+`construction/<unit>/code-generation`. The path is the stage's id, so nobody
+writes a stage item. A stage's items are the items in the artifact files under
+that path. Code and test tags reach a stage through the tasks that deliver
+what they cover, and an `stest` reaches the Code Generation stage of the unit
+whose milestone delivers the `feat` it covers.
+
+A stage is done when all three hold, recomputed on every run:
+
+1. No error-level finding is located in the stage's files. A `gap` whose
+   missing child belongs to a downstream stage counts against the stage whose
+   artifacts hold that child's type.
+2. Every `task` among the stage's items is done, so a Code Generation stage
+   needs every requirement it delivers at level evidenced.
+3. An approval record exists for the stage, and the item ids and revisions it
+   names match the current ones.
+
+A spec stage can therefore be done before any code exists, and a construction
+stage is done only when the evidence says so. An approval whose items have
+since moved to a new revision raises `outdated`, located at each such item, and
+the stage waits for a fresh approval.
+
 ### Process vocabulary
 
 The vocabulary for one run of Earnest comes from OSCAL's assessment model.
@@ -299,16 +420,20 @@ and it avoids "control", which implies a compliance catalogue.
 | observation | what one check saw about one edge for one question: method (`trace`, `inspection`, `test`), subject, result, reasoning, location |
 | finding | a located result with a rule id and level, rolled up from observations |
 | override | a human-authored observation that replaces the judge's for one item, revision and kind |
+| approval | a maintainer's recorded act accepting one stage at one commit, bound to the hash of the assessment they saw; like an override it is an act of record, and no item carries it as a typed status |
 
 SARIF is the findings contract: every finding and the observations behind it
 travel in the SARIF output. The one thing Earnest writes is the assessment
-record, and it holds five things:
+record, and it holds six things:
 
 1. the run header: commit, timestamp, layers run, model id and prompt hash;
 2. the body hash of every item, keyed by id and revision;
 3. the commit the coverage map was taken at;
 4. the judge cache;
-5. the latest calibration result.
+5. the latest calibration result;
+6. the approvals: for each, the stage id, the maintainer, the commit, the ids
+   and revisions of the stage's items, and the hash of the stage assessment
+   (trace, verdicts and evidence) the maintainer saw.
 
 The judge cache key is the item's id and revision, the question, the hash of
 the covered regions, the hash of the covering tests, the model id and the
@@ -331,7 +456,8 @@ revision, a kind, the commit it was made at, and a reason.
 ### Revision lifecycle
 
 Change flows top-down, and Git holds the history while the revision carries the
-semantic version.
+semantic version. Every step below is reported in the run that follows the
+change (SC5).
 
 1. A spec item's body changes, and the maintainer bumps its revision in the
    same change. Edits to key lines alone need no bump.
@@ -345,7 +471,9 @@ semantic version.
 5. The agent updates code and tests and re-tags at the new revision; the judge
    reruns for the item.
 6. Overrides at the old revision expire.
-7. A superseded decision is a revision bump of its `dsn`, with a prose line
+7. An approval that names X at the old revision becomes `outdated`, and the
+   stage that holds X needs a fresh approval.
+8. A superseded decision is a revision bump of its `dsn`, with a prose line
    naming what it supersedes. Bumping a `tenet` or `goal` behaves like any other
    bump.
 
@@ -392,8 +520,10 @@ failing tagged test, or a surviving mutant inside a tagged region, raises
 
 - Every spec item traces to a parent, except a `tenet`.
 - Every parent has the children it needs, or it is a gap.
-- Done is computed from the graph and evidence.
+- Done is computed from the graph and evidence, for tasks, milestones and
+  stages alike.
 - Overrides carry id, revision and commit.
+- Approvals carry stage, maintainer, commit and the assessment hash.
 - Structural findings are model-free.
 
 ## Grammar
@@ -469,8 +599,8 @@ as ordinary comments, so the coverage they intended silently disappears.
   parity with OFT's own report needs explicit `Needs:` lines.
 - Alternatives considered: shell out to OFT's Java trace and consume its
   output.
-- Rationale: T2 keeps OFT the reference for syntax and coverage, which file
-  compatibility preserves. T3 and T6 favor one dependency-free command whose
+- Rationale: T8 keeps OFT the reference for syntax and coverage, which file
+  compatibility preserves. T3 favors one dependency-free command whose
   structural answers are deterministic. OFT's trace cannot see goals, tasks or
   near-misses, so Earnest would need its own scan for those anyway.
 
@@ -483,10 +613,10 @@ as ordinary comments, so the coverage they intended silently disappears.
   shall response." and "Where feature, the system shall response."
 - Alternatives considered: warn only; accept and judge with less structure;
   guess the nearest form.
-- Rationale: T6. Judge questions are generated from the parse, so an unparsed
+- Rationale: T3. Judge questions are generated from the parse, so an unparsed
   requirement can be traced but never judged. An error makes that visible
   instead of letting the judged percentage quietly shrink, and listing all five
-  templates gives the agent the fix without a guess (T4).
+  templates gives the agent the fix without a guess (T6).
 
 ### D3 Overrides are lines in the spec, keyed by id, revision and commit
 
@@ -496,7 +626,7 @@ as ordinary comments, so the coverage they intended silently disappears.
   since its commit flags drift, per the Override rule in the Domain model.
 - Alternatives considered: a sidecar file next to the prose files; entries in
   the assessment record; id and revision alone, without a commit.
-- Rationale: T1 keeps everything a human rules on in the prose files; T5 wants
+- Rationale: T1 keeps everything a human rules on in the prose files; T7 wants
   overrides visible in the diff next to the requirement they change. The commit
   lets an override stand while the code under it holds still, and surface the
   moment that code moves.
@@ -509,9 +639,9 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: Earnest's own mutation runner with per-region test
   selection; mutation per file, reported against every requirement in it.
 - Rationale: the tagged region is the unit a requirement claims, so a mutant
-  that survives there is the evidence that matters (T7). Existing tools already
+  that survives there is the evidence that matters (T4). Existing tools already
   generate mutants and select tests well, so Earnest only filters their results
-  by region (T3).
+  by region (T8).
 
 ### D5 The grammar and index serve an editor language server
 
@@ -520,19 +650,19 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: rely on OFT's Java language server.
 - Rationale: OFT's server knows nothing of goals, EARS, near-misses or
   findings, and SARIF already carries findings into editors and pull request views
-  (T3).
+  (T8).
 
 ### D6 Process vocabulary from OSCAL; SARIF as the contract; one record
 
-- Decision: assessment, observation, finding and override, as defined in the
-  Domain model section. SARIF is the only findings contract, and the assessment
-  record is the only thing Earnest writes.
+- Decision: assessment, observation, finding, override and approval, as
+  defined in the Domain model section. SARIF is the only findings contract, and
+  the assessment record is the only thing Earnest writes.
 - Alternatives considered: SysML "verification case" and "verdict";
   compliance "control" and "evidence"; bespoke schemas for items, edges and
   observations beside SARIF.
 - Rationale: OSCAL separates what was observed from the verdict drawn from it,
-  which matches the judge showing its work (T5). One contract and one record
-  leave consumers nothing to reconcile (T6).
+  which matches the judge showing its work (T7). One contract and one record
+  leave consumers nothing to reconcile (T3).
 
 ### D7 One feature level, in use-case form
 
@@ -542,8 +672,8 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: a separate `uc` type; actors as first-class items;
   a checked use-case body.
 - Rationale: tracing actors yields no useful finding, and a second feature
-  level doubles the chain an agent must satisfy without adding a check (T4).
-  Only structure the judge reads earns a body rule (T6).
+  level doubles the chain an agent must satisfy without adding a check (T6).
+  Only structure the judge reads earns a body rule (T3).
 
 ### D8 Decisions are `dsn` items with a `Drivers:` key
 
@@ -552,8 +682,8 @@ as ordinary comments, so the coverage they intended silently disappears.
   them. A task may deliver a `dsn`. Supersession is a revision bump.
 - Alternatives considered: a standalone ADR folder outside the trace; a new
   item per superseding decision.
-- Rationale: T2 keeps decisions in OFT's model so code can cover them, and a
-  refactor delivering a `dsn` gets a place in the plan (T7). A revision bump
+- Rationale: T8 keeps decisions in OFT's model so code can cover them, and a
+  refactor delivering a `dsn` gets a place in the plan (T4). A revision bump
   reuses the lifecycle every other item already follows.
 
 ### D9 Test tiers declared in `Needs:`; two plan levels
@@ -564,8 +694,8 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: three plan levels mirroring the three test tiers;
   milestones depending on tasks.
 - Rationale: the tier is a property of the behavior, so it belongs on the
-  requirement and is checked like any other need (T6). Two plan levels are
-  enough to compute done (T7); deriving a milestone's tasks through
+  requirement and is checked like any other need (T3). Two plan levels are
+  enough to compute done (T4); deriving a milestone's tasks through
   `Delivers:` keeps one source for that grouping.
 
 ### D10 Region rule: tag to next tag or end of file
@@ -576,8 +706,8 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: tree-sitter regions scoped to the enclosing
   definition; explicit end-of-region markers, which add another thing to
   maintain by hand.
-- Rationale: the rule works identically in every language with comments (T3),
-  is deterministic (T6), and needs no host-language parser.
+- Rationale: the rule works identically in every language with comments, is
+  deterministic (T3), and needs no host-language parser.
 
 ### D11 Scope check on the diff since the task's base commit
 
@@ -588,8 +718,8 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: a state file naming the current task; a required
   command-line flag; matching on the full id with revision.
 - Rationale: branch names already exist in every workflow and agents already
-  create them (T3, T4). Ignoring revision keeps one change from raising two
-  findings, and the outdated finding already names the fix.
+  create them (T8). Ignoring revision keeps one change from raising two
+  findings, and the outdated finding already names the fix (T6).
 
 ### D12 Impact from dynamic coverage, with a degraded fallback
 
@@ -601,7 +731,7 @@ as ordinary comments, so the coverage they intended silently disappears.
   coverage; hand-annotated critical paths, which add another thing to keep in
   sync by hand.
 - Rationale: dynamic contexts are exact for what the tests execute and cost
-  only a coverage run (T6). The fallback over-selects rather than under-selects,
+  only a coverage run (T3). The fallback over-selects rather than under-selects,
   and says so.
 
 ### D13 Findings as SARIF plus a human summary
@@ -609,7 +739,7 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Decision: all findings are emitted as SARIF 2.1.0 with a human summary.
 - Alternatives considered: a bespoke JSON format.
 - Rationale: SARIF is already read by editors, code scanning and PR views, so
-  findings reach agents and humans with no Earnest integration (T3, T4).
+  findings reach agents and humans with no Earnest integration (T8, T6).
 
 ### D14 The EARS parse drives the judge
 
@@ -619,8 +749,8 @@ as ordinary comments, so the coverage they intended silently disappears.
   constrain the graph structurally.
 - Alternatives considered: a free-form "is this implemented?" prompt; every
   tenet in every prompt.
-- Rationale: T6 confines the model to reading comprehension, and fixed
-  questions make verdicts comparable across runs and calibratable (SC6). A
+- Rationale: T3 confines the model to reading comprehension, and fixed
+  questions make verdicts comparable across runs and calibratable (SC4). A
   shorter prompt keeps calibration about the clause alone.
 
 ### D15 Provenance through a body hash per revision
@@ -628,18 +758,19 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Decision: the assessment record keeps the body hash of each item at each
   revision, and a body that changes at the same revision raises
   `unbumped-change`.
-- Alternatives considered: git blame on the prose files; a human-only accept
+- Alternatives considered: git blame on the prose files; a separate accept
   step for agent-created spec and plan items.
 - Rationale: a hash catches the silent edit that would let code and item drift
-  apart at one revision, with no reader (T6, T7). An accept step would move
-  Earnest from reporting to gating, and Open questions holds that choice.
+  apart at one revision, with no reader (T3, SC5). The maintainer ratifies
+  agent-created spec and plan items by approving the stage that holds them
+  (T1).
 
 ### D16 Trace findings reuse OFT's link-status names
 
 - Decision: trace findings are named outdated, predated, unwanted, orphaned and
   duplicate, after OFT's link statuses.
 - Alternatives considered: names of Earnest's own.
-- Rationale: T2 keeps OFT the reference, and a reader who knows OFT reads the
+- Rationale: T8 keeps OFT the reference, and a reader who knows OFT reads the
   findings without a glossary.
 
 ### D17 Decisions link through `Drivers:`
@@ -649,7 +780,7 @@ as ordinary comments, so the coverage they intended silently disappears.
 - Alternatives considered: `Covers:` from the `dsn` to its drivers.
 - Rationale: a `req` or `goal` never needs a `dsn`, so OFT reports such a cover
   as `COVERED_UNWANTED`, verified in OFT's `LinkStatus` source. A separate key
-  keeps OFT's report clean (T2).
+  keeps OFT's report clean (T8).
 
 ## Architecture (C4 model)
 
@@ -660,20 +791,28 @@ context, container and component. The code level belongs to
 
 ### Context
 
+The forked AI-DLC workflow is the host. It runs inside the agent tool, drives
+the stages, and calls Earnest to show each stage's assessment at the approval
+gate.
+
 ```mermaid
 flowchart LR
   agent([Coding agent])
   maint([Repo maintainer])
-  earnest[["Earnest<br/>steering and verdict tool"]]
-  repo[("Repository<br/>prose files, code, tests")]
+  aidlc[["AI-DLC fork<br/>workflow in the agent tool"]]
+  earnest[["Earnest<br/>trace, judge, evidence"]]
+  repo[("Repository<br/>stage artifacts, code, tests")]
   model[/"Model provider"/]
   runner[/"Test, coverage and mutation tools<br/>pytest-cov, Jest, mutmut, StrykerJS"/]
   surfaces[/"Editors and pull request views<br/>SARIF consumers"/]
 
+  agent -- "runs stages" --> aidlc
+  maint -- "answers questions; approves at each gate" --> aidlc
+  aidlc -- "check at the gate; approve on the maintainer's answer" --> earnest
   agent -- "runs check and plan" --> earnest
   maint -- "runs plan and calibrate; rules on verdicts" --> earnest
-  maint -- "writes the chain, overrides" --> repo
-  agent -- "writes code, tests, tags" --> repo
+  maint -- "states the chain, overrides" --> repo
+  agent -- "writes artifacts, code, tests, tags" --> repo
   earnest -- "reads; writes the assessment record" --> repo
   earnest -- "judge questions" --> model
   earnest -- "tests, mutants" --> runner
@@ -694,7 +833,7 @@ flowchart TB
     reporter[Reporter]
     scanner --> index --> assessor --> reporter
   end
-  prose[("Prose files<br/>spec and plan items")]
+  prose[("Stage artifacts<br/>spec and plan items")]
   code[("Code and tests<br/>Python, TypeScript, Gherkin")]
   record[("assessment record")]
   model[/"Model API"/]
@@ -704,7 +843,7 @@ flowchart TB
   code --> scanner
   assessor -- "judge questions" --> model
   assessor -- "run tests, mutants" --> runner
-  record -- "hashes, cache, calibration" --> assessor
+  record -- "hashes, cache, calibration, approvals" --> assessor
   reporter -- "the only write" --> record
 ```
 
@@ -716,7 +855,7 @@ flowchart TB
   grammar[Grammar and index]
   structural[Structural checks]
   ears[EARS parser]
-  plan[Plan engine]
+  plan[Plan and stage engine]
   impact[Impact and evidence]
   judge[Judge]
   reporter[Reporter]
@@ -736,6 +875,8 @@ flowchart TB
 Host adapters know only how to find comments, headings and Gherkin tags in
 their language; the grammar alone decides what parses. Everything downstream of
 the index is language-agnostic, so adding a language means adding one adapter.
+The plan and stage engine maps each prose file to its stage by its path in the
+intent's record directory.
 
 ## Runtime data flow
 
@@ -749,16 +890,20 @@ flowchart TB
   evid --> out[SARIF and summary with three percentages]
   diff[(Diff since task base)] --> side
   record[(Assessment record)] --> side
-  index --> side[Side reports: scope, impact, plan status]
+  index --> side[Side reports: scope, impact, plan and stage status]
   side --> out
+  out --> gate{{"AI-DLC approval gate: the maintainer approves"}}
+  gate --> approve[Approval written to the assessment record]
 ```
 
 Each layer runs only when requested and only over what the layers before it
 passed: the judge reads only items that reach traced, and the evidence layer
 reads only items that reach judged, so `--evidence` implies `--judge`. Scope,
-impact and plan status are side reports computed from the index plus the diff
-and the record. The check and the judge read one index, so they cannot
-disagree about the graph.
+impact, plan and stage status are side reports computed from the index plus
+the diff and the record. The check and the judge read one index, so they cannot
+disagree about the graph. At a stage boundary the output goes to the
+maintainer at AI-DLC's approval gate, and an approval is written only after the
+maintainer approves.
 
 ## Interfaces and data contracts
 
@@ -766,14 +911,15 @@ disagree about the graph.
 
 | Command | Output |
 | --- | --- |
-| `earnest check [--task <id>] [--judge] [--evidence]` | SARIF plus a summary: findings, each requirement's level, and three percentages (traced, judged implemented, evidenced); scope findings when a current task is known; the impact section when a diff exists; plan status. Trace runs by default. |
-| `earnest plan` | the milestone and task graph with each item's computed status, plus plan findings; read-only |
-| `earnest calibrate <fixture>` | the judge's verdicts on the fixture beside the maintainer's, the match count and pass or fail against SC6; writes the result to the assessment record |
+| `earnest check [--task <id>] [--stage <stage>] [--judge] [--evidence]` | SARIF plus a summary: findings, each requirement's level, and three percentages (traced, judged implemented, evidenced); scope findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items, runs the layers its items need, and prints the assessment hash. |
+| `earnest plan` | the stages with their computed status and approvals, and the milestone and task graph with each item's computed status, plus plan findings; read-only |
+| `earnest approve <stage> <hash>` | reassesses the stage; when the hash matches, writes the approval to the assessment record; when it differs, prints the new assessment and records nothing |
+| `earnest calibrate <fixture>` | the judge's verdicts on the fixture beside the maintainer's, the match count and pass or fail against SC4; writes the result to the assessment record |
 
-The exit code is non-zero only when an error-level finding exists, so the same
-command gates a pre-commit hook, a CI job or an agent's "done" claim. While the
-record holds no passing calibration for the current model id and prompt hash,
-every judge run raises `judge-uncalibrated`.
+The exit code is non-zero only when an error-level finding exists, so the agent,
+the maintainer at the gate and a CI job can each act on it. While the record holds no
+passing calibration for the current model id and prompt hash, every judge run
+raises `judge-uncalibrated`.
 
 ### SARIF 2.1.0
 
@@ -788,9 +934,12 @@ SARIF is the only findings contract.
 
 ### Assessment record
 
-The record holds the five things listed under Process vocabulary: the run
+The record holds the six things listed under Process vocabulary: the run
 header, the body hash per id and revision, the coverage-map commit, the judge
-cache and the calibration result.
+cache, the calibration result and the approvals. An approval names the stage,
+the maintainer, the commit, the ids and revisions of the stage's items, and the
+hash of the stage assessment the maintainer saw, so each approval can be
+checked against the trace, verdicts and evidence it rests on.
 
 ### Prose item example
 
@@ -820,9 +969,14 @@ the index. Then the revision decides the class:
 ## Runtime and permission model
 
 Earnest reads the repository and writes one thing: the assessment record, kept
-in the repository next to the requirement set. `earnest calibrate` also writes
-to it. Every fix to the prose files and the code is the agent's or the
-maintainer's to make.
+in the repository beside the stage artifacts. `earnest calibrate` and
+`earnest approve` also write to it. Every fix to the prose files and the code
+is the agent's or the maintainer's to make.
+
+An approval is the maintainer's act. The forked workflow runs
+`earnest approve` only on the maintainer's own approve answer at the gate,
+which AI-DLC already binds to the maintainer's reply in their session, and the
+record names the maintainer by their Git identity.
 
 The evidence layer executes the repository's own tests, and executes them
 against mutated copies of the tagged code. Running `earnest check --evidence`
@@ -830,20 +984,22 @@ therefore carries the same trust as running the test suite.
 
 The judge layer sends the model provider only the requirement clause, the
 tagged code regions and the tagged tests, and only when the judge layer is
-requested. The trace layer, the scope check, impact and plan status run
-entirely on the local repository.
+requested. The trace layer, the scope check, impact, plan and stage status, and
+approvals run entirely on the local repository.
 
 ## Open questions
 
 | Question | Owner | Resolved by |
 | --- | --- | --- |
-| A human-only accept step to ratify agent-created spec and plan items | maintainer | before the implementation plan |
 | Whether the judge applies tenets to observations | maintainer | after the calibration gate reports |
 | Judge model choice and prompt | maintainer | the calibration gate |
-| SC6 calibration gate | maintainer | unrun; a precondition to the first milestone |
+| SC4 calibration gate | maintainer | unrun; a precondition to the first milestone |
 
 ## Scope
 
+- The AI-DLC fork: its phases, stages, agents, workflow profiles, approval
+  gates and harness integrations, with the stage artifacts in the mapping table
+  written in Earnest's item syntax.
 - The taxonomy in the Domain model section: `tenet`, `goal`, `feat`, `req`,
   `dsn`, `impl`, `utest`, `itest`, `stest`, `milestone`, `task`.
 - Markdown, Python, TypeScript and Gherkin host adapters.
@@ -851,7 +1007,8 @@ entirely on the local repository.
   StrykerJS.
 - The scope check against the current task, inside `earnest check`.
 - Impact through dynamic per-test coverage, with a degraded fallback.
-- Computed plan status and the plan findings.
+- Computed plan and stage status, and the plan findings.
+- Stage approvals recorded with the assessment the maintainer saw.
 - SARIF output with a human summary.
 - Overrides in the spec, keyed by id, revision and commit.
 - Provenance through a body hash per revision.

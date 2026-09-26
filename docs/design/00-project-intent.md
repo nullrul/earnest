@@ -1,103 +1,87 @@
 # 00 — Project Intent
 
-Status: ratifiable north star, derived from `docs/intention.md`, September 2026. Author: Raul Cajias.
+Status: draft for review, September 2026. Author: Raul Cajias.
 
 ## Vision
 
-A repository carries a checkable chain from intent to code, and every link in it, including the plan that delivers it, carries a verdict with located reasons.
+Humans direct, agents build, and every step from an idea to running software is linked, checked and explained, so anyone can see at any moment how far "done" is from "claimed".
 
 ## Why this matters
 
-Requirement tracing tools check that a link exists. They read a coverage tag in a comment, find the matching item in the requirement set, and report the requirement as covered. They leave open whether the linked code does what the requirement says, and whether the linked test asserts it.
+Agents now write most of the code in a growing number of projects. Delivery methods built for agents keep them on course with phases, plans and human approvals, and they record traceability from requirements to code. In those methods the agent that wrote the code also writes the trace. A link from a requirement to a function is a claim the agent makes about its own work.
 
-That worked while people wrote the tags. A person who typed a coverage tag usually meant it.
+A claim with nothing behind it is hearsay. An agent produces well-formed links on code that only loosely relates to the requirement, at scale, and the coverage report still reads complete. Requirement tracing tools check that a link exists, and leave open whether the linked code does what the requirement says or whether the linked test asserts it.
 
-Automated code authors change that. They produce well-formed, correctly revisioned tags on code that only loosely relates to the requirement, and they do it at scale. The coverage report reads 100%, and nobody can tell how far "traced" has drifted from "done". A coverage number built on such tags is hearsay.
+A delivery method is only as trustworthy as its trace. If the trace is derived from the work itself, checked without a model wherever possible, and judged by a calibrated reader where reading is needed, then every approval a human gives rests on evidence rather than on the agent's account of what it did.
 
 ## Who it's for
 
-- **The coding agent** — the primary user. It writes code and tests, tags them, runs the check, and learns what to fix before it claims a task done.
-- **The repo maintainer** — writes intent, goals, features, requirements and decisions; ratifies changes to them; reads the report; overrides verdicts; and decides what counts as done.
+- **The maintainer** directs the work. They state the intent, the goals, the features, the requirements and the decisions, approve each stage, override verdicts they disagree with, and decide what counts as done.
+- **The coding agent** does the work. It plans, designs, writes code and tests inside the task it was given, and learns from the trace what it got wrong before it asks for approval.
 
 ## What it is
 
-Earnest steers development. Humans own the intent, goals, features, requirements and decisions of a repository; agents implement them and use Earnest to see where their work has drifted from that chain and from the task they are on. For every requirement it answers one question: is it earnestly implemented and tested? It answers in three layers, each cheaper and more certain than the next.
+Earnest is an end-to-end delivery framework with deterministic traceability. It carries a piece of work from an idea through requirements, design, planning, construction and testing to delivery and operation, in stages, with a human approval at each stage boundary.
 
-1. **Trace.** Find every coverage tag, resolve it against the requirement set, and report missing coverage, stale revisions, unknown IDs and near-miss syntax.
-2. **Judge.** For each requirement, a reader with reading comprehension reads the requirement clause, the tagged code and the tagged tests, and answers narrow questions: does the code implement the response to the trigger; does any test put the system in the stated state and assert the stated outcome. Every verdict carries reasoning and a location, and can be overridden per requirement.
-3. **Evidence.** The tagged tests run and pass, and altering the tagged code makes them fail, so "tested" is measured rather than claimed.
+Every artifact a stage produces is plain prose with a small shared syntax that gives each item an identity, a revision and links to the items it derives from. Code and tests carry the same identities in comments and tags. From those, Earnest derives one trace of the whole chain, and checks it in three layers, each more costly and more certain than the one before.
 
-The same chain covers the plan. Milestones deliver features, tasks deliver requirements or decisions, both carry dependencies, and their done-status is computed from the verdicts below them, never declared. A change an agent makes outside its current task is reported with exactly three exits: tag it under a requirement the task delivers, propose a task, or declare it blocked, so scope widens only through a record a human ratifies. After a change, Earnest names the features that may be affected and the tests worth running, without running everything.
+1. **Trace.** Every link resolves: nothing is missing, orphaned, stale or malformed. Decided without a model, identically on every run.
+2. **Judge.** For each requirement, a calibrated reader answers fixed questions generated from the requirement's structure: does the code implement the response to the trigger, and does a test put the system in the stated state and assert the stated outcome. Every verdict carries its reasoning and a location, and a maintainer can override it.
+3. **Evidence.** The linked tests run and pass, and altering the linked code makes them fail.
 
-The report gives several numbers where other tools give one, and every "no" says why and where. Earnest checks; authoring stays with the author and their tools.
+The plan is part of the same chain. Milestones deliver features, tasks deliver requirements and decisions, both carry dependencies, and their done-status is computed from the verdicts below them. An agent's change outside its current task is reported with exactly three exits: link it to a requirement the task delivers, propose a new task, or declare the task blocked. Scope widens only through a record the maintainer ratifies. After any change, Earnest names the features it may affect and the tests worth running.
+
+At each stage boundary the maintainer sees the trace, the verdicts and the evidence for that stage before approving it.
 
 ## Tenets
 
-- **T1 — Plain prose in.** A requirement set reads as prose and still parses. EARS gives the sentences structure and a stable item identity gives them a name, all within files the author already writes.
-- **T2 — Extend the existing tracing ecosystem.** Its coverage semantics and identity syntax stay the reference. Earnest adds what it lacks: near-miss detection, behavior-spec tags, machine-readable findings, judgment and evidence.
-- **T3 — Works on any repository.** One command runs the whole check from any editor or agent session, independent of any editor, workflow or vendor.
-- **T4 — Agents are the primary users.** An agent writes, tags, runs the check, and learns what it got wrong before claiming done. Every error is specific, located, and clear about what to change.
-- **T5 — The judge shows its work.** Reasoning is visible, verdicts are overridable, and overrides are recorded in the repository next to the requirement set.
-- **T6 — Deterministic before probabilistic.** Everything the structural layer can decide, it decides without a reader. The reader only gets questions that need reading comprehension.
-- **T7 — Done is measured, never declared.** A requirement, a task or a milestone is done when the evidence below it says so. No item carries a status someone typed.
+- **T1 — Humans direct, agents build.** The maintainer owns intent, goals, features, requirements, decisions and approvals. Agents work inside the task they are given.
+- **T2 — The trace is derived, never authored.** Links come from the artifacts and the code themselves. Nothing an agent writes about its own work counts as evidence of that work.
+- **T3 — Deterministic before probabilistic.** Everything the structure can decide is decided without a model. A model only gets questions that need reading comprehension, and those questions are fixed in advance.
+- **T4 — Done is measured, never declared.** A requirement, a task, a milestone or a stage is done when the evidence below it says so. No item carries a status someone typed.
+- **T5 — Plain prose in.** Every artifact reads as prose and still parses. A small shared syntax gives items identity and links, inside files people already write.
+- **T6 — Feedback is written for the agent.** Every finding is specific, located, and clear about what to change.
+- **T7 — The judge shows its work.** Reasoning is visible, verdicts are overridable, and overrides are recorded next to the item they override.
+- **T8 — Build on proven methods.** Adopt an established delivery lifecycle and established tracing conventions, and add only what deterministic traceability requires.
 
 ## Success criteria
 
-Each criterion names an observable signal, a threshold, and where it is observed, following [[smart-goals-make-agent-objectives-measurable-and-bound-the-monitoring-loop]].
+Each criterion names a signal, a threshold, and where it is observed.
 
-- **SC1** (serves T4, T5) — Signal: the level each requirement reaches. Threshold: 100% of requirements in the set land at exactly one of traced, judged or evidenced, and each carries a located reason for every level above it that it missed. Observed in: the report.
-- **SC2** (serves T2, T4) — Signal: near-miss tags in the scanned sources. Threshold: 100% of near-miss tags in a seeded fixture appear as findings with file and line; zero are dropped. Observed in: the findings output.
-- **SC3** (serves T3, T4) — Signal: a coding agent's ability to act on the check. Threshold: from one command's output alone, the agent identifies the change needed for every finding before claiming a task done, with no other source consulted. Observed in: the agent's session transcript against the findings output.
-- **SC4** (serves T5) — Signal: verdict provenance and override persistence. Threshold: 100% of judge verdicts carry reasoning plus a file and line; 100% of per-requirement overrides are stored in the repository and survive into the next run. Observed in: the report and the repository's override records.
-- **SC5** (serves T6) — Signal: structural-layer findings across repeated runs. Threshold: identical findings on every run over an unchanged repository, with no reader involved. Observed in: a comparison of consecutive structural-layer outputs.
-- **SC6** (serves T5, T6) — Signal: judge agreement with the maintainer, the calibration gate. Threshold: on one existing repository with ten hand-written EARS requirements and hand-tagged code and tests, the judge's verdicts agree with the maintainer's on eight or more of ten. Five or fewer means this intent is rethought before build. Observed in: the calibration record kept with the design documents.
-- **SC7** (serves T4, T5) — Signal: the report's headline numbers. Threshold: three separate percentages always shown — traced, judged implemented, evidenced — so a reader sees how far "traced" has drifted from "done". Observed in: the report summary.
-- **SC8** (serves T4, T7) — Signal: changes outside the current task's scope. Threshold: 100% of changed regions whose requirement the current task does not deliver appear as findings, each offering exactly the three exits. Observed in: the findings output on a seeded fixture.
-- **SC9** (serves T4, T6) — Signal: impact of a change. Threshold: after a change, the report names every feature whose tests executed the changed lines and the tests worth running, without running the full suite; on a seeded fixture the named set includes every truly affected feature. Observed in: the impact output against the fixture's known dependencies.
-- **SC10** (serves T7) — Signal: plan status. Threshold: every milestone and task shows a done-status computed from the verdicts of what it delivers, and no item in the plan carries a typed status field. Observed in: the plan output and the plan files.
+- **SC1** (serves T2, T3) — Signal: the trace across all stages. Threshold: regenerating it from the repository alone gives an identical result on every run, with no model involved and no agent-written trace file read. Observed in: two consecutive runs over an unchanged repository.
+- **SC2** (serves T2, T6) — Signal: broken links. Threshold: 100% of missing links, orphaned items, stale revisions and malformed identifiers in a seeded fixture appear as findings with file and line. Observed in: the findings output against the fixture.
+- **SC3** (serves T4, T7) — Signal: the level each requirement reaches. Threshold: every requirement lands at exactly one of untraced, traced, judged or evidenced, with a located reason for each level it missed, and the report shows the traced, judged and evidenced percentages separately. Observed in: the report.
+- **SC4** (serves T3, T7) — Signal: judge agreement with the maintainer. Threshold: on one existing repository with ten hand-written requirements and hand-linked code and tests, the judge agrees with the maintainer on eight or more of ten. Observed in: the calibration record.
+- **SC5** (serves T1, T4) — Signal: changes to the chain. Threshold: when a requirement or decision changes, every item linked to its old revision is flagged in the same run, and an item whose text changed without a new revision is flagged. Observed in: the findings output on a seeded change.
+- **SC6** (serves T1, T6) — Signal: changes outside the current task. Threshold: 100% of changed regions whose requirement the current task does not deliver appear as findings offering exactly the three exits. Observed in: the findings output on a seeded fixture.
+- **SC7** (serves T3, T6) — Signal: impact of a change. Threshold: the report names every feature whose tests executed the changed lines, and the tests worth running, without running the full suite. Observed in: the impact output against a fixture with known dependencies.
+- **SC8** (serves T4) — Signal: plan and stage status. Threshold: every milestone, task and stage shows a done-status computed from the verdicts below it, and no artifact carries a typed status. Observed in: the plan output and the artifacts.
+- **SC9** (serves T1, T4) — Signal: stage approvals. Threshold: 100% of stage approvals are recorded together with the trace, verdicts and evidence the maintainer saw when approving. Observed in: the approval records.
+- **SC10** (serves T6) — Signal: an agent's ability to act on findings. Threshold: from the output alone, the agent identifies the change needed for every finding, with no other source consulted. Observed in: the agent's session against the findings output.
+- **SC11** (serves T7) — Signal: overrides. Threshold: every override carries a reason and the revision it applies to, persists in the repository, and stops applying when that revision changes. Observed in: the artifacts and the report after a revision change.
 
-## Scope (v1)
+## Scope
 
-- Requirements as EARS sentences in plain prose files, each with a stable item ID.
-- Coverage tags in code comments and in behavior-spec files for the four v1 source kinds: two general-purpose languages, prose requirement files, and behavior-spec files.
-- The Trace, Judge and Evidence layers.
-- A report with separate numbers per level and a located reason for every "no".
-- Findings consumable by editor and review surfaces.
-- Per-requirement verdict overrides stored in the repository.
-- Decisions recorded as items in the same prose files, with their drivers and alternatives.
-- Plan items, milestones and tasks, with dependencies and computed done-status.
-- A scope check of an agent's change against its current task.
-- Reading a repository's existing line-coverage data to name impacted features and select tests.
-
-## Future directions
-
-- Additional source languages beyond the v1 set.
-- Editor integration beyond findings, such as live diagnostics while writing.
-- Interchange with fuller requirements-management tools, for teams that need approval workflows and export.
-
-Authoring of requirements and tests stays with the author and their tools; Earnest checks.
+- Every stage of delivery, from idea to operation, with a human approval at each stage boundary.
+- Every artifact of those stages written as plain prose with the shared syntax: intent, goals, features, requirements in a structured sentence form, decisions, milestones and tasks.
+- Links from code and tests to requirements, in the source kinds the first projects use: prose files, behavior specifications, and two general-purpose languages.
+- The trace, judge and evidence layers, with a report per requirement and per stage.
+- Plan status computed from the trace; the scope check of an agent's change against its task; impact of a change on features and tests.
+- Overrides recorded next to the item they override.
+- The same results whichever agent tool drives the work.
 
 ## Vocabulary
 
-- **Earnest** — the tool, and the verdict on a requirement whose code and tests match its intent.
-- **Hearsay** — a coverage tag with nothing behind it: a test that exists yet never asserts the outcome, or code that is tagged yet leaves the response unimplemented.
-- **Near-miss** — text that is trying to be a tag and fails to parse, such as `[impl-req~x~1]` or `[impl->req~x]`. Other tools treat it as a comment; Earnest reports it.
-- **Traced, judged, evidenced** — the three levels a requirement can reach, in order of cost and confidence.
-- **Assessment** — one run of Earnest over a repository, producing observations and findings.
-- **Observation** — what one check saw about one link in the chain, with method, result, reasoning and location.
-- **Finding** — the verdict on one item, rolled up from its observations.
-- **Override** — a human-authored observation that replaces the judge's for one item at one revision.
+- **Earnest** — the framework, and the verdict on a requirement whose code and tests match its intent.
+- **Hearsay** — a link with nothing behind it: code that is linked yet leaves the response unimplemented, a test that exists yet never asserts the outcome, or a trace an agent wrote about its own work.
+- **Near-miss** — text trying to be a link that fails to parse. Other tools treat it as a comment; Earnest reports it.
+- **Stage** — one step of delivery, ending in a maintainer's approval.
+- **Untraced, traced, judged, evidenced** — the four levels a requirement can reach, in order of cost and confidence.
+- **Assessment** — one run of Earnest over a repository. It produces **observations**, what one check saw about one link, and **findings**, the located results a person or agent acts on. An **override** is a maintainer's observation that replaces the judge's for one item at one revision.
 
-## Derivation & trace rule
+## Derivation and trace rule
 
-- Source: `docs/intention.md`, which stays as the author's prose origin.
-- This document is the immutable north star for the build, per [[goals-must-be-immutable-during-execution]]. Changing a tenet or success criterion is a formal scope change, recorded here with a dated changelog line.
-- `01-logic-design.md` names the `T#` and `SC#` each of its goals serves. The behavior test plan asserts the `SC#`s. Anything that traces to none of them is scope creep.
-- Mechanism, the how, lives in the logic design, keeping solution intent separate from implementation detail, per [[hld-documents-separate-solution-intent-from-implementation-detail-via-a-fixed-7]].
-- The "Open questions for the design" listed in `docs/intention.md` are owned by the Open questions section of `01-logic-design.md`.
-- Passing the calibration gate, SC6, is a precondition to executing the first milestone of the implementation plan.
-
-## Changelog
-
-- v1.0 (2026-09-26): derived from docs/intention.md.
-- v1.1 (2026-09-26): steering purpose replaces gating; unattended automation actor removed; whole-chain and plan scope; T3 rewritten; T7, SC8–SC10 added; line-coverage reading moved to v1; assessment vocabulary added; calibration gate moved to first-milestone precondition.
+- This document is the north star. The logic design names the tenet and success criterion each of its goals serves, and the behavior test plan asserts the success criteria. Anything that traces to none of them is scope creep.
+- How the framework is built, including which existing delivery lifecycle it adopts and how it is adapted, belongs in the logic design.
+- Changing a tenet or a success criterion is a scope change the maintainer ratifies in this document.
+- Passing SC4, the calibration gate, is a precondition to executing the first milestone.
