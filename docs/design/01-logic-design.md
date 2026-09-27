@@ -741,8 +741,8 @@ the section rather than the item sits under an ATX heading of its own.
 
 On the Gherkin surface, tags are read from the tag lines outside doc strings.
 A doc string opens and closes on a line whose text starts with `"""` or three
-backticks. A tag line ends at the first `#` that follows a space, which starts
-a Gherkin comment.
+backticks. A tag line ends at its first `#` after whitespace, which starts a
+Gherkin comment.
 
 The five EARS forms fall out of which optional clauses are present:
 ubiquitous (none), event-driven (`When`), state-driven (`While`), unwanted

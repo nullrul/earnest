@@ -33,15 +33,15 @@
 - A design doc that quotes an item in a code fence, such as `` `req~login-rate-limit~2` `` or `Covers: FR1.2` in an example, or opens a body line with a backticked path such as `` `~/.config/app` ``: fenced lines start, end and key no item and raise no near-miss, and the path line stays body text (Tasks 3 and 6).
 - A regular expression literal in TypeScript, such as `` s.replace(/`/g, "") `` or `/\/*$/`: it opens no template literal and no comment, so the tags below it still count; a `/` that divides, as in `i++ / 2`, or closes a JSX tag, as in `</p>`, opens no regular expression; and `//` or tag-shaped text inside a string or template literal stays text (Task 5).
 - A Python file that stops tokenizing halfway through an agent's edit: the tags above the error still count, and the check never crashes (Task 5).
-- `earnest check` run from a subdirectory, over names with spaces or accents, files not yet staged, and a line holding a lone `\r`: the whole work tree is read, every path is relative to its root and percent-encoded in the SARIF `uri`, and every line number is the one Git counts (Tasks 2, 7 and 9).
-- `earnest check` over a binary file or text that is not UTF-8, outside a Git work tree, or piped into a reader that quits early, as `head` does: the binary file is skipped and the text read with replacement characters, so its ids still count; the other two exit 2 with at most one line on stderr and no traceback (Tasks 6 and 9).
+- `earnest check` run from a subdirectory, over names with spaces or accents, files not yet staged, and a line holding a lone `\r`: the whole work tree is read, every path is relative to its root and percent-encoded in the SARIF `uri`, every line number is the one Git counts, and a Python comment after the `\r` still counts (Tasks 2, 5, 7 and 9).
+- `earnest check` over a binary file or text that is not UTF-8, outside a Git work tree, or piped into a reader that quits early on stdout or stderr, as `head` does: the binary file is skipped and the text read with replacement characters, so its ids still count; the other two exit 2 with at most one line on stderr and no traceback (Tasks 6 and 9).
 
 ## File Structure
 
 | Path under `packages/earnest/` | Responsibility | Task |
 | --- | --- | --- |
 | `pyproject.toml`, `uv.lock` | pytest-bdd and the pytest pin, the fixture exclude, then the `earnest` script | 1, 9 |
-| `tests/conftest.py` | fixture repositories committed in `tmp_path`; the fixture collection ignore | 1, 2 |
+| `tests/conftest.py` | fixture repositories committed in `tmp_path`; every test's Git shut off from the user's; the fixture collection ignore | 1, 2 |
 | `tests/sarif.py` | the SARIF helpers the tests share | 1 |
 | `tests/fixtures/broken-links/` | one seeded broken link of every kind, across four languages | 1 |
 | `tests/features/trace_check.feature` | M1's scenarios, verbatim from `04` | 1 |
@@ -78,7 +78,7 @@ Outside the package, Task 1 changes the repository root's `.markdownlint-cli2.js
 **Interfaces:**
 
 - Consumes: nothing; the package holds only `earnest.__version__`.
-- Produces, in `tests/conftest.py`: `collect_ignore = ["fixtures"]`; the pytest fixture `fixture_repo`, a `Callable[[str], Path]` that copies `tests/fixtures/<name>` to `tmp_path / name`, commits it on `main` with pinned names and dates and returns the repository; and the helper `_commit(repo: Path) -> Path`, which Task 2 reuses.
+- Produces, in `tests/conftest.py`: `collect_ignore = ["fixtures"]`; an autouse fixture that shuts every Git a test runs, `earnest`'s own included, off from the user's Git configuration and from inherited `GIT_` variables; the pytest fixture `fixture_repo`, a `Callable[[str], Path]` that copies `tests/fixtures/<name>` to `tmp_path / name`, commits it on `main` with pinned names and dates and returns the repository; and the helper `_commit(repo: Path) -> Path`, which Task 2 reuses.
 - Produces, in `tests/sarif.py`, the SARIF helpers every tier reads a log through: `sarif_run(text: str) -> dict`, the one run of the log in `text`, and `located(result: dict) -> tuple[str, int]`, a result's `uri` as written and its line.
 - Produces the exit command `uv run pytest tests/steps/test_trace_check.py`, which runs the console script `earnest` beside `sys.executable` and stays red until Task 9 declares that script.
 
@@ -375,10 +375,10 @@ export function banner(): string {
 
 - [ ] **Step 5: Write the fixture builder and the SARIF helpers**
 
-`collect_ignore` keeps pytest from collecting the fixtures' own test files, such as `broken-links/tests/test_auth.py`. Create `packages/earnest/tests/conftest.py`:
+`collect_ignore` keeps pytest from collecting the fixtures' own test files, such as `broken-links/tests/test_auth.py`. The autouse fixture edits `os.environ` itself, so the Git that `earnest` runs, in the test's process or in a child, is shut off from the user's configuration as well as the Git that commits a fixture; `_git` adds only the pinned identity. Create `packages/earnest/tests/conftest.py`:
 
 ```python
-"""Shared fixtures: fixture repositories, their Git history built in tmp_path at test time."""
+"""Shared fixtures: every test's Git shut off from the user's, and fixture repositories committed in tmp_path."""
 
 import os
 import shutil
@@ -393,9 +393,7 @@ collect_ignore = ["fixtures"]  # fixture repositories are data, and their tests 
 
 FIXTURES = Path(__file__).parent / "fixtures"
 # Pinned names and dates give a fixture commit the same sha on every run, and M4's overrides name that sha.
-_GIT_ENV = {
-    "GIT_CONFIG_GLOBAL": os.devnull,
-    "GIT_CONFIG_NOSYSTEM": "1",
+_IDENTITY = {
     "GIT_AUTHOR_NAME": "Earnest Fixture",
     "GIT_AUTHOR_EMAIL": "fixture@example.com",
     "GIT_AUTHOR_DATE": "2026-09-26T12:00:00+00:00",
@@ -405,11 +403,20 @@ _GIT_ENV = {
 }
 
 
-def _git(repo: Path, *args: str) -> None:
-    """Run git in repo, shut off from the user's Git configuration and from inherited GIT_ variables."""
+@pytest.fixture(autouse=True)
+def _isolated_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shut every Git a test runs, earnest's own included, off from the user's configuration and GIT_ variables."""
     # a Git hook that runs the tests sets GIT_DIR and GIT_INDEX_FILE; GIT_EXEC_PATH only says where Git's helpers live
-    env = {name: value for name, value in os.environ.items() if name == "GIT_EXEC_PATH" or not name.startswith("GIT_")}
-    subprocess.run(["git", *args], cwd=repo, env={**env, **_GIT_ENV}, capture_output=True, check=True)
+    for name in list(os.environ):
+        if name.startswith("GIT_") and name != "GIT_EXEC_PATH":
+            monkeypatch.delenv(name)
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def _git(repo: Path, *args: str) -> None:
+    """Run git in repo as the fixture's pinned author and committer."""
+    subprocess.run(["git", *args], cwd=repo, env=os.environ | _IDENTITY, capture_output=True, check=True)
 
 
 def _commit(repo: Path) -> Path:
@@ -995,6 +1002,12 @@ def test_a_key_not_written_exactly_is_a_near_miss_that_names_the_key(line, key):
     assert index.links == ()
 
 
+def test_a_key_that_only_unicode_case_folding_would_match_is_body():
+    index = build_index([markdown("`req~a~1`\nNeed\u017f: impl\n")])  # U+017F, the long s
+    assert index.items[0].needs is None
+    assert index.near_misses == ()
+
+
 def test_the_entries_beside_an_empty_one_still_link():
     index = build_index([markdown("`req~a~1`\nCovers: feat~f~1,\n")])
     assert [str(link.target) for link in index.links] == ["feat~f~1"]
@@ -1050,20 +1063,19 @@ TYPES = ("tenet", "goal", "feat", "req", "dsn", "unit", "task", "impl", "utest",
 KEYS = ("Needs", "Covers", "Drivers", "Delivers", "Depends", "Override")
 
 _TYPE = f"({'|'.join(TYPES)})"
-_NAME_REVISION = r"([a-z0-9-]+)~([1-9][0-9]*)"
-_ID = rf"{_TYPE}~{_NAME_REVISION}"
+_ID = rf"{_TYPE}~([a-z0-9-]+)~([1-9][0-9]*)"
 _ID_ENTRY = re.compile(_ID)
 _TYPE_ENTRY = re.compile(_TYPE)
 _ATX = r"#{1,6}(?:[ \t]+|$)"  # the marks that open an ATX heading, after up to three spaces
 _HEADING = re.compile(rf" {{0,3}}{_ATX}")
-# A backticked token with a `~`, split at its first `~`, alone on its line or after heading marks, where a closing run
-# of `#` is no text after it. An id-shaped token, a word of letters and a `~`, is an id-line candidate whether alone
-# on its line or followed by text; any other backticked token, such as `~/.config`, is body text.
-_ID_LINE = re.compile(rf" {{0,3}}({_ATX})?`([^`~]*~[^`]*)`(?(1)(?:[ \t]+#+$)?)(.*)")
-_ID_SHAPED = re.compile(r"[A-Za-z]+~")
+# An id-line candidate: a backticked token that opens with a word of letters and a `~`, alone on its line or after
+# heading marks, with text after it or none, where a heading's closing run of `#` is no text. Any other backticked
+# token, such as `~/.config`, is body text.
+_ID_LINE = re.compile(rf" {{0,3}}({_ATX})?`([A-Za-z]+~[^`]*)`(?(1)(?:[ \t]+#+$)?)(.*)")
 _KEY_NAME = f"({'|'.join(KEYS)})"
-# A key line as written, or decorated: indentation, list and quote markers and emphasis may come before its key.
-_KEY = re.compile(rf"[ \t]*(?:(?:[-*+]|[0-9]+\.)[ \t]+|>[ \t]*)*[*_]*{_KEY_NAME}[*_]*[ \t]*:", re.IGNORECASE)
+# A key line as written, or decorated: indentation, list and quote markers and emphasis may come before its key. Its
+# letters fold case in ASCII alone, so a letter such as the long s, which Unicode folds to `s`, stands in for none.
+_KEY = re.compile(rf"[ \t]*(?:(?:[-*+]|[0-9]+\.)[ \t]+|>[ \t]*)*[*_]*{_KEY_NAME}[*_]*[ \t]*:", re.IGNORECASE | re.ASCII)
 _KEY_LINE = re.compile(rf"{_KEY_NAME}:(?: (\S.*))?")
 _OVERRIDE = re.compile(rf"{_ID} (?:implemented|tested) at [0-9a-f]+,.+")
 _SEPARATORS = re.compile(r"[\s,]+")
@@ -1247,8 +1259,7 @@ def _spans(source: Source) -> tuple[list[tuple[Id, int, list[Line]]], list[NearM
         if line.number in source.fenced:
             continue  # fenced code is body, and never starts, ends or keys an item
         text = line.text.rstrip()
-        loose = _ID_LINE.fullmatch(text)
-        if loose and _ID_SHAPED.match(loose.group(2)):
+        if loose := _ID_LINE.fullmatch(text):
             token, after = loose.group(2, 3)
             strict = None if after else _ID_ENTRY.fullmatch(token)
             if strict is None:
@@ -1274,8 +1285,7 @@ def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] 
         if (key := _KEY.match(text)) is None:
             continue
         if (exact := _KEY_LINE.fullmatch(text)) is None:
-            spelling = next(name for name in KEYS if name.lower() == key.group(1).lower())
-            misses.append(NearMiss(path, line.number, text, _KEY_FIX.format(spelling)))
+            misses.append(NearMiss(path, line.number, text, _KEY_FIX.format(key.group(1).capitalize())))
             continue
         name, value = exact.group(1), exact.group(2) or ""
         if name == "Override":
@@ -1318,7 +1328,7 @@ def _list(
 
 Run: `uv run pytest tests/unit/test_index.py -v && make lint`
 
-Expected: `44 passed`, then `make lint` exits 0.
+Expected: `45 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -1437,7 +1447,7 @@ def test_each_written_id_resolves_once_by_type_and_name_then_by_revision():
 
 Run: `uv run pytest tests/unit/test_index.py -v`
 
-Expected: FAIL, the 13 new tests red (`build_index` still reads only Markdown, so `index.links` is empty, `(miss,) =` finds no near-miss, and `Index` has no `resolutions`) and the 44 Markdown tests green: `13 failed, 44 passed`.
+Expected: FAIL, the 13 new tests red (`build_index` still reads only Markdown, so `index.links` is empty, `(miss,) =` finds no near-miss, and `Index` has no `resolutions`) and the 45 Markdown tests green: `13 failed, 45 passed`.
 
 - [ ] **Step 3: Add the tag surfaces and Reference resolution**
 
@@ -1588,7 +1598,7 @@ def _tags(source: Source) -> _Parsed:
 
 Run: `uv run pytest tests/unit/test_index.py -v && make lint`
 
-Expected: `57 passed`, then `make lint` exits 0.
+Expected: `58 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -1635,6 +1645,10 @@ def test_comments_come_with_their_line_numbers_and_strings_stay_text():
 
 def test_a_file_that_stops_tokenizing_keeps_the_comments_before_the_error():
     assert python.scan("# [impl->req~a~1]\ndef f(:\n    x = (\n") == (Line(1, "# [impl->req~a~1]"),)
+
+
+def test_a_comment_after_a_lone_carriage_return_is_read_on_the_line_git_counts():
+    assert python.scan("x = 1\r# [impl->req~r~1]\n") == (Line(1, "# [impl->req~r~1]"),)
 ```
 
 Create `packages/earnest/tests/unit/adapters/test_typescript.py`. Each regular expression case sits above a string that holds a tag and a comment that holds one: a regex read as a template would swallow the comment, and one read as a comment would turn the string into a tag:
@@ -1706,13 +1720,14 @@ Create `packages/earnest/src/earnest/adapters/__init__.py`:
 """Host adapters: each listed file's adapter, picked by suffix, hands its lines to the grammar."""
 ```
 
-Create `packages/earnest/src/earnest/adapters/python.py`. `tokenize` yields each token before it raises, so a file that stops tokenizing keeps its earlier comments:
+Create `packages/earnest/src/earnest/adapters/python.py`. `tokenize` yields each token before it raises, so a file that stops tokenizing keeps its earlier comments. `tokenize` also reads a lone `\r` and the character after it as one operator, so `x = 1\r# [impl->req~r~1]` would hold no comment at all; Git breaks no line at a lone `\r`, so a space stands in for it and every line number stays Git's:
 
 ```python
 """Python host adapter: `#` comments, through `tokenize`."""
 
 import contextlib
 import io
+import re
 import tokenize
 from collections.abc import Iterator
 
@@ -1728,8 +1743,9 @@ def scan(text: str) -> tuple[Line, ...]:
 
 
 def _tokens(text: str) -> Iterator[tokenize.TokenInfo]:
+    spaced = re.sub(r"\r(?!\n)", " ", text)  # a lone `\r` would swallow the `#` after it; Git counts no line there
     with contextlib.suppress(tokenize.TokenError, SyntaxError):
-        yield from tokenize.generate_tokens(io.StringIO(text).readline)
+        yield from tokenize.generate_tokens(io.StringIO(spaced).readline)
 ```
 
 Create `packages/earnest/src/earnest/adapters/typescript.py`. The scan reads one token at a time: a comment, a string, template or regular expression literal, a name or number, whitespace, `++` or `--`, or any other character, and counts lines as it goes. Without the operand state its docstring gives, the backtick in `` s.replace(/`/g, "") `` would open a template that swallows the rest of the file, the `/*` in `/\/*$/` would open a comment, and the `/` in `i++ / 2` or `</p>` would open a regular expression that swallows the tag after it:
@@ -1751,6 +1767,8 @@ _TOKEN = re.compile(
     r"|(?P<word>[\w$]+)|(?P<space>\s+)|(?P<step>\+\+|--)|(?P<other>[\s\S])",
 )
 # Possessive: each alternative opens on a character of its own, so a literal that never closes costs one pass.
+# ponytail: that pass may run to the end of the line from each `/` that could open a regular expression, so a line of
+# unclosed ones such as `(/a[/a[/a[` scans in time quadratic in its length; the TypeScript parser above lifts it too.
 _REGEX = re.compile(r"/(?:\\.|\[(?:\\.|[^\]\\\n])*+\]|[^/\\\n\[])++/[A-Za-z]*+")
 _BEFORE_REGEX = frozenset(
     {"return", "typeof", "instanceof", "case", "in", "of", "new", "delete", "void", "throw", "yield", "await"}
@@ -1795,7 +1813,7 @@ def _ends_operand(kind: str | None, value: str, previous: str) -> bool:
 
 Run: `uv run pytest tests/unit/adapters -v && make lint`
 
-Expected: `14 passed`, then `make lint` exits 0.
+Expected: `15 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -1818,7 +1836,7 @@ git commit -m "feat: read Python and TypeScript comments outside their literals"
 - Consumes: `python.scan` and `typescript.scan` (Task 5); `Line`, `Source`, `split_lines`, `MARKDOWN`, `COMMENT`, `GHERKIN` and `build_index` from `earnest.index` (Tasks 3 and 4).
 - Produces:
   - `earnest.adapters.markdown.scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]`: every line, and the lines inside code fences, fence lines included.
-  - `earnest.adapters.gherkin.scan(text: str) -> tuple[Line, ...]`: the `@` tag lines outside doc strings, each cut where a space and a `#` open its comment.
+  - `earnest.adapters.gherkin.scan(text: str) -> tuple[Line, ...]`: the `@` tag lines outside doc strings, each cut at its first `#` after whitespace, where its comment opens.
   - `earnest.adapters.scan(root: Path, paths: Iterable[str]) -> list[Source]`: one `Source` per path whose suffix an adapter reads (`.md`, `.py`, `.ts`, `.tsx`, `.mts`, `.cts`, `.feature`), in the order given, which `git.work_tree_files` sorts. It skips other suffixes, paths gone from the work tree, binary files (a NUL byte in the first 8000 bytes) and code files whose bytes hold no `~`, and decodes the rest as UTF-8 with a byte order mark dropped and undecodable bytes replaced. A file that cannot be read raises `OSError`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1890,8 +1908,10 @@ Create `packages/earnest/tests/unit/adapters/test_gherkin.py`:
 ```python
 """Tests for the Gherkin host adapter."""
 
+import pytest
+
 from earnest.adapters import gherkin
-from earnest.index import GHERKIN, Line, Source, build_index
+from earnest.index import Line
 
 
 def test_tag_lines_are_read_and_comments_and_doc_strings_are_text():
@@ -1909,9 +1929,9 @@ def test_a_doc_string_closes_on_a_delimiter_line_with_a_comment_after_it():
     assert gherkin.scan(text) == (Line(4, "  @stest:feat~b~1"),)
 
 
-def test_a_tag_line_ends_where_its_comment_starts():
-    lines = gherkin.scan("@stest:feat~a~2 # was @stest:feat~a~1\n")
-    assert [str(link.target) for link in build_index([Source("a.feature", GHERKIN, lines)]).links] == ["feat~a~2"]
+@pytest.mark.parametrize("space", [" ", "\t"], ids=["space", "tab"])
+def test_a_tag_line_ends_at_its_first_hash_after_whitespace(space):
+    assert gherkin.scan(f"@stest:feat~f~2{space}# was @stest:feat~f~1\n") == (Line(1, "@stest:feat~f~2"),)
 ```
 
 Create `packages/earnest/tests/unit/test_adapters.py`:
@@ -1920,7 +1940,7 @@ Create `packages/earnest/tests/unit/test_adapters.py`:
 """Tests for earnest.adapters: the adapter picked by suffix for each listed file, and how its bytes are read."""
 
 from earnest import adapters
-from earnest.index import COMMENT, GHERKIN, MARKDOWN, Line, build_index
+from earnest.index import COMMENT, GHERKIN, MARKDOWN, Line
 
 
 def test_each_suffix_gets_its_adapter_and_other_files_are_skipped(tmp_path):
@@ -1959,11 +1979,10 @@ def test_a_binary_file_is_skipped(tmp_path):
     assert adapters.scan(tmp_path, ["a.ts"]) == []
 
 
-def test_text_that_is_not_utf_8_still_yields_its_ids(tmp_path):
+def test_text_that_is_not_utf_8_keeps_its_lines_with_replacement_characters(tmp_path):
     (tmp_path / "a.md").write_bytes(b"# Caf\xe9\n\n`req~a~1`\n")
-    sources = adapters.scan(tmp_path, ["a.md"])
-    assert sources[0].lines[0] == Line(1, "# Caf\ufffd")
-    assert [(str(item.id), item.line) for item in build_index(sources).items] == [("req~a~1", 3)]
+    (source,) = adapters.scan(tmp_path, ["a.md"])
+    assert source.lines == (Line(1, "# Caf\ufffd"), Line(2, ""), Line(3, "`req~a~1`"))
 ```
 
 - [ ] **Step 2: Run the tests and watch them fail**
@@ -2013,6 +2032,8 @@ Create `packages/earnest/src/earnest/adapters/gherkin.py`:
 ```python
 """Gherkin host adapter: the `@` tag lines outside doc strings, each without its comment."""
 
+import re
+
 from earnest.index import Line, split_lines
 
 
@@ -2020,7 +2041,7 @@ _DOC_STRINGS = ('"""', "```")
 
 
 def scan(text: str) -> tuple[Line, ...]:
-    """Return the `@` tag lines, each cut where a space and a `#` open a comment.
+    """Return the `@` tag lines, each cut at its first `#` after whitespace, where a comment opens, as Gherkin cuts it.
 
     A doc string opens and closes on a line whose stripped text starts with its delimiter, three double quotes or three
     backticks, and its lines are text, never tags.
@@ -2036,7 +2057,7 @@ def scan(text: str) -> tuple[Line, ...]:
         elif stripped.startswith(_DOC_STRINGS):
             doc_string = stripped[:3]
         elif stripped.startswith("@"):
-            tags.append(Line(line.number, line.text.partition(" #")[0]))
+            tags.append(Line(line.number, re.split(r"\s#", line.text, maxsplit=1)[0]))
     return tuple(tags)
 ```
 
@@ -2098,7 +2119,7 @@ def scan(root: Path, paths: Iterable[str]) -> list[Source]:
 
 Run: `uv run pytest tests/unit -v && make lint`
 
-Expected: `94 passed`, the 16 new tests among them, then `make lint` exits 0.
+Expected: `97 passed`, the 17 new tests among them, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -2652,7 +2673,7 @@ git commit -m "feat: turn the index into link findings and trace levels"
 **Interfaces:**
 
 - Consumes: `git.repo_root`, `git.head_commit`, `git.work_tree_files` and `git.GitError` (Task 2); `build_index` (Tasks 3 and 4); `adapters.scan` and the `OSError` it raises (Task 6); `reporter.sarif`, `reporter.summary` and `Finding.level` (Task 7); `structural.check` and `structural.traced` (Task 8); the `files_repo` fixture (Task 2); `sarif_run` and `located` from `tests/sarif.py`, the feature and its step module (Task 1).
-- Produces: `earnest.cli.main(argv: Sequence[str] | None = None) -> int`, which returns 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when the check cannot run: Git cannot answer, or a file cannot be read, and then it writes one line on stderr and nothing on stdout. It also returns 2, with nothing on stderr, when the reader of stdout goes away before the log is written; stdout then points at `os.devnull`, so the exit flush raises nothing. A bare `earnest` exits 2 from `argparse`. The console script `earnest`, from `[project.scripts] earnest = "earnest.cli:main"`.
+- Produces: `earnest.cli.main(argv: Sequence[str] | None = None) -> int`, which returns 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when the check cannot run: Git cannot answer, or a file cannot be read, and then it writes one line on stderr and nothing on stdout. It also returns 2, and writes nothing more, when the reader of stdout or of stderr goes away before its text is written; both streams then point at `os.devnull`, so the exit flush raises nothing. A bare `earnest` exits 2 from `argparse`. The console script `earnest`, from `[project.scripts] earnest = "earnest.cli:main"`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2661,7 +2682,7 @@ mkdir -p tests/integration
 touch tests/integration/__init__.py
 ```
 
-Create `packages/earnest/tests/unit/test_cli.py`. Git's messages depend on the locale, so the test that reads one runs Git with `LC_ALL=C`. The pipe test runs the command in a child process whose stdout pipe the test closes before the child writes, as `head` does when it has read enough:
+Create `packages/earnest/tests/unit/test_cli.py`. Git's messages depend on the locale, so the test that reads one runs Git with `LC_ALL=C`. The pipe tests run the command in a child process whose stdout or stderr pipe the test closes before the child writes, as `head` does when it has read enough:
 
 ```python
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
@@ -2672,7 +2693,9 @@ import sys
 import pytest
 
 from earnest import cli
-from tests.sarif import located, sarif_run
+
+
+CHECK = [sys.executable, "-c", "import sys; from earnest.cli import main; sys.exit(main(['check']))"]
 
 
 def test_a_command_is_required(capsys):
@@ -2692,29 +2715,28 @@ def test_a_check_outside_a_work_tree_exits_2_with_one_line_on_stderr(tmp_path, m
     assert len(err.splitlines()) == 1
 
 
-def test_a_file_that_is_not_utf_8_is_still_checked(files_repo, monkeypatch, capsys):
-    repo = files_repo({"docs/a.md": "# A\n"})
-    (repo / "docs" / "a.md").write_bytes(b"# Caf\xe9\n\n`req~a~1`\n")
-    monkeypatch.chdir(repo)
-    assert cli.main(["check"]) == 1
-    results = sarif_run(capsys.readouterr().out)["results"]
-    assert {located(result) for result in results} == {("docs/a.md", 3)}
-
-
 def test_a_reader_that_goes_away_early_gets_exit_code_2_and_no_traceback(files_repo):
     repo = files_repo({"docs/a.md": "# A\n"})
-    command = [sys.executable, "-c", "import sys; from earnest.cli import main; sys.exit(main(['check']))"]
-    with subprocess.Popen(command, cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as check:
+    with subprocess.Popen(CHECK, cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as check:
         check.stdout.close()
         err = check.stderr.read()
     assert check.returncode == 2
     assert b"Traceback" not in err
+
+
+def test_a_reader_of_the_summary_that_goes_away_early_gets_exit_code_2(files_repo):
+    repo = files_repo({"docs/a.md": "# A\n"})
+    with subprocess.Popen(CHECK, cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE) as check:
+        check.stderr.close()
+    assert check.returncode == 2
 ```
 
-Create `packages/earnest/tests/integration/test_check.py`. The second test writes its extra document after the commit, so the check must read an untracked file, from a subdirectory, under a name whose space the SARIF `uri` percent-encodes. The third puts a lone `\r` inside the first line, which a reader that translates newlines would split in two:
+Create `packages/earnest/tests/integration/test_check.py`. The second test writes its extra document after the commit, so the check must read an untracked file, from a subdirectory, under a name whose space the SARIF `uri` percent-encodes. The third overwrites a committed document with bytes that are not UTF-8, or with a lone `\r` inside its first line, which a reader that translates newlines would split in two; either way, its id stays on the line Git counts:
 
 ```python
 """Integration: `earnest check` over a committed repository, from the scan to the exit code."""
+
+import pytest
 
 from earnest import cli
 from tests.sarif import located, sarif_run
@@ -2756,8 +2778,16 @@ def test_a_check_from_a_subdirectory_reads_the_whole_work_tree_untracked_files_i
     }
 
 
-def test_a_lone_carriage_return_leaves_every_line_where_git_counts_it(files_repo, monkeypatch, capsys):
-    _, run, _ = check(files_repo({"docs/a.md": "# A\r x\n\n`req~a~1`\n"}), monkeypatch, capsys)
+@pytest.mark.parametrize(
+    "data",
+    [b"# Caf\xe9\n\n`req~a~1`\n", b"# A\r x\n\n`req~a~1`\n"],
+    ids=["not-utf-8", "lone-carriage-return"],
+)
+def test_bytes_that_are_not_utf_8_or_a_lone_carriage_return_move_no_line(data, files_repo, monkeypatch, capsys):
+    repo = files_repo({"docs/a.md": "# A\n"})
+    (repo / "docs" / "a.md").write_bytes(data)
+    code, run, _ = check(repo, monkeypatch, capsys)
+    assert code == 1
     assert {located(result) for result in run["results"]} == {("docs/a.md", 3)}
 ```
 
@@ -2769,7 +2799,7 @@ Expected: FAIL at collection with `ImportError: cannot import name 'cli' from 'e
 
 - [ ] **Step 3: Write `cli.py` and declare the `earnest` script**
 
-`cli.py` wires the pipeline and keeps no logic of its own. The boundary catches only `GitError` and `OSError`; it writes one line on stderr, nothing on stdout, and exits 2. The log's write catches `BrokenPipeError` on its own, and flushes inside that `try`, since a log held in the buffer would otherwise meet the closed pipe at the exit flush, outside any handler.
+`cli.py` wires the pipeline and keeps no logic of its own. The boundary catches only `GitError` and `OSError`; it writes one line on stderr, nothing on stdout, and exits 2. The two writes, the log's and the summary's, share one `try` that catches `BrokenPipeError`, and each flushes inside it, since text held in a buffer would otherwise meet the closed pipe at the exit flush, outside any handler. The handler points both streams at `os.devnull`, so that flush writes nowhere and raises nothing.
 
 Create `packages/earnest/src/earnest/cli.py`:
 
@@ -2790,7 +2820,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return its exit code.
 
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
-    the check cannot run: Git cannot answer, a file cannot be read, or the reader of the log goes away.
+    the check cannot run: Git cannot answer, a file cannot be read, or the reader of the log or the summary goes away.
     """
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     # main never dispatches on the command, so a bare `earnest` must stop here rather than run the check
@@ -2810,10 +2840,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         sys.stdout.write(reporter.sarif(findings, levels, commit))
         sys.stdout.flush()
-    except BrokenPipeError:  # the reader went away, as `head` does: send what is left to devnull, so exit stays quiet
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        sys.stderr.write(reporter.summary(findings, levels))
+        sys.stderr.flush()
+    except BrokenPipeError:  # a reader went away, as `head` does: send what is left to devnull, so exit stays quiet
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.dup2(devnull, sys.stderr.fileno())
         return 2
-    sys.stderr.write(reporter.summary(findings, levels))
     # ponytail: every finding sits at position current until stages exist, so any error-level one fails the check
     return 1 if any(finding.level == "error" for finding in findings) else 0
 ```
@@ -2841,7 +2874,7 @@ Expected: uv reinstalls `earnest`, now with its console script `earnest` beside 
 
 Run: `uv run pytest tests/unit/test_cli.py tests/integration -v`
 
-Expected: `7 passed`.
+Expected: `8 passed`.
 
 - [ ] **Step 5: Run the exit command and watch it pass**
 
@@ -2853,7 +2886,7 @@ Expected: PASS, `5 passed`. It is the first green run of the exit command since 
 
 Run: `make test && make lint`
 
-Expected: `126 passed` across the three tiers, then `make lint` exits 0.
+Expected: `130 passed` across the three tiers, then `make lint` exits 0.
 
 - [ ] **Step 7: Mark M1 done on the milestone DAG**
 
