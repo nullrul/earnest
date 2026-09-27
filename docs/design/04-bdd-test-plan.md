@@ -73,19 +73,9 @@ Each later milestone's scenarios are added here when that milestone's plan is wr
 
 - Feature: `packages/earnest/tests/features/trace_check.feature`, bound by
   `tests/steps/test_trace_check.py`.
-- Exit command: `uv run pytest tests/steps/test_trace_check.py`, in
-  `packages/earnest/`.
 - Fixture: `tests/fixtures/broken-links/`, one commit with a broken link of
-  every kind across Markdown, Python, TypeScript and Gherkin.
-- Success criteria: SC1, two runs give identical SARIF; SC2, every seeded
-  broken link at its file and line, and a non-zero exit; SC3, each `req` at
-  untraced or traced, with the traced percentage; SC10, each message names its
-  fix.
-- No plan exists in `broken-links`, so every finding reaches no stage: it sits
-  at position `current`, omits `properties.stage`, and its message opens with
-  `in scope`.
-- Task plan:
-  [2026-09-26-trace-check.md](../superpowers/plans/2026-09-26-trace-check.md).
+  every kind across Markdown, Python, TypeScript and Gherkin, and no plan, so
+  every finding reaches no stage.
 
 ### What `broken-links` seeds
 
@@ -93,6 +83,10 @@ Each later milestone's scenarios are added here when that milestone's plan is wr
 | --- | --- | --- | --- |
 | `docs/plan.md` | 7 | `Delivers: req~Rate-Limit~1` | `near-miss`, a key-line id with an uppercase name |
 | `docs/plan.md` | 8 | `Depends: task~set_up~1` | `near-miss`, a malformed id that fits no named pattern |
+| `docs/plan.md` | 10 | `` `task~notify~1` Tell the member when to try again `` | `near-miss`, text after the id |
+| `docs/plan.md` | 16 | `**Delivers:** req~audit-log~1` | `near-miss`, a key not written exactly |
+| `docs/plan.md` | 17 | `Depends: task~wire-limiter~1,` | `near-miss`, an empty entry |
+| `docs/plan.md` | 19 | `` `tsk~expire~1` `` | `near-miss`, an unknown type |
 | `docs/requirements.md` | 11 | `req~lockout-notice~2`, with no `utest` | `gap` |
 | `docs/requirements.md` | 18 | `req~session-expiry~1`, with no `Covers:` line | `orphaned`, an item that covers no parent |
 | `docs/requirements.md` | 22 | `Needs: impl utest` | `near-miss`, a key-line value |
@@ -111,8 +105,10 @@ Each later milestone's scenarios are added here when that milestone's plan is wr
 
 `req~rate-limit~1` and `req~session-expiry~1` each have an `impl` and a `utest`
 cover at their current revision, so two of the four requirements are traced,
-50%. The `//` inside a string on line 15 of `web/login.ts`, and the `@smoke`
-tag in `tests/sign_in.feature`, raise nothing.
+50%. The `utest` cover of `req~session-expiry~1`, on line 12 of
+`tests/test_auth.py`, is the spaced tag `[ utest -> req~session-expiry~1 ]`,
+which OFT's whitespace rule makes valid. The `//` inside a string on line 15 of
+`web/login.ts`, and the `@smoke` tag in `tests/sign_in.feature`, raise nothing.
 
 ### Feature
 
@@ -135,6 +131,10 @@ Feature: Trace check
       | rule              | file                  | line |
       | earnest/near-miss | docs/plan.md          | 7    |
       | earnest/near-miss | docs/plan.md          | 8    |
+      | earnest/near-miss | docs/plan.md          | 10   |
+      | earnest/near-miss | docs/plan.md          | 16   |
+      | earnest/near-miss | docs/plan.md          | 17   |
+      | earnest/near-miss | docs/plan.md          | 19   |
       | earnest/gap       | docs/requirements.md  | 11   |
       | earnest/orphaned  | docs/requirements.md  | 18   |
       | earnest/near-miss | docs/requirements.md  | 22   |
@@ -153,6 +153,7 @@ Feature: Trace check
       | earnest/outdated  | web/login.ts          | 3    |
       | earnest/near-miss | web/login.ts          | 13   |
     And every finding is in scope at position current, with no stage
+    And every finding carries the trace observation behind it
 
   Scenario: Every finding names the change that fixes it (SC10)
     When the coding agent runs earnest check
@@ -160,6 +161,10 @@ Feature: Trace check
       | file                  | line | fix                                                                   |
       | docs/plan.md          | 7    | lower-case the name                                                   |
       | docs/plan.md          | 8    | rewrite it as `type~name~revision`                                    |
+      | docs/plan.md          | 10   | put the id alone on its line and move the text into the body          |
+      | docs/plan.md          | 16   | write the key exactly as `Delivers: `                                 |
+      | docs/plan.md          | 17   | name at least one id, separated by `, `, with no empty entry          |
+      | docs/plan.md          | 19   | use a known item type, such as `task`                                 |
       | docs/requirements.md  | 11   | tag a unit test that verifies it with `[utest->req~lockout-notice~2]` |
       | docs/requirements.md  | 18   | add a `Covers:` line naming the `feat` it derives from                |
       | docs/requirements.md  | 22   | such as `impl, utest`                                                 |

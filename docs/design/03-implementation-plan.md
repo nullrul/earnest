@@ -45,8 +45,7 @@ and the graph doubles as the loop's progress board.
   `tests/features/<slug>.feature`, bound by the pytest-bdd step module
   `tests/steps/test_<slug>.py`, as the Tests section and decision L5 of `02`
   fix. The exit command is `uv run pytest tests/steps/test_<slug>.py`, run in
-  `packages/earnest/`; the milestone is done when it runs green. No coverage
-  threshold applies for now.
+  `packages/earnest/`; the milestone is done when it runs green.
 - Scenarios: `04` writes each feature's scenarios before its code
   ([[write-gherkin-before-code-not-after]]).
 - Task plans: task-level detail is written just in time, one plan per
@@ -73,17 +72,18 @@ and the graph doubles as the loop's progress board.
   traced, the traced percentage, and a non-zero exit.
 - Exit command: `uv run pytest tests/steps/test_trace_check.py`.
 - Deliverable: `earnest check` through `cli.py`, `git.py`, the four
-  `adapters/`, `index.py`, the link rules of `structural.py`, and the SARIF
-  output and summary of `reporter.py`; `tests/conftest.py`,
+  `adapters/`, the grammar, index, Reference resolution and Near-miss table of
+  `index.py`, the link rules of `structural.py`, and the SARIF output and
+  summary of `reporter.py`; `tests/conftest.py`,
   `tests/fixtures/broken-links/`, `trace_check.feature` and its step module;
   the `earnest` script (L4), pytest-bdd and the fixture excludes (L5, L6).
 - Spec coverage: UC1 and UC2 (links); SC1, SC2, SC3 (untraced and traced),
   SC10 (message text only); the Trace and Report capabilities.
 - Context to load: `00`: Success criteria. `01`: Grammar, Near-miss, Item
   types, Edges, Default Needs, Findings, Trace levels, Frontier and position,
-  Region rule, Reference resolution, Command surface, SARIF 2.1.0, D1, D10,
-  D13, D16. `02`: the File and directory tree; Package, Scanner, Index,
-  `structural.py`, Reporter and Tests in Module boundaries; L4 to L6.
+  Reference resolution, Command surface, SARIF 2.1.0, D1, D13, D16. `02`: the
+  File and directory tree; Package, Scanner, Index, `structural.py`, Reporter
+  and Tests in Module boundaries; L4 to L6.
 - Gating open questions: none.
 - Task plan:
   [2026-09-26-trace-check.md](../superpowers/plans/2026-09-26-trace-check.md).
@@ -100,23 +100,24 @@ and the graph doubles as the loop's progress board.
   commit, a check flags the tag, edge and approval left at the old revision,
   and a body edited without a bump.
 - Exit command: `uv run pytest tests/steps/test_stage_status.py`.
-- Deliverable: `plan.py` with the route, stages, approvals, frontier and
-  position, and computed status; the record's reader and writer in
-  `reporter.py`; the Revision lifecycle in `structural.py`; `earnest plan` and
-  `--stage` in `cli.py`; `tests/fixtures/seeded-change/` with its `change/`
-  overlay; `stage_status.feature` and its step module.
+- Deliverable: the Region rule in `index.py`; `plan.py` with the route,
+  stages, approvals, frontier and position, and computed status; the record's
+  reader and writer in `reporter.py`; the Revision lifecycle in `structural.py`;
+  `earnest plan` and `--stage` in `cli.py`; `tests/fixtures/seeded-change/`
+  with its `change/` overlay; `stage_status.feature` and its step module.
 - Spec coverage: UC4, UC7, UC9 (engine); SC1, SC5, SC8 (status), SC9 (run
   header); the Revision propagation, Plan and stage status, and Stage approval
   capabilities.
 - Context to load: `01`: Adopting AI-DLC, Stages, Frontier and position,
   Computed status, Process vocabulary, Revision lifecycle, Command surface,
-  Assessment record, Runtime and permission model, D6, D9, D15. `02`: `plan.py`,
-  `structural.py`, `reporter.py`, `conftest.py` and `fixtures/seeded-change/`
-  in Module boundaries.
+  Assessment record, Runtime and permission model, Region rule, D6, D9, D10,
+  D15. `02`: `plan.py`, `structural.py`, `reporter.py`, `conftest.py` and
+  `fixtures/seeded-change/` in Module boundaries.
 - Gating open questions: where the assessment record sits and its file format
   (`02`); assessment hash contents (`01`).
 - Task plan: `docs/superpowers/plans/<date>-stage-status.md`, written when M2
-  is next.
+  is next. It follows the Region rule of `01`:
+  "consecutive tags with no code between them share the region that follows them".
 
 ### M3 `task_change`
 
@@ -133,8 +134,8 @@ and the graph doubles as the loop's progress board.
 - Spec coverage: UC3, UC6; SC6, SC7; the Out-of-task check and Impact
   capabilities.
 - Context to load: `01`: Out-of-task rule, Impact rule, Region rule, D11, D12.
-  `02`: `git.py`, `plan.py`, `impact.py` and `fixtures/seeded-change/change/`
-  in Module boundaries.
+  `02`: `git.py`, `index.py`, `plan.py`, `impact.py` and
+  `fixtures/seeded-change/change/` in Module boundaries.
 - Gating open questions: task base commit, and coverage map timing (`01`).
 - Task plan: `docs/superpowers/plans/<date>-task-change.md`, written when M3
   is next.
@@ -156,8 +157,9 @@ and the graph doubles as the loop's progress board.
   module.
 - Spec coverage: UC2 (weak verdicts), UC5; SC3 (judged), SC4 (warning), SC11;
   the Judge and Overrides capabilities.
-- Context to load: `01`: Grammar, Override rule, Process vocabulary, D2, D3,
-  D14. `02`: `ears.py` and `judge/` in Module boundaries; L4.
+- Context to load: `01`: Grammar, Override rule, Process vocabulary,
+  Region rule, D2, D3, D14. `02`: `ears.py` and `judge/` in Module boundaries;
+  L4.
 - Gating open questions: stub judge model (`01`). The judge model choice and
   prompt row of `01` settles at M6.
 - Task plan: `docs/superpowers/plans/<date>-judge-check.md`, written when M4
@@ -232,15 +234,6 @@ and the graph doubles as the loop's progress board.
 - Task plan: the integration gate at
   `docs/superpowers/plans/<date>-aidlc-fork.md`, written when M7 is next; the
   delta's plan lives in the fork's repository.
-
-## Scope (v1)
-
-- Seven milestones that build the `earnest` package of `02`, each exiting on
-  one behavior feature.
-- M7, the integration gate for the AI-DLC fork; the fork plans and builds its
-  delta in its own repository.
-- The calibration command proven against a stub model; the maintainer's
-  real-model run on the calibration fixture is the SC4 gate itself.
 
 ## Future directions
 

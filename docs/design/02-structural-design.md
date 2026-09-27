@@ -44,6 +44,8 @@ earnest/
       02-structural-design.md
       03-implementation-plan.md
       04-bdd-test-plan.md
+    superpowers/plans/
+      <date>-<slug-with-hyphens>.md
   packages/earnest/
     .python-version
     Makefile
@@ -71,6 +73,7 @@ earnest/
     tests/
       __init__.py
       conftest.py
+      sarif.py
       unit/
         __init__.py
         test_<module>.py
@@ -92,11 +95,8 @@ earnest/
         calibration/
 ```
 
-`03` and `04` follow this document. Today `packages/earnest/` holds its build
-files, `src/earnest/__init__.py`,
-`tests/__init__.py` and `tests/test_init.py`; its other paths arrive with the
-milestones of `03`. A name in angle brackets stands for one file per module,
-language, flow or milestone.
+`03` and `04` follow this document. A name in angle brackets stands for one
+file per module, language, flow or milestone.
 
 ## Fork delta
 
@@ -211,6 +211,8 @@ its line says "Owns", and each such rule has exactly one owner.
 - `README.md`: the project overview and getting-started commands.
 - `docs/README.md`: the index of the design documents.
 - `docs/design/`: the design set from `00` to `04`, this document third.
+- `docs/superpowers/plans/`: one writing-plans task plan per milestone, named
+  `<date>-<slug-with-hyphens>.md`.
 
 ### Package
 
@@ -226,9 +228,10 @@ its line says "Owns", and each such rule has exactly one owner.
   lives in the modules below
   ([[library-plus-thin-cli-keeps-the-api-as-the-system]]). Container entry
   point.
-- `git.py`: tracked files, the commit, the current branch and the lines changed
-  since a commit, read through Git. Container input, shared by the scanner, the
-  out-of-task check, impact, override drift and the run header.
+- `git.py`: reads through Git the commit, the current branch, the lines changed
+  since a commit, and the files Git lists for the work tree: tracked files plus
+  untracked files that are not ignored. Container input, shared by the scanner,
+  the out-of-task check, impact, override drift and the run header.
 
 ### Scanner
 
@@ -249,8 +252,11 @@ its line says "Owns", and each such rule has exactly one owner.
   (ids, item blocks, key and `Override:` lines, both tag surfaces) and the index
   built from adapter output: items, edges, tags and their regions. Owns the
   Region rule, Reference resolution and the Near-miss table, so the check and
-  the judge read one graph (G7). It is the seam D5 names: an editor language
-  server reads the same index through it.
+  the judge read one graph (G7). The Region rule arrives with M2 `stage_status`
+  of `03`: M3 `task_change` (out-of-task and impact) and M4 `judge_check` (the
+  judge cache key and `override-drift`) both read it and run in parallel after
+  M2, so it ships with the milestone they depend on. It is the seam D5 names:
+  an editor language server reads the same index through it.
 
 ### Assessor
 
@@ -295,10 +301,12 @@ its line says "Owns", and each such rule has exactly one owner.
   unique across tiers.
 - `conftest.py`: shared fixtures. It copies a fixture's files, less its
   `change/` overlay, into `tmp_path` and commits them with `git`, then commits
-  the overlay on a `task/…` branch when there is one. Steps that two or more
-  features share live here too.
-- `unit/test_<module>.py`: one test module per module of `src/earnest/`;
-  `test_init.py` moves here from `tests/`.
+  the overlay on a `task/…` branch when there is one. Its
+  `collect_ignore = ["fixtures"]` keeps the fixture repositories out of
+  pytest's collection. Steps that two or more features share live here too.
+- `sarif.py`: the SARIF helpers shared by the step module and the unit and
+  integration tests.
+- `unit/test_<module>.py`: one test module per module of `src/earnest/`.
 - `unit/adapters/test_<language>.py`: one per host adapter.
 - `integration/test_<flow>.py`: two or more modules wired over a fixture
   repository, with real files and `git`.
@@ -333,12 +341,12 @@ Each decision refers to the tree in the File and directory tree section.
   `packages/<name>/` with the targets `install`, `build`, `lint`, `test`,
   `package` and `clean`; a root `Makefile` that delegates over `SUBPROJECTS`;
   and the Python SDK template's src layout, uv with hatchling, ruff,
-  `mypy --strict` and vulture, and pytest with pytest-cov reporting coverage.
+  `mypy --strict` and vulture, and pytest with pytest-cov.
   `packages/earnest/Makefile` matches the template's
   `_templates/python_sdk/Makefile` byte for byte, and `pyproject.toml` differs
   from the template by its substitutions and by dropping the template's
-  `fail_under = 80`, so every test run reports coverage and passes or fails on
-  its tests alone. The template's TypeScript, Rust
+  `fail_under = 80`, so every test run reports coverage with no threshold and
+  passes or fails on its tests alone. The template's TypeScript, Rust
   and Go packages stay unselected: the engine is Python, and the fork's
   TypeScript lives in the fork under upstream's Bun and Biome toolchain. From
   `~/Projects/workspace/lint-configs`, `python/ruff.toml` sets the bar the
@@ -436,11 +444,11 @@ Each decision refers to the tree in the File and directory tree section.
 
 ### L5 Three test tiers, with pytest-bdd for behavior
 
-- Decision: one runner, pytest, which reports coverage on every run, over three
-  tiers: `tests/unit/`, `tests/integration/`, and Gherkin features in
-  `tests/features/` bound by pytest-bdd step modules in `tests/steps/`. A
-  milestone's feature and step module share one snake_case slug, since the
-  slug also names a Python module, and the milestone's exit command,
+- Decision: one runner, pytest, over three tiers: `tests/unit/`,
+  `tests/integration/`, and Gherkin features in `tests/features/` bound by
+  pytest-bdd step modules in `tests/steps/`. A milestone's feature and step
+  module share one snake_case slug, since the slug also names a Python module,
+  and the milestone's exit command,
   `uv run pytest tests/steps/test_<milestone>.py`, passes exactly when its
   scenarios pass. `pyproject.toml` gains `pytest-bdd` in the
   `dev` extra and `bdd_features_base_dir = "tests/features"` under
@@ -467,7 +475,8 @@ Each decision refers to the tree in the File and directory tree section.
   the fewest that cover the success criteria that the Success criteria section
   of `00` observes on a fixture. `tests/conftest.py` builds each one's history
   in `tmp_path`. Fixture files are data, so `pyproject.toml` gains a ruff
-  `extend-exclude` and a pytest collection ignore for `tests/fixtures`, and
+  `extend-exclude` for `tests/fixtures`, `tests/conftest.py` keeps them out of
+  pytest's collection with `collect_ignore = ["fixtures"]`, and
   `.markdownlint-cli2.jsonc` ignores `packages/earnest/tests/fixtures/**`. CI
   then passes over the seeded defects, and pre-commit and the edit hook's
   `--fix` leave them as written.
@@ -484,12 +493,9 @@ Each decision refers to the tree in the File and directory tree section.
 ## Scope (v1)
 
 - This repository: the `earnest` package as the File and directory tree
-  section draws it, with one module per component, three test tiers and three
-  fixture repositories.
-- The AI-DLC fork in its own downstream-only repository, changed at exactly
-  the paths of the Fork delta section.
-- A runtime on the standard library, plus the judge's model SDK.
-- One test runner, pytest, with coverage reported on every run.
+  section draws it.
+- The AI-DLC fork, changed at exactly the paths of the Fork delta section.
+- Platforms: macOS and Linux.
 
 ## Future directions
 

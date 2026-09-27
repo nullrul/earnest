@@ -4,50 +4,54 @@
 
 **Goal:** Build the trace spine end to end: `earnest check` reads a repository's Markdown items and its Python, TypeScript and Gherkin tags, reports every broken link at file and line as a SARIF 2.1.0 log on stdout with a summary on stderr, places each `req` at untraced or traced, and exits non-zero on an error-level finding.
 
-**Architecture:** One pass along the Container pipeline of `01`: `git.py` lists the tracked files, the `adapters/` hand each file's Markdown, comment or tag lines to `index.py`, whose grammar builds the items, links, tag regions and near-misses; `structural.py` decides the link findings and which requirements are traced, and `reporter.py` writes SARIF and the summary; `cli.py` wires the pipeline and sets the exit code. No plan exists yet, so every finding reaches no stage and sits at position `current` with no `properties.stage`. The behavior feature over the `broken-links` fixture is written first and stays red until the last task.
+**Architecture:** One pass along the Container pipeline of `01`: `git.py` lists the files Git lists for the work tree, the `adapters/` hand each file's Markdown, comment or tag lines to `index.py`, whose grammar builds the items, links and near-misses and resolves each written id; `structural.py` turns the index into link findings and trace levels, and `reporter.py` writes SARIF and the summary; `cli.py` wires the pipeline and sets the exit code. No plan exists yet, so every finding reaches no stage and sits at position `current` with no `properties.stage`. The behavior feature over the `broken-links` fixture is written first and stays red until the last task.
 
-**Tech Stack:** Python 3.12 standard library at runtime (`argparse`, `tokenize`, `re`, `json`, `difflib`, `subprocess`, `bisect`); pytest with pytest-bdd 8.1 and pytest-cov; uv with hatchling; ruff, `mypy --strict`, vulture.
+**Tech Stack:** Python 3.12 standard library at runtime (`argparse`, `tokenize`, `re`, `json`, `difflib`, `subprocess`, `bisect`, `functools`, `urllib.parse`); pytest below 10 with pytest-bdd 8.1 and pytest-cov; uv with hatchling; ruff, `mypy --strict`, vulture.
 
 **Spec:** `docs/design/03-implementation-plan.md`, milestone M1 `trace_check`, and the sections its Context to load names in `docs/design/00-project-intent.md`, `docs/design/01-logic-design.md` and `docs/design/02-structural-design.md`; the scenarios are those of M1 in `docs/design/04-bdd-test-plan.md`.
 
 ## Global Constraints
 
-- Every path matches the File and directory tree of `02` verbatim: modules under `packages/earnest/src/earnest/`, tests under `packages/earnest/tests/`.
-- The runtime is the standard library alone (L4); the one new dependency is pytest-bdd, added to the `dev` extra with `uv add --optional dev pytest-bdd` in `packages/earnest` (L5).
+- Every path matches the File and directory tree of `02` verbatim: modules under `packages/earnest/src/earnest/`, tests under `packages/earnest/tests/`. The one addition is `tests/sarif.py`, the SARIF helpers that the three tiers share.
+- The runtime is the standard library alone (L4); the one new dependency is pytest-bdd, added to the `dev` extra with `uv add --optional dev pytest-bdd "pytest<10"` in `packages/earnest`, which also holds pytest below 10 (L5).
 - Lint bar (L1): ruff at "line length 120, complexity 10, five arguments, Google docstrings", `ruff format`, `mypy --strict` over `src/`, and vulture at `min_confidence = 80`; `make lint` runs all four.
-- "`earnest check` writes the SARIF log to stdout and the summary to stderr" (D13).
+- Platforms: macOS and Linux only.
+- `earnest check` reads "the files Git lists for the work tree: tracked files plus untracked files that are not ignored", which is `git ls-files -z --cached --others --exclude-standard --deduplicate`.
+- `earnest check` writes "the SARIF 2.1.0 log on stdout, and on stderr a human summary" (Command surface).
+- "The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when the check cannot run: Git cannot answer or a file cannot be read."
 - "A finding that reaches no stage has `properties.position` `current`, omits `properties.stage`, and its message opens with `in scope`"; with no plan yet, every M1 finding is one.
+- "The observations behind a finding travel under the result's `properties`": each M1 finding carries one, whose method is `trace`.
 - "Each requirement's trace level and the three percentages travel under the run's `properties`"; the commit and the layers run travel under the run's `invocations`.
-- "The exit code is non-zero only when an error-level finding exists at position behind or current."
 - SC1: two runs over an unchanged repository give the same SARIF bytes, so the log holds no timestamp, and its keys and results are sorted.
 - "No coverage threshold applies for now"; pytest reports coverage on every run.
-- L6: fixtures are plain files whose Git history `tests/conftest.py` builds at test time; `tests/fixtures` stays out of ruff, pytest collection and markdownlint.
+- L6: fixtures are plain files whose Git history `tests/conftest.py` builds at test time; `tests/fixtures` stays out of ruff, pytest collection (`collect_ignore` in `tests/conftest.py`) and markdownlint.
 - Run every command in `packages/earnest/` unless a step names the repository root, and start each task with `make install`.
 - Commit messages take the form `<type>: <description>`; before each commit, `git status --short` lists only the task's files.
 
 ## Review Focus
 
-- A design doc that quotes an item in a code fence, such as `` `req~login-rate-limit~2` `` or `Covers: FR1.2` in an example: fenced lines start, end and key no item, and raise no near-miss (Task 6).
-- `//` or tag-shaped text inside a TypeScript string or template literal, such as a URL: it is text, while a comment inside `${…}` still counts as a comment (Task 5).
+- A design doc that quotes an item in a code fence, such as `` `req~login-rate-limit~2` `` or `Covers: FR1.2` in an example: fenced lines start, end and key no item, and raise no near-miss (Tasks 3 and 6).
+- A regular expression literal in TypeScript, such as `` s.replace(/`/g, "") `` or `/\/*$/`: it opens no template literal and no comment, so the tags below it still count, while `//` or tag-shaped text inside a string or template literal stays text (Task 5).
 - A Python file that stops tokenizing halfway through an agent's edit: the tags above the error still count, and the check never crashes (Task 5).
-- `earnest check` run from a subdirectory, over file names with spaces or accents: the whole repository is read, and every path is relative to its root (Tasks 2 and 9).
-- `earnest check` outside a Git work tree: one line on stderr, exit code 2, nothing on stdout, no traceback (Task 9).
+- `earnest check` run from a subdirectory, over names with spaces or accents and files not yet staged: the whole work tree is read, and every path is relative to its root and percent-encoded in the SARIF `uri` (Tasks 2, 7 and 9).
+- `earnest check` outside a Git work tree, or over a file that is not UTF-8: one line on stderr, exit code 2, nothing on stdout, no traceback (Tasks 6 and 9).
 
 ## File Structure
 
 | Path under `packages/earnest/` | Responsibility | Task |
 | --- | --- | --- |
-| `pyproject.toml`, `uv.lock` | pytest-bdd, the fixture excludes, then the `earnest` script | 1, 9 |
-| `tests/conftest.py` | fixture repositories committed in `tmp_path` | 1, 2 |
+| `pyproject.toml`, `uv.lock` | pytest-bdd and the pytest pin, the fixture exclude, then the `earnest` script | 1, 9 |
+| `tests/conftest.py` | fixture repositories committed in `tmp_path`; the fixture collection ignore | 1, 2 |
+| `tests/sarif.py` | the SARIF helpers the tests share | 1 |
 | `tests/fixtures/broken-links/` | one seeded broken link of every kind, across four languages | 1 |
 | `tests/features/trace_check.feature` | M1's scenarios, verbatim from `04` | 1 |
 | `tests/steps/test_trace_check.py` | pytest-bdd steps; the exit command | 1 |
-| `src/earnest/git.py` | tracked files, work-tree root and commit, through Git | 2 |
-| `src/earnest/index.py` | the grammar: items, key lines, tags, regions, the Near-miss table | 3, 4 |
-| `src/earnest/adapters/python.py`, `typescript.py` | comment lines and code lines of each language | 5 |
+| `src/earnest/git.py` | the files Git lists for the work tree, its root and commit | 2 |
+| `src/earnest/index.py` | the grammar: items, key lines, tags, the Near-miss table, Reference resolution | 3, 4 |
+| `src/earnest/adapters/python.py`, `typescript.py` | the comment lines of each language | 5 |
 | `src/earnest/adapters/markdown.py`, `gherkin.py`, `__init__.py` | Markdown lines and fences, Gherkin tag lines, the adapter by suffix | 6 |
-| `src/earnest/reporter.py` | `Finding`, trace levels, percentages, SARIF 2.1.0, the summary | 7 |
-| `src/earnest/structural.py` | the link rules and whether each requirement is traced | 8 |
+| `src/earnest/reporter.py` | `Finding`, percentages, SARIF 2.1.0 with observations, the summary | 7 |
+| `src/earnest/structural.py` | the link rules and each requirement's trace level | 8 |
 | `src/earnest/cli.py` | `earnest check` and its exit code | 9 |
 
 Outside the package, Task 1 changes the repository root's `.markdownlint-cli2.jsonc` and the `lint-file` target of its `Makefile`, and Task 9 marks M1 done on the milestone DAG of `docs/design/03-implementation-plan.md`. Each module's unit test sits at `tests/unit/test_<module>.py`, each adapter's at `tests/unit/adapters/test_<language>.py`, and the end-to-end flow at `tests/integration/test_check.py`.
@@ -66,7 +70,7 @@ Outside the package, Task 1 changes the repository root's `.markdownlint-cli2.js
 - Modify: `Makefile` (the `*.py)` line of `lint-file`)
 - Move: `packages/earnest/tests/test_init.py` to `packages/earnest/tests/unit/test_init.py`
 - Create: `packages/earnest/tests/unit/__init__.py`, `packages/earnest/tests/steps/__init__.py`
-- Create: `packages/earnest/tests/conftest.py`
+- Create: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/sarif.py`
 - Create: `packages/earnest/tests/fixtures/broken-links/` with `docs/intent.md`, `docs/scope.md`, `docs/requirements.md`, `docs/plan.md`, `src/auth.py`, `tests/test_auth.py`, `tests/sign_in.feature`, `web/login.ts`
 - Create: `packages/earnest/tests/features/trace_check.feature`
 - Test: `packages/earnest/tests/steps/test_trace_check.py`
@@ -74,37 +78,37 @@ Outside the package, Task 1 changes the repository root's `.markdownlint-cli2.js
 **Interfaces:**
 
 - Consumes: nothing; the package holds only `earnest.__version__`.
-- Produces: the pytest fixture `fixture_repo`, a `Callable[[str], Path]` that copies `tests/fixtures/<name>` to `tmp_path / name`, commits it on `main` and returns the repository; the helper `_commit(repo: Path) -> Path` in `tests/conftest.py`, which Task 2 reuses; and the exit command `uv run pytest tests/steps/test_trace_check.py`, which runs the console script `earnest` beside `sys.executable` and stays red until Task 9 declares that script.
+- Produces, in `tests/conftest.py`: `collect_ignore = ["fixtures"]`; the pytest fixture `fixture_repo`, a `Callable[[str], Path]` that copies `tests/fixtures/<name>` to `tmp_path / name`, commits it on `main` and returns the repository; and the helpers `_git(repo: Path, *args: str) -> None` and `_commit(repo: Path) -> Path`, which Task 2 reuses.
+- Produces, in `tests/sarif.py`, the SARIF helpers every tier reads a log through: `sarif_run(text: str) -> dict`, the one run of the log in `text`, and `located(result: dict) -> tuple[str, int]`, a result's `uri` as written and its line.
+- Produces the exit command `uv run pytest tests/steps/test_trace_check.py`, which runs the console script `earnest` beside `sys.executable` and stays red until Task 9 declares that script.
 
-- [ ] **Step 1: Add pytest-bdd and keep the fixtures out of ruff and pytest**
+- [ ] **Step 1: Add pytest-bdd, pin pytest, and keep the fixtures out of ruff**
 
 Run:
 
 ```bash
 cd packages/earnest
 make install
-uv add --optional dev pytest-bdd
+uv add --optional dev pytest-bdd "pytest<10"
 ```
 
-Expected: `uv add` resolves `pytest-bdd` 8.1.0, installs it beside the rest of the `dev` extra, and appends it to the end of the `dev` list in `pyproject.toml`; `uv.lock` gains pytest-bdd, gherkin-official, Mako, parse and parse-type:
+Expected: `uv add` resolves pytest-bdd 8.1.0 and a pytest 9, turns `"pytest"` in the `dev` list of `pyproject.toml` into `"pytest<10"`, appends `"pytest-bdd>=8.1.0"` to the list's end, and adds pytest-bdd, gherkin-official, Mako, parse and parse-type to `uv.lock`.
+
+pytest-bdd 8.1.0 calls two fixture APIs that pytest 9 deprecates and pytest 10 removes. The filter added below keeps pytest 9's warnings from failing the run, and the pin keeps pytest 10 out; a comment ties the two together. In `packages/earnest/pyproject.toml`, replace:
 
 ```toml
-[project.optional-dependencies]
-dev = [
-    "mypy",
-    "pre-commit",
-    "ruff",
-    "taskipy",
-    "pytest",
-    "pytest-cov",
-    "pytest-asyncio",
-    "hypothesis>=6.100",
-    "vulture>=2.14",
-    "pytest-bdd>=8.1.0",
-]
+    "pytest<10",
 ```
 
-`[tool.ruff]` gains the fixture exclude. In `packages/earnest/pyproject.toml`, replace:
+with:
+
+```toml
+    # pytest-bdd 8.1 calls pytest APIs that pytest 9 deprecates and pytest 10 removes: the
+    # "Passing (nodeid|baseid) to" warning filter below covers pytest 9, and this pin keeps pytest 10 out.
+    "pytest<10",
+```
+
+`[tool.ruff]` gains the fixture exclude. In the same file, replace:
 
 ```toml
 src = ["src", "tests"]
@@ -117,7 +121,7 @@ src = ["src", "tests"]
 extend-exclude = ["tests/fixtures"]
 ```
 
-`[tool.pytest.ini_options]` gains the collection ignore on `addopts`, the features directory, and one warning filter. pytest-bdd 8.1.0 calls two fixture APIs that pytest 9 deprecates, and the `"error"` filter would turn those warnings into failures. In the same file, replace:
+`[tool.pytest.ini_options]` gains the features directory and the warning filter, since the `"error"` filter would turn pytest 9's deprecation warnings into failures. The fixtures stay out of pytest's collection through `collect_ignore` in `tests/conftest.py` (Step 5). In the same file, replace:
 
 ```toml
 addopts = "--cov=earnest --cov-report=term-missing"
@@ -131,7 +135,7 @@ filterwarnings = [
 with:
 
 ```toml
-addopts = "--cov=earnest --cov-report=term-missing --ignore=tests/fixtures"
+addopts = "--cov=earnest --cov-report=term-missing"
 bdd_features_base_dir = "tests/features"
 filterwarnings = [
     "error",
@@ -156,10 +160,11 @@ The edit hook runs the root `Makefile`'s `lint-file` target from the repository 
 
 ```bash
 perl -pi -e 's/ruff format -- /ruff format --force-exclude -- /; s/ruff check --fix -- /ruff check --force-exclude --fix -- /' Makefile
-grep -c 'ruff format --force-exclude -- "$$LINT_FILE" && uv run --project packages/earnest --all-extras ruff check --force-exclude --fix' Makefile
+grep -cF 'ruff format --force-exclude -- ' Makefile
+grep -cF 'ruff check --force-exclude --fix -- ' Makefile
 ```
 
-Expected: `1`.
+Expected: `1`, then `1`: the `*.py)` line now carries `--force-exclude` in both calls.
 
 - [ ] **Step 3: Move the version test into the unit tier**
 
@@ -260,6 +265,19 @@ Wire the rate limiter into the sign-in handler.
 
 Delivers: req~Rate-Limit~1
 Depends: task~set_up~1
+
+`task~notify~1` Tell the member when to try again
+
+`task~audit~1`
+
+Record each sign-in.
+
+**Delivers:** req~audit-log~1
+Depends: task~wire-limiter~1,
+
+`tsk~expire~1`
+
+End idle sessions.
 ```
 
 Create `packages/earnest/tests/fixtures/broken-links/src/auth.py`:
@@ -303,7 +321,7 @@ def test_refuse_after_five_failures() -> None:
     assert refuse(5)
 
 
-# [utest->req~session-expiry~1]
+# [ utest -> req~session-expiry~1 ]
 # [itest->req~rate-limit~1]
 def test_expired_after_thirty_minutes() -> None:
     """A session idle for thirty minutes has expired."""
@@ -355,9 +373,9 @@ export function banner(): string {
 }
 ```
 
-- [ ] **Step 5: Write the fixture builder**
+- [ ] **Step 5: Write the fixture builder and the SARIF helpers**
 
-Create `packages/earnest/tests/conftest.py`:
+`collect_ignore` keeps pytest from collecting the fixtures' own test files, such as `broken-links/tests/test_auth.py`. Create `packages/earnest/tests/conftest.py`:
 
 ```python
 """Shared fixtures: fixture repositories, their Git history built in tmp_path at test time."""
@@ -371,25 +389,22 @@ from pathlib import Path
 import pytest
 
 
+collect_ignore = ["fixtures"]  # fixture repositories are data, and their tests are not this package's
+
 FIXTURES = Path(__file__).parent / "fixtures"
 _GIT_ENV = {
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_AUTHOR_NAME": "Earnest Fixture",
     "GIT_AUTHOR_EMAIL": "fixture@example.com",
-    "GIT_AUTHOR_DATE": "2026-09-26T12:00:00+00:00",
     "GIT_COMMITTER_NAME": "Earnest Fixture",
     "GIT_COMMITTER_EMAIL": "fixture@example.com",
-    "GIT_COMMITTER_DATE": "2026-09-26T12:00:00+00:00",
 }
 
 
-def _git(repo: Path, *args: str) -> str:
-    """Run git in repo, shut off from the user's own Git configuration, and return its output."""
-    done = subprocess.run(
-        ["git", *args], cwd=repo, env={**os.environ, **_GIT_ENV}, capture_output=True, text=True, check=True
-    )
-    return done.stdout
+def _git(repo: Path, *args: str) -> None:
+    """Run git in repo, shut off from the user's own Git configuration."""
+    subprocess.run(["git", *args], cwd=repo, env={**os.environ, **_GIT_ENV}, capture_output=True, check=True)
 
 
 def _commit(repo: Path) -> Path:
@@ -409,6 +424,26 @@ def fixture_repo(tmp_path: Path) -> Callable[[str], Path]:
         return _commit(repo)
 
     return build
+```
+
+The step module, the reporter's unit test and the integration test all read a SARIF log; its helpers live in one place. Create `packages/earnest/tests/sarif.py`:
+
+```python
+"""SARIF helpers the tests share: the one run in a log, and where a result sits."""
+
+import json
+
+
+def sarif_run(text):
+    """Return the one run of the SARIF log in text."""
+    (run,) = json.loads(text)["runs"]
+    return run
+
+
+def located(result):
+    """Return a result's file, as its percent-encoded uri, and its line."""
+    location = result["locations"][0]["physicalLocation"]
+    return location["artifactLocation"]["uri"], location["region"]["startLine"]
 ```
 
 - [ ] **Step 6: Write the feature, verbatim from the M1 section of `04`**
@@ -434,6 +469,10 @@ Feature: Trace check
       | rule              | file                  | line |
       | earnest/near-miss | docs/plan.md          | 7    |
       | earnest/near-miss | docs/plan.md          | 8    |
+      | earnest/near-miss | docs/plan.md          | 10   |
+      | earnest/near-miss | docs/plan.md          | 16   |
+      | earnest/near-miss | docs/plan.md          | 17   |
+      | earnest/near-miss | docs/plan.md          | 19   |
       | earnest/gap       | docs/requirements.md  | 11   |
       | earnest/orphaned  | docs/requirements.md  | 18   |
       | earnest/near-miss | docs/requirements.md  | 22   |
@@ -452,6 +491,7 @@ Feature: Trace check
       | earnest/outdated  | web/login.ts          | 3    |
       | earnest/near-miss | web/login.ts          | 13   |
     And every finding is in scope at position current, with no stage
+    And every finding carries the trace observation behind it
 
   Scenario: Every finding names the change that fixes it (SC10)
     When the coding agent runs earnest check
@@ -459,6 +499,10 @@ Feature: Trace check
       | file                  | line | fix                                                                   |
       | docs/plan.md          | 7    | lower-case the name                                                   |
       | docs/plan.md          | 8    | rewrite it as `type~name~revision`                                    |
+      | docs/plan.md          | 10   | put the id alone on its line and move the text into the body          |
+      | docs/plan.md          | 16   | write the key exactly as `Delivers: `                                 |
+      | docs/plan.md          | 17   | name at least one id, separated by `, `, with no empty entry          |
+      | docs/plan.md          | 19   | use a known item type, such as `task`                                 |
       | docs/requirements.md  | 11   | tag a unit test that verifies it with `[utest->req~lockout-notice~2]` |
       | docs/requirements.md  | 18   | add a `Covers:` line naming the `feat` it derives from                |
       | docs/requirements.md  | 22   | such as `impl, utest`                                                 |
@@ -508,6 +552,8 @@ from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
 
+from tests.sarif import located, sarif_run
+
 
 scenarios("trace_check.feature")
 
@@ -517,17 +563,6 @@ EARNEST = Path(sys.executable).with_name("earnest")
 def run_check(repo):
     """Run `earnest check` in repo, as the coding agent does."""
     return subprocess.run([str(EARNEST), "check"], cwd=repo, capture_output=True, text=True, check=False)
-
-
-def sarif_run(run):
-    """Return the one SARIF run in the log on stdout."""
-    return json.loads(run.stdout)["runs"][0]
-
-
-def located(result):
-    """Return a result's file and line."""
-    location = result["locations"][0]["physicalLocation"]
-    return location["artifactLocation"]["uri"], location["region"]["startLine"]
 
 
 def rows(datatable):
@@ -564,20 +599,31 @@ def same_log(runs):
 @then("the SARIF log holds exactly these findings:")
 def exact_findings(run, datatable):
     expected = sorted((row["rule"], row["file"], int(row["line"])) for row in rows(datatable))
-    actual = sorted((result["ruleId"], *located(result)) for result in sarif_run(run)["results"])
+    actual = sorted((result["ruleId"], *located(result)) for result in sarif_run(run.stdout)["results"])
     assert actual == expected
 
 
 @then("every finding is in scope at position current, with no stage")
 def all_current(run):
-    for result in sarif_run(run)["results"]:
-        assert result["properties"] == {"position": "current"}
+    for result in sarif_run(run.stdout)["results"]:
+        assert result["properties"]["position"] == "current"
+        assert "stage" not in result["properties"]
         assert result["message"]["text"].startswith("in scope: ")
+
+
+@then("every finding carries the trace observation behind it")
+def observations(run):
+    for result in sarif_run(run.stdout)["results"]:
+        (observation,) = result["properties"]["observations"]
+        assert observation["method"] == "trace"
+        assert observation["result"] == result["ruleId"].removeprefix("earnest/")
+        assert observation["location"] == result["locations"][0]["physicalLocation"]
+        assert f"`{observation['subject']}`" in result["message"]["text"]
 
 
 @then("each finding at these places names its fix:")
 def findings_name_fix(run, datatable):
-    results = sarif_run(run)["results"]
+    results = sarif_run(run.stdout)["results"]
     for row in rows(datatable):
         texts = [r["message"]["text"] for r in results if located(r) == (row["file"], int(row["line"]))]
         assert any(row["fix"] in text for text in texts), (row, texts)
@@ -586,12 +632,12 @@ def findings_name_fix(run, datatable):
 @then("the SARIF log gives each requirement one trace level:")
 def trace_levels(run, datatable):
     expected = {row["requirement"]: row["level"] for row in rows(datatable)}
-    assert sarif_run(run)["properties"]["traceLevels"] == expected
+    assert sarif_run(run.stdout)["properties"]["traceLevels"] == expected
 
 
 @then("each untraced requirement has a located finding that names it")
 def untraced_have_reasons(run):
-    run_log = sarif_run(run)
+    run_log = sarif_run(run.stdout)
     for requirement, level in run_log["properties"]["traceLevels"].items():
         if level == "untraced":
             assert any(f"`{requirement}`" in result["message"]["text"] for result in run_log["results"]), requirement
@@ -599,7 +645,7 @@ def untraced_have_reasons(run):
 
 @then(parsers.parse("the SARIF log gives the traced percentage as {percent:d}"))
 def traced_percentage(run, percent):
-    assert sarif_run(run)["properties"]["percentages"]["traced"] == percent
+    assert sarif_run(run.stdout)["properties"]["percentages"]["traced"] == percent
 
 
 @then(parsers.parse('the summary leads with "{text}"'))
@@ -610,7 +656,7 @@ def summary_leads(run, text):
 @then("the check exits non-zero, with the SARIF log on stdout")
 def exits_non_zero(run):
     assert run.returncode != 0
-    assert sarif_run(run)["results"]
+    assert sarif_run(run.stdout)["results"]
 ```
 
 - [ ] **Step 8: Run the exit command and watch it fail**
@@ -639,18 +685,18 @@ git commit -m "test: add the trace_check feature and the broken-links fixture"
 **Files:**
 
 - Create: `packages/earnest/src/earnest/git.py`
-- Modify: `packages/earnest/tests/conftest.py` (append the `files_repo` fixture)
+- Modify: `packages/earnest/tests/conftest.py` (append the `files_repo` and `git_run` fixtures)
 - Test: `packages/earnest/tests/unit/test_git.py`
 
 **Interfaces:**
 
-- Consumes: `_commit(repo: Path) -> Path` from `tests/conftest.py` (Task 1).
+- Consumes: `_git(repo: Path, *args: str) -> None` and `_commit(repo: Path) -> Path` from `tests/conftest.py` (Task 1).
 - Produces, in `earnest.git`:
-  - `class GitError(Exception)`, raised when Git cannot answer, its message Git's own stderr line.
+  - `class GitError(Exception)`, raised when Git cannot answer; its message is Git's first non-empty stderr line.
   - `repo_root(cwd: Path) -> Path`: the top of the work tree that holds `cwd`.
-  - `tracked_files(root: Path) -> list[str]`: every tracked path relative to `root`, with forward slashes, in Git's order.
+  - `work_tree_files(root: Path) -> list[str]`: the files Git lists for the work tree, tracked files plus untracked files that are not ignored, each relative to `root` with forward slashes, in Git's order, and a file in a merge conflict once.
   - `head_commit(root: Path) -> str`: the full sha of `HEAD`.
-- Produces, in `tests/conftest.py`: the fixture `files_repo`, a `Callable[[dict[str, str]], Path]` that writes the given files under `tmp_path / "repo"`, commits them on `main` and returns the repository.
+- Produces, in `tests/conftest.py`: the fixture `files_repo`, a `Callable[[dict[str, str]], Path]` that writes the given files under `tmp_path / "repo"`, commits them on `main` and returns the repository; and the fixture `git_run`, which returns `_git` for a test that adds history of its own.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -671,12 +717,18 @@ def files_repo(tmp_path: Path) -> Callable[[dict[str, str]], Path]:
         return _commit(repo)
 
     return build
+
+
+@pytest.fixture
+def git_run() -> Callable[..., None]:
+    """Return the runner that builds fixture history, for a test that adds history of its own."""
+    return _git
 ```
 
-Create `packages/earnest/tests/unit/test_git.py`:
+Create `packages/earnest/tests/unit/test_git.py`. `read-tree -m` with a base, our and their tree leaves a path changed on both sides in the index three times, as a merge that stops on a conflict does, and exits 0. Git's own messages depend on the locale, so the test that reads one runs Git with `LC_ALL=C`:
 
 ```python
-"""Tests for earnest.git: the work tree's root, its tracked files and its commit."""
+"""Tests for earnest.git: the work tree's root, the files Git lists for it, and its commit."""
 
 import re
 
@@ -685,9 +737,26 @@ import pytest
 from earnest import git
 
 
-def test_tracked_files_are_relative_to_the_root_even_with_spaces_and_accents(files_repo):
+def test_work_tree_files_are_relative_to_the_root_even_with_spaces_and_accents(files_repo):
     repo = files_repo({"docs/a b.md": "a\n", "src/né.py": "x = 1\n", "top.ts": "let y = 2;\n"})
-    assert git.tracked_files(repo) == ["docs/a b.md", "src/né.py", "top.ts"]
+    assert git.work_tree_files(repo) == ["docs/a b.md", "src/né.py", "top.ts"]
+
+
+def test_untracked_files_count_and_ignored_ones_do_not(files_repo):
+    repo = files_repo({".gitignore": "build/\n", "a.md": "a\n"})
+    (repo / "b.md").write_text("b\n", encoding="utf-8")
+    (repo / "build").mkdir()
+    (repo / "build" / "c.md").write_text("c\n", encoding="utf-8")
+    assert sorted(git.work_tree_files(repo)) == [".gitignore", "a.md", "b.md"]
+
+
+def test_a_file_in_a_merge_conflict_is_listed_once(files_repo, git_run):
+    repo = files_repo({"a.md": "base\n"})
+    for text in ("theirs\n", "ours\n"):
+        (repo / "a.md").write_text(text, encoding="utf-8")
+        git_run(repo, "commit", "-q", "-a", "-m", text.strip())
+    git_run(repo, "read-tree", "-m", "HEAD~2", "HEAD", "HEAD~1")  # base, ours, theirs: a.md takes three index stages
+    assert git.work_tree_files(repo) == ["a.md"]
 
 
 def test_the_root_of_a_subdirectory_is_the_top_of_the_work_tree(files_repo):
@@ -700,9 +769,12 @@ def test_the_head_commit_is_a_full_sha(files_repo):
     assert re.fullmatch(r"[0-9a-f]{40}", git.head_commit(repo))
 
 
-def test_a_directory_outside_any_work_tree_raises_git_error(tmp_path):
-    with pytest.raises(git.GitError, match="not a git repository"):
+def test_a_directory_outside_any_work_tree_raises_git_errors_first_line(tmp_path, monkeypatch):
+    monkeypatch.setenv("LC_ALL", "C")
+    with pytest.raises(git.GitError) as error:
         git.repo_root(tmp_path)
+    assert str(error.value).startswith("fatal: not a git repository")
+    assert "\n" not in str(error.value)
 
 
 def test_a_missing_git_raises_git_error(tmp_path, monkeypatch):
@@ -719,10 +791,10 @@ Expected: FAIL at collection with `ImportError: cannot import name 'git' from 'e
 
 - [ ] **Step 3: Write `git.py`**
 
-Create `packages/earnest/src/earnest/git.py`. `ls-files -z` keeps names with spaces and accents unquoted, and `--show-toplevel` makes a check from a subdirectory read the whole repository. `shutil.which` gives the absolute path ruff's S607 asks for; S603 stays, with its `noqa`, because every argument is a fixed Git subcommand:
+Create `packages/earnest/src/earnest/git.py`. `ls-files` lists the files the shared decision names: `--cached` the tracked files, `--others --exclude-standard` the untracked files that are not ignored, and `--deduplicate` a conflicted path once where the index holds it three times. `-z` keeps names with spaces and accents unquoted, and `--show-toplevel` makes a check from a subdirectory read the whole work tree. Git's output decodes with `surrogateescape`, so a name that is not UTF-8 still reaches the file system intact. A failure keeps only Git's first non-empty stderr line, since Git adds a second line when discovery stops at a mount point. `shutil.which` gives the absolute path ruff's S607 asks for; S603 stays, with its `noqa`, because every argument is a fixed Git subcommand:
 
 ```python
-"""Repository reader: the work tree's root, its tracked files and its commit, read through Git."""
+"""Repository reader: the work tree's root, the files Git lists for it, and its commit, read through Git."""
 
 import shutil
 import subprocess
@@ -730,17 +802,21 @@ from pathlib import Path
 
 
 class GitError(Exception):
-    """Git could not answer: no work tree, no commit, or no `git` on the PATH."""
+    """Git could not answer: no work tree, no commit, or no `git` on the PATH; the message is Git's first line."""
 
 
 def repo_root(cwd: Path) -> Path:
     """Return the top of the work tree that holds cwd, so a check run in a subdirectory reads the whole repository."""
-    return Path(_git(cwd, "rev-parse", "--show-toplevel").strip())
+    return Path(_git(cwd, "rev-parse", "--show-toplevel").removesuffix("\n"))
 
 
-def tracked_files(root: Path) -> list[str]:
-    """Return every tracked path relative to root, with forward slashes, in Git's order."""
-    return [path for path in _git(root, "ls-files", "-z").split("\0") if path]
+def work_tree_files(root: Path) -> list[str]:
+    """Return the files Git lists for the work tree: tracked files plus untracked files that are not ignored.
+
+    Each path is relative to root, with forward slashes, in Git's order, and a file in a merge conflict comes once.
+    """
+    listed = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--deduplicate")
+    return [path for path in listed.split("\0") if path]
 
 
 def head_commit(root: Path) -> str:
@@ -753,10 +829,12 @@ def _git(cwd: Path, *args: str) -> str:
     if executable is None:
         msg = "git is not on the PATH"
         raise GitError(msg)
-    try:
-        done = subprocess.run([executable, *args], cwd=cwd, capture_output=True, text=True, check=True)  # noqa: S603
-    except subprocess.CalledProcessError as error:
-        raise GitError(error.stderr.strip()) from error
+    done = subprocess.run(  # noqa: S603
+        [executable, *args], cwd=cwd, capture_output=True, encoding="utf-8", errors="surrogateescape", check=False
+    )
+    if done.returncode != 0:
+        msg = next((line.strip() for line in done.stderr.splitlines() if line.strip()), f"git {args[0]} failed")
+        raise GitError(msg)
     return done.stdout
 ```
 
@@ -764,13 +842,13 @@ def _git(cwd: Path, *args: str) -> str:
 
 Run: `uv run pytest tests/unit/test_git.py -v && make lint`
 
-Expected: `5 passed`, then `make lint` exits 0.
+Expected: `7 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/earnest/git.py tests/conftest.py tests/unit/test_git.py
-git commit -m "feat: read the work tree, tracked files and commit through git"
+git commit -m "feat: read the work tree's files, root and commit through git"
 ```
 
 ### Task 3: The Markdown grammar and the Near-miss table, `index.py`
@@ -784,14 +862,15 @@ git commit -m "feat: read the work tree, tracked files and commit through git"
 
 - Consumes: nothing from earlier tasks.
 - Produces, in `earnest.index`; later tasks use exactly these names and fields:
-  - Surface names `MARKDOWN = "markdown"`, `COMMENT = "comment"`, `GHERKIN = "gherkin"`.
+  - Surface names `MARKDOWN = "markdown"`, `COMMENT = "comment"`, `GHERKIN = "gherkin"`, and `TYPES`, the eleven item types of the Item types table.
   - `Line(number: int, text: str)`, frozen.
-  - `Source(path: str, surface: str, lines: tuple[Line, ...], code_lines: frozenset[int], line_count: int)`, frozen. For Markdown, `lines` holds every line and `code_lines` the fenced ones; for the comment and Gherkin surfaces, `lines` holds the comment or tag lines and `code_lines` the lines that hold code.
-  - `Id(type: str, name: str, revision: int)`, frozen and ordered; `str(id)` gives `type~name~revision`.
+  - `split_lines(text: str) -> tuple[Line, ...]`: text's lines numbered from 1, split at each newline alone, as Git counts them. Every adapter that splits text itself uses it.
+  - `Source(path: str, surface: str, lines: tuple[Line, ...], fenced: frozenset[int] = frozenset())`, frozen. For Markdown, `lines` holds every line and `fenced` the fenced ones; for the comment and Gherkin surfaces, `lines` holds the comment or tag lines.
+  - `Id(type: str, name: str, revision: int)`, frozen; `str(id)` gives `type~name~revision`, and `id.key -> tuple[str, str]` gives the type and name, which pick the item an id names.
   - `Item(id: Id, path: str, line: int, needs: tuple[str, ...] | None = None)`, frozen; `needs` is None without a valid `Needs:` line.
-  - `Link(key: str, type: str, target: Id, path: str, line: int, owner: Id | None = None, region: tuple[int, int] | None = None)`, frozen; `key` is `Covers`, `Drivers`, `Delivers` or `Depends`, `type` the naming item's type or the tag's artifact type, `owner` the item whose key line names `target`.
+  - `Link(key: str, type: str, target: Id, path: str, line: int, owner: Id | None = None)`, frozen; `key` is `Covers`, `Drivers`, `Delivers` or `Depends`, `type` the naming item's type or the tag's artifact type, `owner` the item whose key line names `target`.
   - `NearMiss(path: str, line: int, text: str, fix: str)`, frozen.
-  - `Index(items: tuple[Item, ...], links: tuple[Link, ...], near_misses: tuple[NearMiss, ...])`, frozen, with `defined() -> dict[tuple[str, str], Item]`, the first item of each type and name.
+  - `Index(items: tuple[Item, ...], links: tuple[Link, ...], near_misses: tuple[NearMiss, ...])`, frozen, whose `defined` is a `functools.cached_property`, `dict[tuple[str, str], Item]`: the first item of each `Id.key`.
   - `build_index(sources: Iterable[Source]) -> Index`; this task reads Markdown sources, and Task 4 adds the tag surfaces.
 
 - [ ] **Step 1: Write the failing tests**
@@ -799,22 +878,27 @@ git commit -m "feat: read the work tree, tracked files and commit through git"
 Create `packages/earnest/tests/unit/test_index.py`:
 
 ```python
-"""Tests for earnest.index: the grammar, the Near-miss table and the Region rule."""
+"""Tests for earnest.index: the grammar, the Near-miss table and Reference resolution."""
 
 import pytest
 
-from earnest.index import MARKDOWN, Id, Item, Line, Source, build_index
+from earnest.index import MARKDOWN, Id, Item, Line, Source, build_index, split_lines
 
 
 def markdown(text, fenced=frozenset()):
-    lines = tuple(Line(number, raw) for number, raw in enumerate(text.splitlines(), start=1))
-    return Source("docs/a.md", MARKDOWN, lines, fenced, len(lines))
+    return Source("docs/a.md", MARKDOWN, split_lines(text), fenced)
+
+
+def test_lines_split_at_each_newline_alone_as_git_counts_them():
+    assert split_lines("a\rb\x0bc\x0cd\x1ce\x85f\ng\n") == (Line(1, "a\rb\x0bc\x0cd\x1ce\x85f"), Line(2, "g"))
+    assert split_lines("a\n\nb") == (Line(1, "a"), Line(2, ""), Line(3, "b"))
+    assert split_lines("") == ()
 
 
 def test_an_item_runs_from_its_id_line_to_the_next_id_line_or_heading():
     text = (
         "`req~a~2`\n\nWhen x, the s shall y.\n\nNeeds: impl, itest\nCovers: feat~f~1, feat~g~1\n"
-        "### `req~b~1`\n\nCovers: feat~f~1\n## Notes\n\nCovers: feat~h~1\n"
+        "### `req~b~1`\n\nCovers: feat~f~1\n   ## Notes\n\nCovers: feat~h~1\n"
     )
     index = build_index([markdown(text)])
     assert index.items == (
@@ -829,16 +913,31 @@ def test_an_item_runs_from_its_id_line_to_the_next_id_line_or_heading():
     assert index.near_misses == ()
 
 
+@pytest.mark.parametrize("underline", ["===", "---", "  ==="])
+def test_a_setext_heading_ends_the_item_before_its_text_line(underline):
+    index = build_index([markdown(f"`req~a~1`\n\nCovers: feat~f~1\nNotes\n{underline}\nCovers: feat~g~1\n")])
+    assert [str(link.target) for link in index.links] == ["feat~f~1"]
+
+
+def test_a_line_of_dashes_after_a_blank_line_is_a_break_that_leaves_the_item_open():
+    index = build_index([markdown("`req~a~1`\n\n---\nCovers: feat~f~1\n")])
+    assert [str(link.target) for link in index.links] == ["feat~f~1"]
+
+
 @pytest.mark.parametrize(
     ("line", "fix"),
     [
         ("`req~x`", "append `~` and the item's current revision"),
         ("### `req~Login~1`", "lower-case the name"),
         ("`req~login_rate~1`", "rewrite it as `type~name~revision` in backticks"),
+        ("`req~b~1` Login rate limit", "put the id alone on its line and move the text into the body"),
+        ("## `req~b~1` Login rate limit", "put the id alone on its line and move the text into the body"),
+        ("`rq~rate-limit~1`", "use a known item type, such as `req`"),
     ],
 )
 def test_a_malformed_id_line_is_a_near_miss_that_ends_the_item_above(line, fix):
     index = build_index([markdown(f"`req~a~1`\n{line}\nCovers: feat~f~1\n")])
+    assert [str(item.id) for item in index.items] == ["req~a~1"]
     (miss,) = index.near_misses
     assert miss.line == 2
     assert miss.fix.startswith(fix)
@@ -852,8 +951,13 @@ def test_a_malformed_id_line_is_a_near_miss_that_ends_the_item_above(line, fix):
         ("Covers: feat~x", "feat~x", "append `~`"),
         ("Delivers: req~Login~1", "req~Login~1", "lower-case the name"),
         ("Depends: task~set_up~1", "task~set_up~1", "rewrite it as `type~name~revision`"),
+        ("Covers: fet~f~1", "fet~f~1", "use a known item type, such as `feat`"),
+        ("Covers: @stest feat~f~1", "@stest feat~f~1", "rewrite it as `type~name~revision`"),
         ("Needs: impl utest", "impl utest", "rewrite it as item types"),
-        ("Override: req~a~1 implemented 3f9c2a1, why", "req~a~1 implemented 3f9c2a1, why", "rewrite it as `type~"),
+        ("Needs: impl, utst", "impl, utst", "use a known item type, such as `utest`"),
+        ("Covers:", "Covers:", "name at least one id, separated by `, `, with no empty entry"),
+        ("Covers: feat~f~1,", "Covers: feat~f~1,", "name at least one id"),
+        ("Covers: , feat~f~1", "Covers: , feat~f~1", "name at least one id"),
     ],
 )
 def test_a_key_line_value_that_fails_its_grammar_is_a_near_miss(line, text, fix):
@@ -863,8 +967,33 @@ def test_a_key_line_value_that_fails_its_grammar_is_a_near_miss(line, text, fix)
     assert miss.fix.startswith(fix)
 
 
-def test_a_valid_needs_line_and_override_parse_cleanly():
-    text = "`req~a~1`\nNeeds: impl, utest\nOverride: req~a~1 implemented at 3f9c2a1, lives in the gateway\n"
+@pytest.mark.parametrize(
+    ("line", "key"),
+    [
+        ("**Covers:** feat~f~1", "Covers"),
+        ("covers: feat~f~1", "Covers"),
+        ("Covers:feat~f~1", "Covers"),
+        ("_Needs_: impl", "Needs"),
+        ("Delivers :  req~a~1", "Delivers"),
+    ],
+)
+def test_a_key_not_written_exactly_is_a_near_miss_that_names_the_key(line, key):
+    index = build_index([markdown(f"`req~a~1`\n{line}\n")])
+    (miss,) = index.near_misses
+    assert miss.text == line
+    assert miss.fix == (
+        f"write the key exactly as `{key}: `, with a capital, no formatting and one space after the colon"
+    )
+    assert index.links == ()
+
+
+def test_the_entries_beside_an_empty_one_still_link():
+    index = build_index([markdown("`req~a~1`\nCovers: feat~f~1,\n")])
+    assert [str(link.target) for link in index.links] == ["feat~f~1"]
+
+
+def test_a_valid_needs_line_and_an_override_line_parse_cleanly():
+    text = "`req~a~1`\nNeeds: impl, utest\nOverride: anything until the judge reads it\n"
     index = build_index([markdown(text)])
     assert index.items[0].needs == ("impl", "utest")
     assert index.near_misses == ()
@@ -881,7 +1010,7 @@ def test_fenced_lines_never_start_end_or_key_an_item():
 def test_defined_keeps_the_first_item_of_each_type_and_name():
     index = build_index([markdown("`req~a~1`\n`req~a~2`\n")])
     assert len(index.items) == 2
-    assert index.defined()[("req", "a")].line == 1
+    assert index.defined[Id("req", "a", 2).key].line == 1
 ```
 
 - [ ] **Step 2: Run the tests and watch them fail**
@@ -892,50 +1021,63 @@ Expected: FAIL at collection with `ModuleNotFoundError: No module named 'earnest
 
 - [ ] **Step 3: Write `index.py` with the Markdown grammar**
 
-The item-span rule of the Grammar section: an item runs from its id line to the next id line, the next heading or the end of the file; fenced lines are body and never start, end or key an item; a key, a colon and a space make a key line even when the value fails; a malformed id line ends the item above it. `_FIXES` is the Near-miss table in order, and the last row's fix quotes the form the text's place takes.
+The item-span rule of the Grammar section: an item runs from its id line to the next id line, the next heading or the end of the file. A heading is ATX, one to six `#` after up to three spaces, or setext, a text line above a line of `=` or `-`, and a setext heading ends the item before its text line. Fenced lines are body and never start, end or key an item. A line that opens with a key name and a colon is a key line even when it fails the grammar, whatever its letter case, emphasis or spacing. A malformed id line, one with text after the id among them, ends the item above it.
+
+`_ID` takes its type from `TYPES`, so an unknown type fails the grammar like any other mismatch. `_FIXES` holds the pattern rows of the Near-miss table in order. `_keys` checks the two rows that read a whole key line, a key not written exactly and an empty value, before any entry reaches the table, and `_fix` checks the unknown-type row after the pattern rows, then falls back to the form the text's place takes. `split_lines` splits at each newline alone: `str.splitlines` also splits at a form feed or a line separator, which would shift every line number below it.
 
 Create `packages/earnest/src/earnest/index.py`:
 
 ```python
 """Grammar and index: items, links and near-misses from the lines the host adapters hand over."""
 
+import difflib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from functools import cached_property
 
 
 MARKDOWN = "markdown"
 COMMENT = "comment"
 GHERKIN = "gherkin"
+TYPES = ("tenet", "goal", "feat", "req", "dsn", "unit", "task", "impl", "utest", "itest", "stest")
 
-_ID = r"([a-z]+)~([a-z0-9-]+)~([1-9][0-9]*)"
+_TYPE = f"({'|'.join(TYPES)})"
+_ID = rf"{_TYPE}~([a-z0-9-]+)~([1-9][0-9]*)"
 _ID_ENTRY = re.compile(_ID)
-_ID_LINE = re.compile(rf"(?:#+ )?`{_ID}`")
-_LOOSE_ID_LINE = re.compile(r"(?:#+[ \t]+)?`([^`]*~[^`]*)`")
-_HEADING = re.compile(r"#{1,6}(?:[ \t]|$)")
-_KEY_LINE = re.compile(r"(Needs|Covers|Drivers|Delivers|Depends|Override): (.*)")
-_VALUE_FORMS = {
-    "Needs": re.compile(r"[a-z]+(?:, [a-z]+)*"),
-    "Override": re.compile(rf"{_ID} (?:implemented|tested) at [0-9a-f]+,.+"),
-}
+_ID_LINE = re.compile(r" {0,3}(?:#{1,6}[ \t]+)?`([^`]*~[^`]*)`(.*)")
+_ATX_HEADING = re.compile(r" {0,3}#{1,6}(?:[ \t]|$)")
+_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
+_KEY = re.compile(r"[*_]*(needs|covers|drivers|delivers|depends|override)[*_]*[ \t]*:", re.IGNORECASE)
+_KEY_LINE = re.compile(r"(Needs|Covers|Drivers|Delivers|Depends|Override):(?: (\S.*))?")
+_NEEDS = re.compile(rf"{_TYPE}(?:, {_TYPE})*")
+_TYPE_SLOT = re.compile(r"(?:^|[\[@:>,]\s*)([a-z]+)(?=\s*(?:->|[:~,]|$))")
 
-# The Near-miss table of the logic design, in order; the first pattern that fits gives the canned fix.
-_FIXES = (
-    (re.compile(r"\[[a-z]+-[^>]"), "write `->` between the artifact type and the id"),
-    (re.compile(r"(?:^|->|:)[A-Za-z]+~[^~\s\]]+\]?$"), "append `~` and the item's current revision"),
-    (re.compile(r"[a-z]+~[^~\s]*[A-Z][^~\s]*~"), "lower-case the name"),
-    (re.compile(r"^@[a-z]+[ \t]+[a-z]+~"), "put `:` between the artifact type and the id"),
+# The Near-miss table of the logic design, in order, for text that fails the grammar of its place: the first row that
+# applies at that place (None for every place) and whose pattern fits gives the canned fix. `_keys` checks the key and
+# empty-value rows on a whole key line before its entries reach this table, and `_fix` the unknown-type row after it.
+_FIXES: tuple[tuple[frozenset[str] | None, re.Pattern[str], str], ...] = (
+    (None, re.compile(r"\[\s*[a-z]+\s*-[^>]"), "write `->` between the artifact type and the id"),
+    (None, re.compile(r"(?:^|->|:)\s*[A-Za-z]+~[^~\s\]]+\s*\]?$"), "append `~` and the item's current revision"),
+    (None, re.compile(r"[a-z]+~[^~\s]*[A-Z][^~\s]*~"), "lower-case the name"),
+    (frozenset({GHERKIN}), re.compile(r"^@[a-z]+[ \t]+[a-z]+~"), "put `:` between the artifact type and the id"),
     (
+        None,
         re.compile(r"^[A-Z]+-?[0-9]+(?:\.[0-9]+)*$"),
         "lower-case it, turn dots into hyphens, and add the type and the revision, so `FR1.2` becomes `req~fr1-2~1`",
     ),
+    (
+        frozenset({"id line"}),
+        re.compile(r"^[a-z]+~[a-z0-9-]+~[1-9][0-9]*[ \t]"),
+        "put the id alone on its line and move the text into the body",
+    ),
 )
+_EMPTY_FIX = "name at least one id, separated by `, `, with no empty entry"
 _NAME_RULE = "a name of lower-case letters, digits and hyphens, and a revision from 1"
 _FORMS = {
     "id line": f"`type~name~revision` in backticks, alone on its line or after heading marks, with {_NAME_RULE}",
     "id": f"`type~name~revision`, with {_NAME_RULE}",
     "Needs": "item types separated by a comma and a space, such as `impl, utest`",
-    "Override": f"`type~name~revision implemented at commit, reason`, or `tested` for tests, with {_NAME_RULE}",
 }
 
 
@@ -949,26 +1091,30 @@ class Line:
 
 @dataclass(frozen=True)
 class Source:
-    """One tracked file as its host adapter saw it.
+    """One listed file as its host adapter saw it.
 
-    For Markdown, `lines` holds every line and `code_lines` the lines inside code fences. For comment and
-    Gherkin surfaces, `lines` holds the comment or tag lines and `code_lines` the lines that hold code.
+    For Markdown, `lines` holds every line and `fenced` the lines inside code fences. For the comment and Gherkin
+    surfaces, `lines` holds the comment or tag lines.
     """
 
     path: str
     surface: str
     lines: tuple[Line, ...]
-    code_lines: frozenset[int]
-    line_count: int
+    fenced: frozenset[int] = frozenset()
 
 
-@dataclass(frozen=True, order=True)
+@dataclass(frozen=True)
 class Id:
     """An item id: type, name and revision."""
 
     type: str
     name: str
     revision: int
+
+    @property
+    def key(self) -> tuple[str, str]:
+        """Return the type and name, which pick the item an id names whatever its revision."""
+        return self.type, self.name
 
     def __str__(self) -> str:
         """Return the id as it is written, `type~name~revision`."""
@@ -990,7 +1136,7 @@ class Link:
     """An id named by a key line or a tag, and where it was written.
 
     `type` is the naming item's type, or the tag's artifact type. `owner` is the item whose key line names the
-    target, and is None for a tag. `region` is the first and last line a tag governs, and is None for a key line.
+    target, and is None for a tag.
     """
 
     key: str
@@ -999,12 +1145,11 @@ class Link:
     path: str
     line: int
     owner: Id | None = None
-    region: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)
 class NearMiss:
-    """Text that nearly parses as a tag, an id line or a key-line value, with its canned fix."""
+    """Text that nearly parses as a tag, an id line or a key line, with its canned fix."""
 
     path: str
     line: int
@@ -1020,15 +1165,21 @@ class Index:
     links: tuple[Link, ...]
     near_misses: tuple[NearMiss, ...]
 
+    @cached_property
     def defined(self) -> dict[tuple[str, str], Item]:
         """Map each type and name to the first item that defines it; later items with that id are duplicates."""
         found: dict[tuple[str, str], Item] = {}
         for item in self.items:
-            found.setdefault((item.id.type, item.id.name), item)
+            found.setdefault(item.id.key, item)
         return found
 
 
 _Parsed = tuple[list[Item], list[Link], list[NearMiss]]
+
+
+def split_lines(text: str) -> tuple[Line, ...]:
+    """Number text's lines from 1, split at each newline alone, as Git counts them; a final newline adds no line."""
+    return tuple(Line(number, raw) for number, raw in enumerate(text.removesuffix("\n").split("\n"), 1)) if text else ()
 
 
 def build_index(sources: Iterable[Source]) -> Index:
@@ -1049,11 +1200,16 @@ def _to_id(match: re.Match[str], first: int = 1) -> Id:
     return Id(match.group(first), match.group(first + 1), int(match.group(first + 2)))
 
 
-def _near_miss(path: str, line: int, text: str, place: str) -> NearMiss:
-    for pattern, fix in _FIXES:
-        if pattern.search(text):
-            return NearMiss(path, line, text, fix)
-    return NearMiss(path, line, text, f"rewrite it as {_FORMS[place]}")
+def _fix(text: str, place: str) -> str:
+    """Return the canned fix of the first Near-miss row that fits text written at place."""
+    for places, pattern, fix in _FIXES:
+        if (places is None or place in places) and pattern.search(text):
+            return fix
+    unknown = [word for word in _TYPE_SLOT.findall(text) if word not in TYPES]
+    if unknown:
+        closest = difflib.get_close_matches(unknown[0], TYPES, n=1, cutoff=0)[0]
+        return f"use a known item type, such as `{closest}`"
+    return f"rewrite it as {_FORMS[place]}"
 
 
 def _markdown(source: Source) -> _Parsed:
@@ -1073,52 +1229,86 @@ def _spans(source: Source) -> tuple[list[tuple[Id, int, list[Line]]], list[NearM
     spans: list[tuple[Id, int, list[Line]]] = []
     misses: list[NearMiss] = []
     body: list[Line] | None = None
-    for line in source.lines:
-        if line.number in source.code_lines:
+    for position, line in enumerate(source.lines):
+        if line.number in source.fenced:
             continue  # fenced code is body, and never starts, ends or keys an item
         text = line.text.rstrip()
-        if strict := _ID_LINE.fullmatch(text):
-            body = []
-            spans.append((_to_id(strict), line.number, body))
-        elif loose := _LOOSE_ID_LINE.fullmatch(text):
-            misses.append(_near_miss(source.path, line.number, loose.group(1), "id line"))
-            body = None
-        elif _HEADING.match(text):
+        if loose := _ID_LINE.fullmatch(text):
+            token, after = loose.groups()
+            strict = None if after else _ID_ENTRY.fullmatch(token)
+            if strict is None:
+                misses.append(NearMiss(source.path, line.number, token + after, _fix(token + after, "id line")))
+                body = None  # a malformed id line ends the item above it, as an id line would
+            else:
+                body = []
+                spans.append((_to_id(strict), line.number, body))
+        elif _heading(source, position):
             body = None
         elif body is not None:
             body.append(line)
     return spans, misses
 
 
+def _heading(source: Source, position: int) -> bool:
+    """Say whether the line at position is an ATX heading, or the text line of a setext heading."""
+    text = source.lines[position].text.rstrip()
+    if _ATX_HEADING.match(text):
+        return True
+    below = source.lines[position + 1] if position + 1 < len(source.lines) else None
+    # ponytail: any text line above a line of `=` or `-` is a setext heading, a list item or quote line included
+    return (
+        bool(text.strip())
+        and _UNDERLINE.fullmatch(text) is None
+        and below is not None
+        and below.number not in source.fenced
+        and _UNDERLINE.fullmatch(below.text.rstrip()) is not None
+    )
+
+
 def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] | None, list[Link], list[NearMiss]]:
-    """Read an item's key lines: its needs, its links, and every value that fails to parse."""
+    """Read an item's key lines: its needs, its links, and every key, value or entry that fails to parse."""
     needs: tuple[str, ...] | None = None
     links: list[Link] = []
     misses: list[NearMiss] = []
     for line in lines:
-        match = _KEY_LINE.match(line.text.rstrip())
-        if match is None:
+        text = line.text.rstrip()
+        if (key := _KEY.match(text)) is None:
             continue
-        key, value = match.groups()
-        if key in _VALUE_FORMS:
-            if not _VALUE_FORMS[key].fullmatch(value):
-                misses.append(_near_miss(path, line.number, value, key))
-            elif key == "Needs":
+        if (exact := _KEY_LINE.fullmatch(text)) is None:
+            fix = f"write the key exactly as `{key.group(1).capitalize()}: `, with a capital, no formatting"
+            misses.append(NearMiss(path, line.number, text, f"{fix} and one space after the colon"))
+        elif exact.group(1) == "Needs":
+            value = exact.group(2) or ""
+            if _NEEDS.fullmatch(value):
                 needs = tuple(value.split(", "))
-            continue
-        for entry in filter(None, (part.strip() for part in value.split(","))):
-            if target := _ID_ENTRY.fullmatch(entry):
-                links.append(Link(key, owner.type, _to_id(target), path, line.number, owner=owner))
             else:
-                misses.append(_near_miss(path, line.number, entry, "id"))
+                misses.append(NearMiss(path, line.number, value or text, _fix(value, "Needs")))
+        elif exact.group(1) != "Override":  # ponytail: an `Override:` value is read from M4, when the judge needs it
+            found_links, found_misses = _entries(path, owner, exact.group(1), line)
+            links.extend(found_links)
+            misses.extend(found_misses)
     return needs, links, misses
+
+
+def _entries(path: str, owner: Id, key: str, line: Line) -> tuple[list[Link], list[NearMiss]]:
+    """Read the ids on a `Covers:`, `Drivers:`, `Delivers:` or `Depends:` line; an empty entry fails the line once."""
+    text = line.text.rstrip()
+    entries = [entry.strip() for entry in text.removeprefix(f"{key}:").split(",")]
+    links: list[Link] = []
+    misses = [NearMiss(path, line.number, text, _EMPTY_FIX)] if "" in entries else []
+    for entry in filter(None, entries):
+        if target := _ID_ENTRY.fullmatch(entry):
+            links.append(Link(key, owner.type, _to_id(target), path, line.number, owner=owner))
+        else:
+            misses.append(NearMiss(path, line.number, entry, _fix(entry, "id")))
+    return links, misses
 ```
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `uv run pytest tests/unit/test_index.py -v && make lint`
 
-Expected: `13 passed`, then `make lint` exits 0.
+Expected: `32 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -1127,30 +1317,33 @@ git add src/earnest/index.py tests/unit/test_index.py
 git commit -m "feat: parse Markdown items, key lines and near-misses into the index"
 ```
 
-### Task 4: Tag surfaces and the Region rule, `index.py`
+### Task 4: Tag surfaces and Reference resolution, `index.py`
 
 **Files:**
 
-- Modify: `packages/earnest/src/earnest/index.py` (tag patterns, two `_FORMS` rows, `build_index`, two new functions at the end)
+- Modify: `packages/earnest/src/earnest/index.py` (two `_FORMS` rows, the tag patterns, `Resolution`, `Index.resolutions`, `build_index`, `_tags` at the end)
 - Test: `packages/earnest/tests/unit/test_index.py` (import line, and tests appended)
 
 **Interfaces:**
 
 - Consumes: everything Task 3 produces in `earnest.index`.
-- Produces: `build_index(sources: Iterable[Source]) -> Index` now also reads `COMMENT` and `GHERKIN` sources. Each tag that parses becomes `Link("Covers", <artifact type>, <target Id>, path, line, region=(first, last))`, with `owner` None; each tag candidate that fails its surface's grammar becomes a `NearMiss`. Regions follow the Region rule, and repeated tags for one id govern the union of their regions because each tag keeps its own.
+- Produces:
+  - `build_index(sources: Iterable[Source]) -> Index` now also reads `COMMENT` and `GHERKIN` sources. Each tag that parses becomes `Link("Covers", <artifact type>, <target Id>, path, line)`, with `owner` None; each tag candidate that fails its surface's grammar becomes a `NearMiss`. A bracket tag takes OFT's optional whitespace after `[`, around `->` and before `]`, and the `@` forms are candidates only on the Gherkin surface.
+  - `Resolution(item: Item | None, status: str, closest: Id | None = None)`, frozen: the item a written id names by type and name, and `status` `resolved`, `outdated`, `predated` or `orphaned`; an orphaned id's `closest` is the nearest id of its own type, when one is close enough to suggest.
+  - `Index.resolutions`, a `functools.cached_property`, `dict[Id, Resolution]`: Reference resolution of each id the links name, computed once per id written. `index.py` owns Reference resolution (G7); `structural.py` only turns each status into findings.
 
 - [ ] **Step 1: Write the failing tests**
 
 In `packages/earnest/tests/unit/test_index.py`, replace:
 
 ```python
-from earnest.index import MARKDOWN, Id, Item, Line, Source, build_index
+from earnest.index import MARKDOWN, Id, Item, Line, Source, build_index, split_lines
 ```
 
 with:
 
 ```python
-from earnest.index import COMMENT, GHERKIN, MARKDOWN, Id, Item, Line, Link, Source, build_index
+from earnest.index import COMMENT, GHERKIN, MARKDOWN, Id, Item, Line, Link, Source, build_index, split_lines
 ```
 
 Append to `packages/earnest/tests/unit/test_index.py`:
@@ -1158,93 +1351,84 @@ Append to `packages/earnest/tests/unit/test_index.py`:
 ```python
 
 
-def comments(lines, code, line_count):
-    return Source("src/a.py", COMMENT, tuple(Line(n, t) for n, t in sorted(lines.items())), frozenset(code), line_count)
+def comments(*lines):
+    return Source("src/a.py", COMMENT, tuple(Line(number, text) for number, text in lines))
 
 
-def test_a_comment_tag_covers_its_target_from_its_artifact_type():
-    index = build_index([comments({3: "# see [impl->req~a~2] and [utest->req~b~1]"}, {4}, 4)])
+def gherkin(*lines):
+    return Source("tests/a.feature", GHERKIN, tuple(Line(number, text) for number, text in lines))
+
+
+def test_a_comment_tag_covers_its_target_from_its_artifact_type_with_or_without_spaces():
+    index = build_index([comments((3, "# see [impl->req~a~2] and [ utest -> req~b~1 ]"))])
     assert index.links == (
-        Link("Covers", "impl", Id("req", "a", 2), "src/a.py", 3, region=(3, 4)),
-        Link("Covers", "utest", Id("req", "b", 1), "src/a.py", 3, region=(3, 4)),
+        Link("Covers", "impl", Id("req", "a", 2), "src/a.py", 3),
+        Link("Covers", "utest", Id("req", "b", 1), "src/a.py", 3),
     )
+    assert index.near_misses == ()
 
 
 @pytest.mark.parametrize(
-    ("surface", "text", "fix"),
+    ("source", "fix"),
     [
-        (COMMENT, "# [impl-req~x~1]", "write `->`"),
-        (COMMENT, "# [impl->req~x]", "append `~`"),
-        (COMMENT, "# [impl->req~x_y~1]", "rewrite it as `[type->type~name~revision]`"),
-        (GHERKIN, "@stest:feat~Login~1", "lower-case the name"),
-        (GHERKIN, "@stest feat~login~1", "put `:`"),
-        (GHERKIN, "@stest:feat~login~1,", "rewrite it as `@type:type~name~revision`"),
+        (comments((1, "# [impl-req~x~1]")), "write `->`"),
+        (comments((1, "# [ impl-req~x~1 ]")), "write `->`"),
+        (comments((1, "# [impl->req~x]")), "append `~`"),
+        (comments((1, "# [impl->req~x_y~1]")), "rewrite it as `[type->type~name~revision]`"),
+        (comments((1, "# [impel->req~x~1]")), "use a known item type, such as `impl`"),
+        (gherkin((1, "@stest:feat~Login~1")), "lower-case the name"),
+        (gherkin((1, "@stest feat~login~1")), "put `:`"),
+        (gherkin((1, "@stest:fet~login~1")), "use a known item type, such as `feat`"),
+        (gherkin((1, "@stest:feat~login~1,")), "rewrite it as `@type:type~name~revision`"),
     ],
 )
-def test_a_tag_that_fails_its_surface_is_a_near_miss(surface, text, fix):
-    (miss,) = build_index([Source("f", surface, (Line(1, text),), frozenset(), 1)]).near_misses
+def test_a_tag_that_fails_its_surface_is_a_near_miss(source, fix):
+    (miss,) = build_index([source]).near_misses
     assert miss.fix.startswith(fix)
 
 
-def test_other_gherkin_tags_and_at_signs_inside_words_are_left_alone():
-    gherkin = Source("f.feature", GHERKIN, (Line(1, "@smoke @stest:feat~a~1"),), frozenset(), 1)
-    comment = comments({1: "# scp user@host:~/notes"}, set(), 1)
-    index = build_index([gherkin, comment])
+def test_at_forms_are_tags_only_on_the_gherkin_surface():
+    index = build_index(
+        [
+            gherkin((1, "@smoke @stest:feat~a~1")),
+            comments((1, "/** @see req~x~1 */"), (2, "// @stest feat~y~1, and user@host:~/notes")),
+        ]
+    )
     assert [str(link.target) for link in index.links] == ["feat~a~1"]
     assert index.near_misses == ()
 
 
-def test_a_tag_governs_its_lines_up_to_the_next_tag_or_the_end_of_the_file():
-    source = comments({1: "# [impl->req~a~1]", 4: "# [impl->req~b~1]"}, {2, 3, 5, 6}, 7)
-    assert [link.region for link in build_index([source]).links] == [(1, 3), (4, 7)]
-
-
-def test_tags_with_no_code_between_them_share_the_region_that_follows():
-    source = comments(
-        {1: "# [impl->req~a~1]", 2: "# a note", 3: "# [utest->req~a~1]", 5: "# [impl->req~c~1]"}, {4, 6}, 6
+def test_each_written_id_resolves_once_by_type_and_name_then_by_revision():
+    items = markdown("`feat~login~2`\n`req~login~1`\n")
+    tags = comments(
+        (1, "# [impl->feat~login~2] [impl->feat~login~1] [impl->feat~login~3]"),
+        (2, "# [impl->feat~logn~2] [impl->feat~logn~2] [impl->dsn~login~1]"),
     )
-    assert [link.region for link in build_index([source]).links] == [(1, 4), (3, 4), (5, 6)]
-
-
-def test_a_tag_on_a_code_line_ends_the_stack_above_it():
-    source = comments({1: "# [impl->req~a~1]", 2: "# [impl->req~b~1]"}, {1, 2, 3}, 3)
-    assert [link.region for link in build_index([source]).links] == [(1, 1), (2, 3)]
+    index = build_index([items, tags])
+    feat = index.defined[Id("feat", "login", 2).key]
+    assert {
+        str(target): (resolution.item, resolution.status, resolution.closest)
+        for target, resolution in index.resolutions.items()
+    } == {
+        "feat~login~2": (feat, "resolved", None),
+        "feat~login~1": (feat, "outdated", None),
+        "feat~login~3": (feat, "predated", None),
+        "feat~logn~2": (None, "orphaned", Id("feat", "login", 2)),
+        "dsn~login~1": (None, "orphaned", None),
+    }
 ```
 
 - [ ] **Step 2: Run the tests and watch them fail**
 
 Run: `uv run pytest tests/unit/test_index.py -v`
 
-Expected: FAIL, the 11 new tests red (`build_index` still reads only Markdown, so `index.links` is empty and `(miss,) =` finds no near-miss) and the 13 Markdown tests green: `11 failed, 13 passed`.
+Expected: FAIL, the 12 new tests red (`build_index` still reads only Markdown, so `index.links` is empty, `(miss,) =` finds no near-miss, and `Index` has no `resolutions`) and the 32 Markdown tests green: `12 failed, 32 passed`.
 
-- [ ] **Step 3: Add the tag surfaces and the Region rule**
+- [ ] **Step 3: Add the tag surfaces and Reference resolution**
 
-A tag candidate is the near-miss superset of the tag surfaces: a bracketed token with a `~` inside, or a token that opens with `@` and holds a `~`, including `@stest feat~login~1`. The surface's strict pattern decides whether it parses.
+A tag candidate is the near-miss superset of its surface: a bracketed token with a `~` inside, spaced as OFT allows, and on the Gherkin surface alone a token that opens with `@` and holds a `~`, including `@stest feat~login~1`. A JSDoc `@see req~x~1` in a comment is therefore no candidate. The surface's strict pattern decides whether a candidate parses. Reference resolution matches type and name, then the revision picks `resolved`, `outdated` or `predated`; an id that names no item is `orphaned`, and `difflib` offers the closest name among the items of the same type.
 
 In `packages/earnest/src/earnest/index.py`, replace:
-
-```python
-    "Override": re.compile(rf"{_ID} (?:implemented|tested) at [0-9a-f]+,.+"),
-}
-
-# The Near-miss table of the logic design, in order; the first pattern that fits gives the canned fix.
-```
-
-with:
-
-```python
-    "Override": re.compile(rf"{_ID} (?:implemented|tested) at [0-9a-f]+,.+"),
-}
-_TAG_FORMS = {
-    COMMENT: re.compile(rf"\[([a-z]+)->{_ID}\]"),
-    GHERKIN: re.compile(rf"@([a-z]+):{_ID}"),
-}
-_TAG_CANDIDATE = re.compile(r"\[[^\[\]\s]*~[^\[\]\s]*\]|(?<!\S)@[a-z]+[ \t]+[a-z]+~\S*|(?<!\S)@[^\s@~]*~\S*")
-
-# The Near-miss table of the logic design, in order; the first pattern that fits gives the canned fix.
-```
-
-In the same file, replace:
 
 ```python
 _NAME_RULE = "a name of lower-case letters, digits and hyphens, and a revision from 1"
@@ -1258,6 +1442,88 @@ _NAME_RULE = "a name of lower-case letters, digits and hyphens, and a revision f
 _FORMS = {
     COMMENT: f"`[type->type~name~revision]`, with {_NAME_RULE}",
     GHERKIN: f"`@type:type~name~revision`, with {_NAME_RULE}",
+```
+
+In the same file, replace:
+
+```python
+    "Needs": "item types separated by a comma and a space, such as `impl, utest`",
+}
+```
+
+with:
+
+```python
+    "Needs": "item types separated by a comma and a space, such as `impl, utest`",
+}
+_BRACKET = r"\[\s*(?:[^\[\]\s]*\s*->\s*)?[^\[\]\s]*~[^\[\]\s]*\s*\]"
+_TAG_FORMS = {
+    COMMENT: re.compile(rf"\[\s*{_TYPE}\s*->\s*{_ID}\s*\]"),
+    GHERKIN: re.compile(rf"@{_TYPE}:{_ID}"),
+}
+# A tag candidate is the near-miss superset of a surface: a bracketed token with a `~` inside, and on the Gherkin
+# surface alone a token that opens with `@` and holds a `~`, including `@stest feat~login~1`.
+_TAG_CANDIDATES = {
+    COMMENT: re.compile(_BRACKET),
+    GHERKIN: re.compile(rf"{_BRACKET}|(?<!\S)@[a-z]+[ \t]+[a-z]+~\S*|(?<!\S)@[^\s@~]*~\S*"),
+}
+```
+
+In the same file, replace:
+
+```python
+@dataclass(frozen=True)
+class Index:
+```
+
+with:
+
+```python
+@dataclass(frozen=True)
+class Resolution:
+    """What a written id names: its item, and `resolved`, `outdated`, `predated` or `orphaned`.
+
+    An orphaned id carries the closest id of its own type, when one is close enough to suggest.
+    """
+
+    item: Item | None
+    status: str
+    closest: Id | None = None
+
+
+@dataclass(frozen=True)
+class Index:
+```
+
+In the same file, replace:
+
+```python
+            found.setdefault(item.id.key, item)
+        return found
+```
+
+with:
+
+```python
+            found.setdefault(item.id.key, item)
+        return found
+
+    @cached_property
+    def resolutions(self) -> dict[Id, Resolution]:
+        """Resolve each id the links name, once per id written, by type and name and then by revision."""
+        return {target: self._resolve(target) for target in dict.fromkeys(link.target for link in self.links)}
+
+    def _resolve(self, target: Id) -> Resolution:
+        item = self.defined.get(target.key)
+        if item is None:
+            same_type = {found.id.name: found.id for found in self.defined.values() if found.id.type == target.type}
+            close = difflib.get_close_matches(target.name, same_type, n=1)
+            return Resolution(None, "orphaned", same_type[close[0]] if close else None)
+        if target.revision < item.id.revision:
+            return Resolution(item, "outdated")
+        if target.revision > item.id.revision:
+            return Resolution(item, "predated")
+        return Resolution(item, "resolved")
 ```
 
 In the same file, replace:
@@ -1291,52 +1557,29 @@ Append to `packages/earnest/src/earnest/index.py`:
 
 def _tags(source: Source) -> _Parsed:
     strict = _TAG_FORMS[source.surface]
-    found: list[tuple[int, str, Id]] = []
+    links: list[Link] = []
     misses: list[NearMiss] = []
     for line in source.lines:
-        for candidate in _TAG_CANDIDATE.finditer(line.text):
-            if tag := strict.fullmatch(candidate.group()):
-                found.append((line.number, tag.group(1), _to_id(tag, 2)))
+        for candidate in _TAG_CANDIDATES[source.surface].finditer(line.text):
+            text = candidate.group()
+            if tag := strict.fullmatch(text):
+                links.append(Link("Covers", tag.group(1), _to_id(tag, 2), source.path, line.number))
             else:
-                misses.append(_near_miss(source.path, line.number, candidate.group(), source.surface))
-    regions = _regions({number for number, _, _ in found}, source.code_lines, source.line_count)
-    links = [
-        Link("Covers", kind, target, source.path, number, region=regions[number]) for number, kind, target in found
-    ]
+                misses.append(NearMiss(source.path, line.number, text, _fix(text, source.surface)))
     return [], links, misses
-
-
-def _regions(tag_lines: set[int], code_lines: frozenset[int], line_count: int) -> dict[int, tuple[int, int]]:
-    """Apply the Region rule to one file's tag lines.
-
-    A tag governs its own line up to the line before the next tag, or to the end of the file. Tags with no code
-    between them stack and share the region that follows the stack; code on a tag's own line ends the stack above it.
-    """
-    ordered = sorted(tag_lines)
-    regions: dict[int, tuple[int, int]] = {}
-    for position, start in enumerate(ordered):
-        end = line_count
-        previous = start
-        for following in ordered[position + 1 :]:
-            if any(number in code_lines for number in range(previous + 1, following + 1)):
-                end = following - 1
-                break
-            previous = following
-        regions[start] = (start, end)
-    return regions
 ```
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `uv run pytest tests/unit/test_index.py -v && make lint`
 
-Expected: `24 passed`, then `make lint` exits 0.
+Expected: `44 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/earnest/index.py tests/unit/test_index.py
-git commit -m "feat: parse comment and Gherkin tags with their regions"
+git commit -m "feat: parse comment and Gherkin tags, and resolve each written id"
 ```
 
 ### Task 5: The comment adapters, Python and TypeScript
@@ -1352,7 +1595,7 @@ git commit -m "feat: parse comment and Gherkin tags with their regions"
 **Interfaces:**
 
 - Consumes: `Line` from `earnest.index` (Task 3).
-- Produces: `earnest.adapters.python.scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]` and `earnest.adapters.typescript.scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]`. Each returns the file's comment lines, one `Line` per physical line with its comment text, and the numbers of the lines that hold code, which the Region rule reads. Task 6 maps `.py` to the first, and `.ts` and `.tsx` to the second, under the `COMMENT` surface.
+- Produces: `earnest.adapters.python.scan(text: str) -> tuple[Line, ...]` and `earnest.adapters.typescript.scan(text: str) -> tuple[Line, ...]`. Each returns the file's comment lines, one `Line` per physical line with its comment text. Task 6 maps `.py` to the first, and `.ts`, `.tsx`, `.mts` and `.cts` to the second, under the `COMMENT` surface.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1370,58 +1613,58 @@ from earnest.adapters import python
 from earnest.index import Line
 
 
-def test_comments_come_with_their_line_numbers_and_strings_stay_code():
-    lines, code = python.scan('x = "# not a comment"  # [impl->req~a~1]\n\n# second\ny = 2\n')
-    assert lines == (Line(1, "# [impl->req~a~1]"), Line(3, "# second"))
-    assert code == {1, 4}
-
-
-def test_a_multi_line_string_is_code_on_every_line():
-    _, code = python.scan('x = """\n# inside a string\n"""\n')
-    assert code == {1, 2, 3}
+def test_comments_come_with_their_line_numbers_and_strings_stay_text():
+    lines = python.scan('x = "# not a comment"  # [impl->req~a~1]\n\ny = """\n# inside a string\n"""  # second\n')
+    assert lines == (Line(1, "# [impl->req~a~1]"), Line(5, "# second"))
 
 
 def test_a_file_that_stops_tokenizing_keeps_the_comments_before_the_error():
-    lines, code = python.scan("# [impl->req~a~1]\ndef f(:\n    x = (\n")
-    assert lines == (Line(1, "# [impl->req~a~1]"),)
-    assert 2 in code
+    assert python.scan("# [impl->req~a~1]\ndef f(:\n    x = (\n") == (Line(1, "# [impl->req~a~1]"),)
 ```
 
-Create `packages/earnest/tests/unit/adapters/test_typescript.py`:
+Create `packages/earnest/tests/unit/adapters/test_typescript.py`. Each regular expression case sits above a string that holds a tag and a comment that holds one: a regex read as a template would swallow the comment, and one read as a comment would turn the string into a tag:
 
 ```python
 """Tests for the TypeScript host adapter."""
+
+import pytest
 
 from earnest.adapters import typescript
 from earnest.index import Line
 
 
 def test_line_and_block_comments_are_read_line_by_line():
-    lines, code = typescript.scan("// [impl->req~a~1]\nconst x = 1; /* one\n[impl->req~b~1] */\n")
+    lines = typescript.scan("// [impl->req~a~1]\nconst x = 1; /* one\n[impl->req~b~1] */\n")
     assert lines == (Line(1, "// [impl->req~a~1]"), Line(2, "/* one"), Line(3, "[impl->req~b~1] */"))
-    assert code == {2}
 
 
-def test_comment_markers_inside_strings_and_template_literals_are_text():
+def test_tag_shaped_text_inside_strings_and_template_literals_is_text():
     text = (
         'const url = "https://example.com/[impl->req~a~1]";\n'
         "const note = 'a // b';\n"
-        "const t = `line // [impl->req~b~1]\n${f(`// nested`)} // still text`;\n"
+        "const t = `line // [impl->req~b~1]\n${f(x)} // still text`;\n"
         "// [impl->req~c~1]\n"
     )
-    lines, code = typescript.scan(text)
-    assert lines == (Line(5, "// [impl->req~c~1]"),)
-    assert code == {1, 2, 3, 4}
+    assert typescript.scan(text) == (Line(5, "// [impl->req~c~1]"),)
 
 
-def test_a_comment_inside_a_template_expression_is_a_comment():
-    lines, _ = typescript.scan("const t = `a ${ // [impl->req~a~1]\n  b } c`;\n")
-    assert lines == (Line(1, "// [impl->req~a~1]"),)
+@pytest.mark.parametrize(
+    "code",
+    [
+        's = s.replace(/`/g, "");',
+        "const trail = /\\/*$/;",
+        "return /\\/*/.test(s);",
+        "const quote = /[/`]/;",
+    ],
+)
+def test_a_regular_expression_literal_opens_no_template_or_comment(code):
+    text = f'{code}\nconst s = "[impl->req~x~1]";\n// [impl->req~a~1]\n'
+    assert typescript.scan(text) == (Line(3, "// [impl->req~a~1]"),)
 
 
-def test_braces_inside_a_template_expression_do_not_end_it_early():
-    lines, _ = typescript.scan("const t = `x ${ {a: '//'}.a } // text`;\n// [impl->req~a~1]\n")
-    assert lines == (Line(2, "// [impl->req~a~1]"),)
+def test_a_slash_after_an_operand_divides():
+    text = "const half = total / 2; // [impl->req~a~1]\nconst ratio = (a + b) / c; // [impl->req~b~1]\n"
+    assert typescript.scan(text) == (Line(1, "// [impl->req~a~1]"), Line(2, "// [impl->req~b~1]"))
 ```
 
 - [ ] **Step 2: Run the tests and watch them fail**
@@ -1435,7 +1678,7 @@ Expected: FAIL at collection with `ModuleNotFoundError: No module named 'earnest
 Create `packages/earnest/src/earnest/adapters/__init__.py`:
 
 ```python
-"""Host adapters: each tracked file's adapter, picked by suffix, hands its lines to the grammar."""
+"""Host adapters: each listed file's adapter, picked by suffix, hands its lines to the grammar."""
 ```
 
 Create `packages/earnest/src/earnest/adapters/python.py`. `tokenize` yields each token before it raises, so a file that stops tokenizing keeps its earlier comments:
@@ -1446,124 +1689,84 @@ Create `packages/earnest/src/earnest/adapters/python.py`. `tokenize` yields each
 import contextlib
 import io
 import tokenize
+from collections.abc import Iterator
 
 from earnest.index import Line
 
 
-_LAYOUT = frozenset(
-    {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.ENCODING, tokenize.ENDMARKER},
-)
-
-
-def scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]:
-    """Return the file's comments and the lines that hold code.
+def scan(text: str) -> tuple[Line, ...]:
+    """Return the file's comments, each with its line number.
 
     A file that stops tokenizing, such as one an agent is halfway through editing, keeps what came before the error.
     """
-    comments: list[Line] = []
-    code: set[int] = set()
+    return tuple(Line(token.start[0], token.string) for token in _tokens(text) if token.type == tokenize.COMMENT)
+
+
+def _tokens(text: str) -> Iterator[tokenize.TokenInfo]:
     with contextlib.suppress(tokenize.TokenError, SyntaxError):
-        for token in tokenize.generate_tokens(io.StringIO(text).readline):
-            if token.type == tokenize.COMMENT:
-                comments.append(Line(token.start[0], token.string))
-            elif token.type not in _LAYOUT:
-                code.update(range(token.start[0], token.end[0] + 1))
-    return tuple(comments), frozenset(code)
+        yield from tokenize.generate_tokens(io.StringIO(text).readline)
 ```
 
-Create `packages/earnest/src/earnest/adapters/typescript.py`. The scan alternates between code and template text: a backtick opens a template, `${` opens an expression whose braces it counts, and the `}` that balances them returns to the template. A regular expression literal that holds `/*` would read as a comment; a tag never sits in one:
+Create `packages/earnest/src/earnest/adapters/typescript.py`. The scan reads one token at a time: a comment, a string, template or regular expression literal, a name or number, whitespace, or any other character. A template literal is one string up to its next backtick. A `/` that is not a comment opens a regular expression literal unless the token before it ends an operand: a name or number other than a keyword such as `return`, a literal, or `)`, `]` or `}`. Without that state, the backtick in `` s.replace(/`/g, "") `` would open a template that swallows the rest of the file, and the `/*` in `/\/*$/` would open a comment:
 
 ```python
-"""TypeScript host adapter: `//` and block comments outside string and template literals."""
+"""TypeScript host adapter: `//` and block comments outside string, template and regular expression literals."""
 
 import bisect
 import re
-from dataclasses import dataclass, field
 
 from earnest.index import Line
 
 
+# ponytail: a template literal is one string up to its next backtick, so a template nested inside `${...}` ends the
+# outer one early and a comment inside `${...}` reads as text; JSX text reads as code, so `//` there opens a comment.
+# A TypeScript parser lifts both limits, at the cost of a dependency.
 _TOKEN = re.compile(
     r"(?P<comment>//[^\n]*|/\*[\s\S]*?(?:\*/|\Z))"
-    r"|(?P<string>'(?:\\[\s\S]|[^'\\\n])*'?|\"(?:\\[\s\S]|[^\"\\\n])*\"?)"
-    r"|(?P<tick>`)|(?P<open>\{)|(?P<close>\})|(?P<code>[^\s/'\"`{}]+|/)",
+    r"|(?P<literal>'(?:\\[\s\S]|[^'\\\n])*'?|\"(?:\\[\s\S]|[^\"\\\n])*\"?|`(?:\\[\s\S]|[^`\\])*`?)"
+    r"|(?P<word>[\w$]+)|(?P<space>\s+)|(?P<other>[\s\S])",
 )
-_TEMPLATE_STOP = re.compile(r"\\[\s\S]|`|\$\{")
+_REGEX = re.compile(r"/(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n\[])+/[A-Za-z]*")
+_BEFORE_REGEX = frozenset(
+    {"return", "typeof", "instanceof", "case", "in", "of", "new", "delete", "void", "throw", "yield", "await"}
+)
 
 
-@dataclass
-class _Scan:
-    text: str
-    starts: list[int]
-    comments: list[Line] = field(default_factory=list)
-    code: set[int] = field(default_factory=set)
-    braces: list[int] = field(default_factory=list)  # open braces inside each `${` the scan is in
+def scan(text: str) -> tuple[Line, ...]:
+    """Return the comment lines outside string, template and regular expression literals, one per physical line.
 
-    def line(self, offset: int) -> int:
-        return bisect.bisect_right(self.starts, offset)
-
-    def mark(self, start: int, end: int) -> None:
-        if end > start:
-            self.code.update(range(self.line(start), self.line(end - 1) + 1))
-
-
-def scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]:
-    """Return the comment lines outside string and template literals, and the lines that hold code.
-
-    A block comment gives one line per physical line. Template literals nest through `${`, so a comment inside a
-    template's expression is still a comment, and `//` inside any literal is text.
+    A `/` starts a regular expression unless the token before it ends an operand: a name or number other than a
+    keyword such as `return`, a literal, or `)`, `]` or `}`.
     """
-    state = _Scan(text, [0, *(match.end() for match in re.finditer("\n", text))])
+    starts = [0, *(match.end() for match in re.finditer("\n", text))]
+    comments: list[Line] = []
+    operand = False  # whether the last token that is no comment or space ends an operand, so a `/` after it divides
     position = 0
-    while position < len(text):
-        position = _template(state, _code(state, position))
-    return tuple(state.comments), frozenset(state.code)
-
-
-def _code(state: _Scan, position: int) -> int:
-    """Scan code from position; return where template text starts, or the end of the text."""
-    for match in _TOKEN.finditer(state.text, position):
-        kind = match.lastgroup
+    while token := _TOKEN.match(text, position):
+        kind = token.lastgroup
+        if token.group() == "/" and not operand and (regex := _REGEX.match(text, position)):
+            token, kind = regex, "literal"
         if kind == "comment":
-            first = state.line(match.start())
-            state.comments.extend(Line(first + offset, part) for offset, part in enumerate(match.group().split("\n")))
-            continue
-        state.mark(match.start(), match.end())
-        if kind == "tick":
-            return match.end()
-        if kind == "open" and state.braces:
-            state.braces[-1] += 1
-        elif kind == "close" and state.braces:
-            if state.braces[-1] == 0:
-                state.braces.pop()
-                return match.end()
-            state.braces[-1] -= 1
-    return len(state.text)
-
-
-def _template(state: _Scan, position: int) -> int:
-    """Scan template text from position; return where code resumes, after its closing backtick or a `${`."""
-    for match in _TEMPLATE_STOP.finditer(state.text, position):
-        if match.group() in ("`", "${"):
-            state.mark(position, match.end())
-            if match.group() == "${":
-                state.braces.append(0)
-            return match.end()
-    state.mark(position, len(state.text))
-    return len(state.text)
+            first = bisect.bisect_right(starts, token.start())
+            comments.extend(Line(first + offset, part) for offset, part in enumerate(token.group().split("\n")))
+        elif kind != "space":
+            name = kind == "word" and token.group() not in _BEFORE_REGEX
+            operand = name or kind == "literal" or token.group() in {")", "]", "}"}
+        position = token.end()
+    return tuple(comments)
 ```
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `uv run pytest tests/unit/adapters -v && make lint`
 
-Expected: `7 passed`, then `make lint` exits 0.
+Expected: `9 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/earnest/adapters tests/unit/adapters
-git commit -m "feat: read Python and TypeScript comments with their code lines"
+git commit -m "feat: read Python and TypeScript comments outside their literals"
 ```
 
 ### Task 6: The Markdown and Gherkin adapters, and the adapter by suffix
@@ -1577,11 +1780,11 @@ git commit -m "feat: read Python and TypeScript comments with their code lines"
 
 **Interfaces:**
 
-- Consumes: `python.scan` and `typescript.scan` (Task 5); `Line`, `Source`, `MARKDOWN`, `COMMENT`, `GHERKIN` and `build_index` from `earnest.index` (Tasks 3 and 4).
+- Consumes: `python.scan` and `typescript.scan` (Task 5); `Line`, `Source`, `split_lines`, `MARKDOWN`, `COMMENT`, `GHERKIN` and `build_index` from `earnest.index` (Tasks 3 and 4).
 - Produces:
   - `earnest.adapters.markdown.scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]`: every line, and the lines inside code fences, fence lines included.
-  - `earnest.adapters.gherkin.scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]`: the `@` tag lines, and the keyword, step, table and doc-string lines as code.
-  - `earnest.adapters.scan(root: Path, paths: Iterable[str]) -> list[Source]`: one `Source` per path whose suffix an adapter reads (`.md`, `.py`, `.ts`, `.tsx`, `.feature`), in the order given; other suffixes, and paths gone from the work tree, are skipped; text that is not UTF-8 is replaced, never fatal.
+  - `earnest.adapters.gherkin.scan(text: str) -> tuple[Line, ...]`: the `@` tag lines outside doc strings.
+  - `earnest.adapters.scan(root: Path, paths: Iterable[str]) -> list[Source]`: one `Source` per path whose suffix an adapter reads (`.md`, `.py`, `.ts`, `.tsx`, `.mts`, `.cts`, `.feature`), in the order given, read as `utf-8-sig`; other suffixes, and paths gone from the work tree, are skipped; a code file whose text holds no `~` gets a `Source` with no lines, unscanned; a file that cannot be read, or whose text is not UTF-8, raises `OSError` naming the file.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1589,6 +1792,8 @@ Create `packages/earnest/tests/unit/adapters/test_markdown.py`:
 
 ````python
 """Tests for the Markdown host adapter."""
+
+import pytest
 
 from earnest.adapters import markdown
 from earnest.index import MARKDOWN, Source, build_index
@@ -1615,15 +1820,29 @@ def test_fenced_lines_are_marked_fence_lines_included():
 
 def test_id_shaped_text_in_a_fence_is_neither_an_item_nor_a_near_miss():
     lines, fenced = markdown.scan(EXAMPLES)
-    index = build_index([Source("docs/a.md", MARKDOWN, lines, fenced, len(lines))])
+    index = build_index([Source("docs/a.md", MARKDOWN, lines, fenced)])
     assert [str(item.id) for item in index.items] == ["req~real~1"]
     assert index.items[0].needs == ("impl",)
     assert index.near_misses == ()
 
 
-def test_a_fence_closes_only_on_its_own_marker_at_least_as_long():
-    _, fenced = markdown.scan("~~~~\n```\n~~~\n~~~~\nafter\n")
-    assert fenced == {1, 2, 3, 4}
+@pytest.mark.parametrize(
+    ("opening", "inside"),
+    [("~~~", "```"), ("~~~~", "~~~"), ("```", "``` more"), ("```", "    ```")],
+)
+def test_a_fence_closes_only_on_its_own_marker_at_least_as_long_alone_on_its_line(opening, inside):
+    _, fenced = markdown.scan(f"{opening}\n{inside}\n`req~a~1`\n")
+    assert fenced == {1, 2, 3}
+
+
+def test_a_fence_may_sit_three_spaces_in_and_close_on_a_longer_marker():
+    _, fenced = markdown.scan("   ~~~ text\n`req~a~1`\n  ~~~~  \nafter\n")
+    assert fenced == {1, 2, 3}
+
+
+def test_backticks_in_the_info_string_make_inline_code_not_a_fence():
+    _, fenced = markdown.scan("```x``` is inline code\n`req~a~1`\n")
+    assert fenced == set()
 
 
 def test_an_unclosed_fence_runs_to_the_end_of_the_file():
@@ -1640,20 +1859,25 @@ from earnest.adapters import gherkin
 from earnest.index import Line
 
 
-def test_tag_lines_are_read_and_keyword_and_step_lines_are_code():
-    text = "Feature: F\n\n  @stest:feat~a~1 @smoke\n  Scenario: S\n    Given x\n  # a comment\n"
-    lines, code = gherkin.scan(text)
-    assert lines == (Line(3, "  @stest:feat~a~1 @smoke"),)
-    assert code == {1, 4, 5}
+def test_tag_lines_are_read_and_comments_and_doc_strings_are_text():
+    text = (
+        "Feature: F\n\n  @stest:feat~a~1 @smoke\n  Scenario: S\n    Given a note\n"
+        '      """\n      @stest:feat~b~1\n      """\n'
+        "    And a snippet\n      ```markdown\n      @stest:feat~c~1\n      ```\n"
+        "  # @stest:feat~d~1\n  @stest:feat~e~1\n"
+    )
+    assert gherkin.scan(text) == (Line(3, "  @stest:feat~a~1 @smoke"), Line(14, "  @stest:feat~e~1"))
 ```
 
 Create `packages/earnest/tests/unit/test_adapters.py`:
 
 ```python
-"""Tests for earnest.adapters: the adapter picked by suffix for each tracked file."""
+"""Tests for earnest.adapters: the adapter picked by suffix for each listed file."""
+
+import pytest
 
 from earnest import adapters
-from earnest.index import COMMENT, GHERKIN, MARKDOWN
+from earnest.index import COMMENT, GHERKIN, MARKDOWN, Line
 
 
 def test_each_suffix_gets_its_adapter_and_other_files_are_skipped(tmp_path):
@@ -1661,24 +1885,42 @@ def test_each_suffix_gets_its_adapter_and_other_files_are_skipped(tmp_path):
         "a.md": "`req~a~1`\n",
         "b.py": "# [impl->req~a~1]\nx = 1\n",
         "c.ts": "// [impl->req~a~1]\n",
-        "d.feature": "@stest:feat~f~1\nScenario: S\n",
-        "e.txt": "[impl->req~a~1]\n",
+        "d.mts": "// [impl->req~a~1]\n",
+        "e.cts": "// [impl->req~a~1]\n",
+        "f.tsx": "// [impl->req~a~1]\n",
+        "g.feature": "@stest:feat~f~1\nScenario: S\n",
+        "h.txt": "[impl->req~a~1]\n",
     }
     for name, text in files.items():
         (tmp_path / name).write_text(text, encoding="utf-8")
     sources = adapters.scan(tmp_path, [*files, "gone.py"])
-    assert [(source.path, source.surface, source.line_count) for source in sources] == [
+    assert [(source.path, source.surface, len(source.lines)) for source in sources] == [
         ("a.md", MARKDOWN, 1),
-        ("b.py", COMMENT, 2),
+        ("b.py", COMMENT, 1),
         ("c.ts", COMMENT, 1),
-        ("d.feature", GHERKIN, 2),
+        ("d.mts", COMMENT, 1),
+        ("e.cts", COMMENT, 1),
+        ("f.tsx", COMMENT, 1),
+        ("g.feature", GHERKIN, 1),
     ]
 
 
-def test_bytes_that_are_not_utf_8_are_replaced(tmp_path):
-    (tmp_path / "a.py").write_bytes(b"# [impl->req~a~1] \xff\n")
+def test_a_code_file_with_no_tilde_is_not_scanned(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1  # a comment, and no tag\n", encoding="utf-8")
     (source,) = adapters.scan(tmp_path, ["a.py"])
-    assert source.lines[0].text == "# [impl->req~a~1] \ufffd"
+    assert (source.surface, source.lines) == (COMMENT, ())
+
+
+def test_a_byte_order_mark_is_dropped(tmp_path):
+    (tmp_path / "a.md").write_bytes(b"\xef\xbb\xbf`req~a~1`\n")
+    (source,) = adapters.scan(tmp_path, ["a.md"])
+    assert source.lines == (Line(1, "`req~a~1`"),)
+
+
+def test_a_file_that_is_not_utf_8_cannot_be_read(tmp_path):
+    (tmp_path / "a.py").write_bytes(b"# [impl->req~a~1] \xff\n")
+    with pytest.raises(OSError, match=r"^a\.py is not UTF-8 text: "):
+        adapters.scan(tmp_path, ["a.py"])
 ```
 
 - [ ] **Step 2: Run the tests and watch them fail**
@@ -1689,62 +1931,70 @@ Expected: FAIL, `Interrupted: 2 errors during collection`, from `ImportError: ca
 
 - [ ] **Step 3: Write the adapters and the scan by suffix**
 
-Create `packages/earnest/src/earnest/adapters/markdown.py`. A fence is three or more backticks or tildes after up to three spaces, and it closes on the same marker at least as long, alone on its line:
+Create `packages/earnest/src/earnest/adapters/markdown.py`. A fence opens on three or more backticks or tildes after up to three spaces, and a backtick fence's info string holds no backtick, so ```` ```x``` ```` is inline code. It closes on the same character, at least as many, with nothing after them:
 
 ```python
 """Markdown host adapter: the lines of a stage artifact, with its code fences marked."""
 
 import re
 
-from earnest.index import Line
+from earnest.index import Line, split_lines
 
 
-_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
+_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 
 
 def scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]:
-    """Return every line, and the lines inside code fences, fence lines included; an unclosed fence runs to the end."""
-    lines: list[Line] = []
+    """Return every line, and the lines inside code fences, fence lines included; an unclosed fence runs to the end.
+
+    A fence opens on three or more backticks or tildes after up to three spaces, and a backtick fence's info string
+    holds no backtick. It closes on the same character, at least as many, with nothing after them.
+    """
+    lines = split_lines(text)
     fenced: set[int] = set()
     fence = ""
-    for number, raw in enumerate(text.splitlines(), start=1):
-        lines.append(Line(number, raw))
-        marker = _FENCE.match(raw)
+    for line in lines:
+        marker = _FENCE.fullmatch(line.text)
         if fence:
-            fenced.add(number)
-            if marker and marker.group(1).startswith(fence) and raw.strip() == marker.group(1):
+            fenced.add(line.number)
+            if marker and marker.group(1).startswith(fence) and not marker.group(2).strip():
                 fence = ""
-        elif marker:
-            fenced.add(number)
+        elif marker and not (marker.group(1).startswith("`") and "`" in marker.group(2)):
+            fenced.add(line.number)
             fence = marker.group(1)
-    return tuple(lines), frozenset(fenced)
+    return lines, frozenset(fenced)
 ```
 
-Create `packages/earnest/src/earnest/adapters/gherkin.py`:
+Create `packages/earnest/src/earnest/adapters/gherkin.py`. A doc string runs between two `"""` lines or two ```` ``` ```` lines, and its lines are text:
 
 ```python
-"""Gherkin host adapter: `@` tag lines, and the scenario lines each one tags."""
+"""Gherkin host adapter: the `@` tag lines outside doc strings."""
 
-from earnest.index import Line
+from earnest.index import Line, split_lines
 
 
-def scan(text: str) -> tuple[tuple[Line, ...], frozenset[int]]:
-    """Return the `@` tag lines, and the lines that hold keywords, steps, tables or doc strings."""
+_DOC_STRINGS = ('"""', "```")
+
+
+def scan(text: str) -> tuple[Line, ...]:
+    """Return the `@` tag lines; a doc string's lines, between two `\"\"\"` or two ``` lines, are text, never tags."""
     tags: list[Line] = []
-    code: set[int] = set()
-    for number, raw in enumerate(text.splitlines(), start=1):
-        stripped = raw.strip()
-        if stripped.startswith("@"):
-            tags.append(Line(number, raw))
-        elif stripped and not stripped.startswith("#"):
-            code.add(number)
-    return tuple(tags), frozenset(code)
+    doc_string = ""
+    for line in split_lines(text):
+        stripped = line.text.strip()
+        if doc_string:
+            doc_string = "" if stripped == doc_string else doc_string
+        elif stripped.startswith(_DOC_STRINGS):
+            doc_string = stripped[:3]
+        elif stripped.startswith("@"):
+            tags.append(line)
+    return tuple(tags)
 ```
 
-Replace the whole of `packages/earnest/src/earnest/adapters/__init__.py` with:
+Replace the whole of `packages/earnest/src/earnest/adapters/__init__.py` with the scan by suffix. Files read as `utf-8-sig`, so a byte order mark never lands in the first line, and a file that is not UTF-8 raises an `OSError` that names it, which the command turns into exit code 2 (Task 9). Every tag holds a `~`, so a code file without one skips its scan:
 
 ```python
-"""Host adapters: each tracked file's adapter, picked by suffix, hands its lines to the grammar."""
+"""Host adapters: each listed file's adapter, picked by suffix, hands its lines to the grammar."""
 
 from collections.abc import Callable, Iterable
 from pathlib import Path, PurePosixPath
@@ -1753,36 +2003,53 @@ from earnest.adapters import gherkin, markdown, python, typescript
 from earnest.index import COMMENT, GHERKIN, MARKDOWN, Line, Source
 
 
-_Scan = Callable[[str], tuple[tuple[Line, ...], frozenset[int]]]
-_BY_SUFFIX: dict[str, tuple[str, _Scan]] = {
-    ".md": (MARKDOWN, markdown.scan),
-    ".py": (COMMENT, python.scan),
-    ".ts": (COMMENT, typescript.scan),
-    ".tsx": (COMMENT, typescript.scan),
-    ".feature": (GHERKIN, gherkin.scan),
+_COMMENTS: dict[str, Callable[[str], tuple[Line, ...]]] = {
+    ".py": python.scan,
+    ".ts": typescript.scan,
+    ".tsx": typescript.scan,
+    ".mts": typescript.scan,
+    ".cts": typescript.scan,
 }
+_SUFFIXES = frozenset({".md", ".feature", *_COMMENTS})
 
 
 def scan(root: Path, paths: Iterable[str]) -> list[Source]:
-    """Scan each path under root that an adapter reads, skipping other suffixes and files gone from the work tree."""
+    """Scan each path under root whose suffix an adapter reads, skipping other files and files gone from the work tree.
+
+    Raises:
+        OSError: a file cannot be read, or holds text that is not UTF-8.
+    """
     sources: list[Source] = []
     for path in paths:
-        adapter = _BY_SUFFIX.get(PurePosixPath(path).suffix)
-        file = root / path
-        if adapter is None or not file.is_file():
-            continue
-        surface, scan_text = adapter
-        text = file.read_text(encoding="utf-8", errors="replace")
-        lines, code_lines = scan_text(text)
-        sources.append(Source(path, surface, lines, code_lines, len(text.splitlines())))
+        suffix = PurePosixPath(path).suffix
+        if suffix in _SUFFIXES and (root / path).is_file():
+            sources.append(_source(path, suffix, _read(root / path, path)))
     return sources
+
+
+def _read(file: Path, path: str) -> str:
+    try:
+        return file.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as error:
+        msg = f"{path} is not UTF-8 text: {error}"
+        raise OSError(msg) from error
+
+
+def _source(path: str, suffix: str, text: str) -> Source:
+    if suffix == ".md":
+        lines, fenced = markdown.scan(text)
+        return Source(path, MARKDOWN, lines, fenced)
+    if suffix == ".feature":
+        return Source(path, GHERKIN, gherkin.scan(text))
+    # every tag holds a `~`, so a code file without one is not scanned
+    return Source(path, COMMENT, _COMMENTS[suffix](text) if "~" in text else ())
 ```
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `uv run pytest tests/unit -v && make lint`
 
-Expected: `44 passed`, the 7 new tests among them, then `make lint` exits 0.
+Expected: `75 passed`, the 14 new tests among them, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -1800,14 +2067,13 @@ git commit -m "feat: read Markdown fences and Gherkin tags, and pick each file's
 
 **Interfaces:**
 
-- Consumes: `Id` from `earnest.index` (Task 3).
+- Consumes: `sarif_run` from `tests/sarif.py` (Task 1).
 - Produces, in `earnest.reporter`:
   - `RULES: dict[str, str]`, rule id to SARIF level, for the seven link rules: `earnest/duplicate`, `earnest/gap`, `earnest/near-miss`, `earnest/orphaned`, `earnest/outdated` and `earnest/predated` at `error`, `earnest/unwanted` at `warning`.
   - `LEVELS = ("untraced", "traced", "judged", "evidenced")`.
-  - `Finding(path: str, line: int, rule: str, message: str)`, frozen and ordered by path, line, rule and message, with the properties `level -> str`, the rule's SARIF level, and `text -> str`, the message as reported, opening with `in scope:`. `message` names the change to make and never repeats the position.
-  - `trace_levels(traced: Mapping[Id, bool]) -> dict[str, str]`: each requirement id, as text, to `traced` or `untraced`.
-  - `percentages(levels: Mapping[str, str]) -> dict[str, int]`: `traced`, `judged` and `evidenced`, each the share of requirements at that level or above, rounded to a whole percent, and 0 with no requirements.
-  - `sarif(findings: Sequence[Finding], levels: Mapping[str, str], commit: str) -> str`: one SARIF 2.1.0 log as JSON text, keys and results sorted.
+  - `Finding(path: str, line: int, rule: str, subject: str, message: str)`, frozen and ordered, with the properties `level -> str`, the rule's SARIF level, and `text -> str`, the message as reported, opening with `in scope:`. `subject` is the id or text the finding is about, and `message` names the change to make and never repeats the position. The reporter is the one place that sorts findings.
+  - `percentages(levels: Mapping[str, str]) -> dict[str, int]`: `traced`, `judged` and `evidenced`, each the share of requirements at that level or above in whole percent rounded down, so 100 means all, and 0 with no requirements.
+  - `sarif(findings: Sequence[Finding], levels: Mapping[str, str], commit: str) -> str`: one SARIF 2.1.0 log as JSON text, keys and results sorted. Each result carries `properties.position` `current`, no `properties.stage`, and `properties.observations`: one observation with the fields of `01`'s Process vocabulary, method `trace`, subject, result, reasoning and location. Its `uri` is the path percent-encoded with `urllib.parse.quote`.
   - `summary(findings: Sequence[Finding], levels: Mapping[str, str]) -> str`: the stderr text, whose first line is `traced N%, judged N%, evidenced N%; requirements: N`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1815,26 +2081,38 @@ git commit -m "feat: read Markdown fences and Gherkin tags, and pick each file's
 Create `packages/earnest/tests/unit/test_reporter.py`:
 
 ```python
-"""Tests for earnest.reporter: SARIF 2.1.0, trace levels, percentages and the summary."""
+"""Tests for earnest.reporter: SARIF 2.1.0, percentages and the summary."""
 
 import json
 
 from earnest import reporter
-from earnest.index import Id
 from earnest.reporter import Finding
+from tests.sarif import sarif_run
 
 
-FINDINGS = [Finding("src/b.py", 3, "earnest/unwanted", "b"), Finding("docs/a.md", 9, "earnest/gap", "a")]
+FINDINGS = [
+    Finding("src/b.py", 3, "earnest/unwanted", "req~b~1", "b"),
+    Finding("docs/a b.md", 9, "earnest/gap", "req~a~1", "a"),
+]
 LEVELS = {"req~a~1": "traced", "req~b~1": "untraced", "req~c~1": "traced"}
 
 
-def test_each_requirement_is_named_by_its_id_at_one_level():
-    traced = {Id("req", "b", 1): False, Id("req", "a", 2): True}
-    assert reporter.trace_levels(traced) == {"req~b~1": "untraced", "req~a~2": "traced"}
+def test_each_rule_has_its_sarif_level():
+    assert reporter.RULES == {
+        "earnest/duplicate": "error",
+        "earnest/gap": "error",
+        "earnest/near-miss": "error",
+        "earnest/orphaned": "error",
+        "earnest/outdated": "error",
+        "earnest/predated": "error",
+        "earnest/unwanted": "warning",
+    }
 
 
-def test_percentages_count_each_level_and_above_in_whole_percent():
-    assert reporter.percentages(LEVELS) == {"traced": 67, "judged": 0, "evidenced": 0}
+def test_percentages_round_down_so_100_means_every_requirement():
+    assert reporter.percentages(LEVELS) == {"traced": 66, "judged": 0, "evidenced": 0}
+    almost = {f"req~r{number}~1": "traced" for number in range(199)} | {"req~last~1": "untraced"}
+    assert reporter.percentages(almost)["traced"] == 99
     assert reporter.percentages({}) == {"traced": 0, "judged": 0, "evidenced": 0}
 
 
@@ -1842,21 +2120,27 @@ def test_the_log_is_one_sarif_2_1_0_run_with_located_results_in_order():
     log = json.loads(reporter.sarif(FINDINGS, LEVELS, "abc123"))
     assert log["version"] == "2.1.0"
     (run,) = log["runs"]
+    assert run["tool"] == {"driver": {"name": "earnest"}}
     assert [(result["ruleId"], result["level"]) for result in run["results"]] == [
         ("earnest/gap", "error"),
         ("earnest/unwanted", "warning"),
     ]
-    first = run["results"][0]
-    assert first["locations"] == [
-        {"physicalLocation": {"artifactLocation": {"uri": "docs/a.md"}, "region": {"startLine": 9}}},
-    ]
-    assert first["message"] == {"text": "in scope: a"}
-    assert first["properties"] == {"position": "current"}
-    assert run["properties"] == {"traceLevels": LEVELS, "percentages": {"traced": 67, "judged": 0, "evidenced": 0}}
+    assert run["properties"] == {"traceLevels": LEVELS, "percentages": {"traced": 66, "judged": 0, "evidenced": 0}}
     assert run["invocations"] == [
-        {"executionSuccessful": True, "properties": {"commit": "abc123", "layers": ["trace"]}}
+        {"executionSuccessful": True, "properties": {"commit": "abc123", "layers": ["trace"]}},
     ]
-    assert {rule["id"] for rule in run["tool"]["driver"]["rules"]} == set(reporter.RULES)
+
+
+def test_each_result_sits_at_its_percent_encoded_file_in_scope_over_its_observation():
+    first = sarif_run(reporter.sarif(FINDINGS, LEVELS, "abc123"))["results"][0]
+    location = {"artifactLocation": {"uri": "docs/a%20b.md"}, "region": {"startLine": 9}}
+    assert first["locations"] == [{"physicalLocation": location}]
+    assert first["message"] == {"text": "in scope: a"}
+    assert first["properties"]["position"] == "current"
+    assert "stage" not in first["properties"]
+    assert first["properties"]["observations"] == [
+        {"method": "trace", "subject": "req~a~1", "result": "gap", "reasoning": "a", "location": location},
+    ]
 
 
 def test_the_same_findings_in_another_order_give_the_same_bytes():
@@ -1866,9 +2150,9 @@ def test_the_same_findings_in_another_order_give_the_same_bytes():
 
 def test_the_summary_leads_with_the_three_percentages():
     lines = reporter.summary(FINDINGS, LEVELS).splitlines()
-    assert lines[0] == "traced 67%, judged 0%, evidenced 0%; requirements: 3"
+    assert lines[0] == "traced 66%, judged 0%, evidenced 0%; requirements: 3"
     assert lines[1:4] == ["  req~a~1: traced", "  req~b~1: untraced", "  req~c~1: traced"]
-    assert lines[4] == "docs/a.md:9: error earnest/gap: in scope: a"
+    assert lines[4] == "docs/a b.md:9: error earnest/gap: in scope: a"
     assert lines[-1] == "findings: 2, errors: 1"
 ```
 
@@ -1880,19 +2164,17 @@ Expected: FAIL at collection with `ImportError: cannot import name 'reporter' fr
 
 - [ ] **Step 3: Write `reporter.py`**
 
-`json.dumps` with `sort_keys=True` and sorted results give the same bytes for the same findings, and the log carries no timestamp. The commit and the layers run ride on the invocation, whose `executionSuccessful` SARIF requires.
+`json.dumps` with `sort_keys=True` and sorted results give the same bytes for the same findings, and the log carries no timestamp. The SARIF 2.1.0 section of `01` asks for no rule metadata and no tool version, so the driver carries its name alone; the commit and the layers run ride on the invocation, whose `executionSuccessful` SARIF requires. Each result carries the observation behind it, whose five fields are those of the Process vocabulary in `01`. The `uri` is percent-encoded, with `surrogateescape` for a name Git hands over that is not UTF-8. Both outputs sort the findings, so no caller has to.
 
 Create `packages/earnest/src/earnest/reporter.py`:
 
 ```python
-"""Reporter: the SARIF 2.1.0 log, each requirement's trace level, and the summary that leads with three percentages."""
+"""Reporter: the SARIF 2.1.0 log, with each requirement's trace level, and the summary that leads with three percentages."""
 
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-
-from earnest import __version__
-from earnest.index import Id
+from urllib.parse import quote
 
 
 RULES = {
@@ -1910,11 +2192,12 @@ _SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 
 @dataclass(frozen=True, order=True)
 class Finding:
-    """A located result: file, line, rule, and a message that names the change to make."""
+    """A located result: file, line, rule, the id or text it is about, and a message that names the change to make."""
 
     path: str
     line: int
     rule: str
+    subject: str
     message: str
 
     @property
@@ -1929,30 +2212,20 @@ class Finding:
         return f"in scope: {self.message}"
 
 
-def trace_levels(traced: Mapping[Id, bool]) -> dict[str, str]:
-    """Name each requirement's trace level, keyed by its id: traced when every cover it needs resolves."""
-    return {str(req): "traced" if ok else "untraced" for req, ok in traced.items()}
-
-
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
-    """Return the share of requirements at each level or above, in whole percent; 0 when there are none."""
+    """Return the share of requirements at each level or above, in whole percent rounded down, so 100 means all."""
     ranks = [LEVELS.index(level) for level in levels.values()]
     shares: dict[str, int] = {}
     for rank, name in enumerate(LEVELS[1:], start=1):
         reached = sum(1 for value in ranks if value >= rank)
-        shares[name] = round(100 * reached / len(ranks)) if ranks else 0
+        shares[name] = 100 * reached // len(ranks) if ranks else 0
     return shares
 
 
 def sarif(findings: Sequence[Finding], levels: Mapping[str, str], commit: str) -> str:
     """Return one SARIF 2.1.0 log; it holds no timestamp, so an unchanged repository gives the same bytes."""
-    driver = {
-        "name": "earnest",
-        "version": __version__,
-        "rules": [{"id": rule, "defaultConfiguration": {"level": level}} for rule, level in RULES.items()],
-    }
     run = {
-        "tool": {"driver": driver},
+        "tool": {"driver": {"name": "earnest"}},
         "invocations": [{"executionSuccessful": True, "properties": {"commit": commit, "layers": ["trace"]}}],
         "results": [_result(finding) for finding in sorted(findings)],
         "properties": {"traceLevels": dict(levels), "percentages": percentages(levels)},
@@ -1979,13 +2252,21 @@ def summary(findings: Sequence[Finding], levels: Mapping[str, str]) -> str:
 
 
 def _result(finding: Finding) -> dict[str, object]:
-    location = {"artifactLocation": {"uri": finding.path}, "region": {"startLine": finding.line}}
+    uri = quote(finding.path, errors="surrogateescape")  # Git hands over names that are not UTF-8 as surrogates
+    location = {"artifactLocation": {"uri": uri}, "region": {"startLine": finding.line}}
+    observation = {
+        "method": "trace",
+        "subject": finding.subject,
+        "result": finding.rule.removeprefix("earnest/"),
+        "reasoning": finding.message,
+        "location": location,
+    }
     return {
         "ruleId": finding.rule,
         "level": finding.level,
         "message": {"text": finding.text},
         "locations": [{"physicalLocation": location}],
-        "properties": {"position": "current"},
+        "properties": {"position": "current", "observations": [observation]},
     }
 ```
 
@@ -1993,13 +2274,13 @@ def _result(finding: Finding) -> dict[str, object]:
 
 Run: `uv run pytest tests/unit/test_reporter.py -v && make lint`
 
-Expected: `5 passed`, then `make lint` exits 0.
+Expected: `6 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/earnest/reporter.py tests/unit/test_reporter.py
-git commit -m "feat: report findings as SARIF 2.1.0 with trace levels and a summary"
+git commit -m "feat: report findings as SARIF 2.1.0 with their observations and a summary"
 ```
 
 ### Task 8: The link rules, `structural.py`
@@ -2011,19 +2292,21 @@ git commit -m "feat: report findings as SARIF 2.1.0 with trace levels and a summ
 
 **Interfaces:**
 
-- Consumes: `Id`, `Index`, `Item`, `Link` and `NearMiss` from `earnest.index` (Tasks 3 and 4); `Finding` from `earnest.reporter` (Task 7).
+- Consumes: `Id`, `Index`, `Item`, `Link`, `NearMiss`, `Index.defined` and `Index.resolutions` from `earnest.index` (Tasks 3 and 4); `Finding` from `earnest.reporter` (Task 7).
 - Produces, in `earnest.structural`:
   - `DEFAULT_NEEDS: dict[str, tuple[str, ...]]`, the Default Needs table: `tenet` needs `goal`, `goal` needs `feat`, `feat` needs `req` and `stest`, `req` needs `impl` and `utest`, `dsn` needs `impl`.
   - `needs(item: Item) -> tuple[str, ...]`: the item's `Needs:` types, or its type's default; `()` for a type with none.
-  - `check(index: Index) -> list[Finding]`: sorted findings under `earnest/near-miss`, `earnest/duplicate`, `earnest/orphaned`, `earnest/outdated`, `earnest/predated`, `earnest/unwanted` and `earnest/gap`.
-  - `traced(index: Index) -> dict[Id, bool]`: each `req`, first definition only, to whether a cover of every type it needs names its current revision.
+  - `check(index: Index) -> list[Finding]`: the findings under `earnest/near-miss`, `earnest/duplicate`, `earnest/orphaned`, `earnest/outdated`, `earnest/predated`, `earnest/unwanted` and `earnest/gap`, in the order of the index; the reporter sorts them.
+  - `traced(index: Index) -> dict[str, str]`: each `req`, first definition only, keyed by its id as text, to its trace level, `traced` when a cover of every type it needs names its current revision and `untraced` otherwise.
 
 - [ ] **Step 1: Write the failing tests**
 
 Create `packages/earnest/tests/unit/test_structural.py`:
 
 ```python
-"""Tests for earnest.structural: the link rules and whether each requirement is traced."""
+"""Tests for earnest.structural: the link rules and each requirement's trace level."""
+
+import pytest
 
 from earnest import structural
 from earnest.index import Id, Index, Item, Link, NearMiss
@@ -2058,14 +2341,14 @@ def message(rule, found):
 
 def test_a_requirement_whose_needs_resolve_at_its_revision_is_traced():
     assert check(IMPL, UTEST) == []
-    assert structural.traced(index(IMPL, UTEST)) == {REQ: True}
+    assert structural.traced(index(IMPL, UTEST)) == {"req~r~2": "traced"}
 
 
 def test_a_need_with_no_cover_at_any_revision_is_a_gap_at_the_item():
     found = check(IMPL)
     assert located("earnest/gap", found) == [("docs/r.md", 5)]
     assert "`[utest->req~r~2]`" in message("earnest/gap", found)
-    assert structural.traced(index(IMPL)) == {REQ: False}
+    assert structural.traced(index(IMPL)) == {"req~r~2": "untraced"}
 
 
 def test_a_cover_of_an_older_revision_is_outdated_not_a_gap():
@@ -2073,7 +2356,7 @@ def test_a_cover_of_an_older_revision_is_outdated_not_a_gap():
     found = check(IMPL, old)
     assert [finding.rule for finding in found] == ["earnest/outdated"]
     assert "write `req~r~2`" in message("earnest/outdated", found)
-    assert structural.traced(index(IMPL, old)) == {REQ: False}
+    assert structural.traced(index(IMPL, old)) == {"req~r~2": "untraced"}
 
 
 def test_a_link_to_a_revision_above_the_items_is_predated():
@@ -2081,17 +2364,32 @@ def test_a_link_to_a_revision_above_the_items_is_predated():
     assert located("earnest/predated", check(IMPL, ahead)) == [("tests/test_a.py", 9)]
 
 
-def test_a_link_to_no_item_is_orphaned_and_names_the_closest_id():
+def test_a_link_to_no_item_is_orphaned_and_names_the_closest_id_of_its_type():
     typo = Link("Covers", "utest", Id("req", "rr", 2), "tests/test_a.py", 9)
-    found = check(IMPL, UTEST, typo)
-    assert located("earnest/orphaned", found) == [("tests/test_a.py", 9)]
-    assert message("earnest/orphaned", found).endswith("did you mean `req~r~2`?")
+    other_type = Link("Covers", "impl", Id("dsn", "r", 2), "src/b.py", 4)
+    found = check(IMPL, UTEST, typo, other_type)
+    assert located("earnest/orphaned", found) == [("tests/test_a.py", 9), ("src/b.py", 4)]
+    assert [finding.message for finding in found] == [
+        "`req~rr~2` names no item: did you mean `req~r~2`?",
+        "`dsn~r~2` names no item: define the item, or name one that exists",
+    ]
 
 
 def test_an_item_that_names_no_parent_is_orphaned():
     found = check(IMPL, UTEST, parent=False)
     assert located("earnest/orphaned", found) == [("docs/r.md", 5)]
     assert "add a `Covers:` line naming the `feat` it derives from" in message("earnest/orphaned", found)
+
+
+@pytest.mark.parametrize("target", [Id("goal", "g", 1), REQ])
+def test_a_covers_line_naming_no_item_of_the_parent_type_names_no_parent(target):
+    items = (*ITEMS, Item(Id("goal", "g", 1), "docs/g.md", 1))
+    wrong = Link("Covers", "req", target, "docs/r.md", 7, owner=REQ)
+    found = check(IMPL, UTEST, wrong, items=items, parent=False)
+    assert [(f.line, f.rule) for f in found if f.path == "docs/r.md"] == [
+        (7, "earnest/unwanted"),
+        (5, "earnest/orphaned"),
+    ]
 
 
 def test_a_cover_by_a_type_the_item_never_needs_is_unwanted_at_warning_level():
@@ -2105,7 +2403,7 @@ def test_an_explicit_needs_line_replaces_the_default():
     items = (ITEMS[0], Item(REQ, "docs/r.md", 5, ("impl", "itest")))
     itest = Link("Covers", "itest", REQ, "tests/test_b.py", 4)
     assert located("earnest/unwanted", check(IMPL, UTEST, itest, items=items)) == [("tests/test_a.py", 3)]
-    assert structural.traced(index(IMPL, itest, items=items)) == {REQ: True}
+    assert structural.traced(index(IMPL, itest, items=items)) == {"req~r~2": "traced"}
 
 
 def test_a_second_item_with_the_same_id_is_a_duplicate():
@@ -2116,8 +2414,9 @@ def test_a_second_item_with_the_same_id_is_a_duplicate():
 
 def test_a_near_miss_is_a_finding_with_its_canned_fix():
     miss = NearMiss("src/a.py", 8, "[impl-req~r~2]", "write `->` between the artifact type and the id")
-    found = check(IMPL, UTEST, misses=(miss,))
-    assert message("earnest/near-miss", found) == "`[impl-req~r~2]` does not parse: " + miss.fix
+    (finding,) = check(IMPL, UTEST, misses=(miss,))
+    assert (finding.rule, finding.subject) == ("earnest/near-miss", "[impl-req~r~2]")
+    assert finding.message == "`[impl-req~r~2]` does not parse: " + miss.fix
 
 
 def test_a_decision_names_its_drivers_and_they_count_toward_no_need():
@@ -2137,17 +2436,16 @@ Expected: FAIL at collection with `ImportError: cannot import name 'structural' 
 
 - [ ] **Step 3: Write `structural.py`**
 
-Reference resolution matches type and name, then the revision picks `outdated`, `predated` or a resolved link, and `difflib` offers the closest id for an `orphaned` one. A `gap` needs no cover of the type at any revision, so a cover at a stale revision raises only `outdated` or `predated`, while `traced` still counts it as missing. `goal`, `feat` and `req` name their parent on a `Covers:` line and `dsn` on a `Drivers:` line; an item that names none is `orphaned`.
+`index.py` owns Reference resolution, so this module only turns each resolution's status into its findings: `orphaned` with the suggestion of the same type, `outdated` or `predated`, and `unwanted` for a cover whose type the item never needs. A `gap` needs no cover of the type at any revision, so a cover at a stale revision raises only `outdated` or `predated`, while `traced` still counts it as missing. The parent edge of each type comes from the Edges of `01`: `goal`, `feat` and `req` name a `tenet`, a `goal` and a `feat` on a `Covers:` line, and `dsn` names a `req` or `goal` on a `Drivers:` line. An item whose key names no id of its parent type, such as a `req` that covers a `goal` or itself, is `orphaned`.
 
 Create `packages/earnest/src/earnest/structural.py`:
 
 ```python
-"""Structural checks: the link findings the index decides without a model."""
+"""Structural checks: the link findings the index decides without a model, and each requirement's trace level."""
 
-import difflib
 from collections.abc import Iterator
 
-from earnest.index import Id, Index, Item, Link
+from earnest.index import Index, Item
 from earnest.reporter import Finding
 
 
@@ -2158,11 +2456,12 @@ DEFAULT_NEEDS: dict[str, tuple[str, ...]] = {
     "req": ("impl", "utest"),
     "dsn": ("impl",),
 }
+# The parent edge of each item type, from the Edges of the logic design: its key, the parent types, and the fix.
 _PARENTS = {
-    "goal": ("Covers", "add a `Covers:` line naming the `tenet` it serves"),
-    "feat": ("Covers", "add a `Covers:` line naming the `goal` it refines"),
-    "req": ("Covers", "add a `Covers:` line naming the `feat` it derives from"),
-    "dsn": ("Drivers", "add a `Drivers:` line naming the `req` or `goal` that drives it"),
+    "goal": ("Covers", ("tenet",), "add a `Covers:` line naming the `tenet` it serves"),
+    "feat": ("Covers", ("goal",), "add a `Covers:` line naming the `goal` it refines"),
+    "req": ("Covers", ("feat",), "add a `Covers:` line naming the `feat` it derives from"),
+    "dsn": ("Drivers", ("req", "goal"), "add a `Drivers:` line naming the `req` or `goal` that drives it"),
 }
 _COVER_HINTS = {
     "impl": "tag the code that implements it with `[impl->{id}]`",
@@ -2178,111 +2477,107 @@ def needs(item: Item) -> tuple[str, ...]:
 
 
 def check(index: Index) -> list[Finding]:
-    """Return the link findings, sorted by file, line and rule.
+    """Return the link findings, in the order of the index; the reporter sorts them.
 
     Near-misses, duplicate ids, links that resolve to no item or to another revision, covers that count toward
-    nothing, items that name no parent, and needs that no cover meets.
+    nothing, items that name no parent of their type, and needs that no cover meets.
     """
-    defined = index.defined()
-    return sorted(
-        [
-            *_near_misses(index),
-            *_duplicates(index, defined),
-            *_resolution(index, defined),
-            *_parentless(index, defined),
-            *_gaps(index, defined),
-        ],
-    )
+    return [*_near_misses(index), *_duplicates(index), *_links(index), *_parentless(index), *_gaps(index)]
 
 
-def traced(index: Index) -> dict[Id, bool]:
-    """Map each requirement to whether every cover it needs exists at its current revision."""
+def traced(index: Index) -> dict[str, str]:
+    """Give each requirement its trace level, keyed by its id: traced when a cover of every type it needs resolves."""
     covers = {(link.type, link.target) for link in index.links if link.key == "Covers"}
     return {
-        item.id: all((kind, item.id) in covers for kind in needs(item))
-        for item in index.defined().values()
+        str(item.id): "traced" if all((kind, item.id) in covers for kind in needs(item)) else "untraced"
+        for item in index.defined.values()
         if item.id.type == "req"
     }
 
 
 def _near_misses(index: Index) -> Iterator[Finding]:
     for miss in index.near_misses:
-        yield Finding(miss.path, miss.line, "earnest/near-miss", f"`{miss.text}` does not parse: {miss.fix}")
+        yield Finding(miss.path, miss.line, "earnest/near-miss", miss.text, f"`{miss.text}` does not parse: {miss.fix}")
 
 
-def _duplicates(index: Index, defined: dict[tuple[str, str], Item]) -> Iterator[Finding]:
+def _duplicates(index: Index) -> Iterator[Finding]:
     for item in index.items:
-        first = defined[(item.id.type, item.id.name)]
+        first = index.defined[item.id.key]
         if item != first:
             message = f"`{item.id}` is already defined at {first.path}:{first.line}: give one of them another name"
-            yield Finding(item.path, item.line, "earnest/duplicate", message)
+            yield Finding(item.path, item.line, "earnest/duplicate", str(item.id), message)
 
 
-def _resolution(index: Index, defined: dict[tuple[str, str], Item]) -> Iterator[Finding]:
-    by_name = {f"{item.id.type}~{item.id.name}": item for item in defined.values()}
+def _links(index: Index) -> Iterator[Finding]:
+    """Turn each link's resolution into its findings: orphaned, outdated or predated, and unwanted."""
     for link in index.links:
-        item = defined.get((link.target.type, link.target.name))
+        resolution = index.resolutions[link.target]
+        subject = str(link.target)
+        item = resolution.item
         if item is None:
-            yield _orphaned(link, by_name)
+            close = (
+                f"did you mean `{resolution.closest}`?"
+                if resolution.closest
+                else "define the item, or name one that exists"
+            )
+            yield Finding(link.path, link.line, "earnest/orphaned", subject, f"`{subject}` names no item: {close}")
             continue
-        if link.target.revision < item.id.revision:
+        if resolution.status == "outdated":
             message = (
-                f"`{link.target}` names revision {link.target.revision}, and the item is at revision"
-                f" {item.id.revision}: check the change, then write `{item.id}`"
+                f"`{subject}` names revision {link.target.revision}, and the item is at revision {item.id.revision}:"
+                f" check the change, then write `{item.id}`"
             )
-            yield Finding(link.path, link.line, "earnest/outdated", message)
-        elif link.target.revision > item.id.revision:
+            yield Finding(link.path, link.line, "earnest/outdated", subject, message)
+        elif resolution.status == "predated":
             message = (
-                f"`{link.target}` names revision {link.target.revision}, above the item's revision"
-                f" {item.id.revision}: write `{item.id}`, or bump the item if its meaning changed"
+                f"`{subject}` names revision {link.target.revision}, above the item's revision {item.id.revision}:"
+                f" write `{item.id}`, or bump the item if its meaning changed"
             )
-            yield Finding(link.path, link.line, "earnest/predated", message)
+            yield Finding(link.path, link.line, "earnest/predated", subject, message)
         if link.key == "Covers" and link.type not in needs(item):
             wanted = ", ".join(f"`{kind}`" for kind in needs(item)) or "no cover"
             message = (
                 f"`{link.type}` covers `{item.id}` and counts toward nothing, because the item needs {wanted}:"
                 f" use a type it needs, or add `{link.type}` to its `Needs:` line"
             )
-            yield Finding(link.path, link.line, "earnest/unwanted", message)
+            yield Finding(link.path, link.line, "earnest/unwanted", subject, message)
 
 
-def _orphaned(link: Link, by_name: dict[str, Item]) -> Finding:
-    written = f"{link.target.type}~{link.target.name}"
-    close = difflib.get_close_matches(written, sorted(by_name), n=1)
-    hint = f"did you mean `{by_name[close[0]].id}`?" if close else "define the item, or name one that exists"
-    return Finding(link.path, link.line, "earnest/orphaned", f"`{link.target}` names no item: {hint}")
+def _parentless(index: Index) -> Iterator[Finding]:
+    """An item whose parent key names no id of a parent type, itself included, covers no parent."""
+    named = {(link.owner, link.key, link.target.type) for link in index.links if link.owner is not None}
+    for item in index.defined.values():
+        if item.id.type not in _PARENTS:
+            continue
+        key, parents, fix = _PARENTS[item.id.type]
+        if not any((item.id, key, parent) in named for parent in parents):
+            yield Finding(
+                item.path, item.line, "earnest/orphaned", str(item.id), f"`{item.id}` covers no parent: {fix}"
+            )
 
 
-def _parentless(index: Index, defined: dict[tuple[str, str], Item]) -> Iterator[Finding]:
-    named = {(link.owner, link.key) for link in index.links if link.owner is not None}
-    for item in defined.values():
-        parent = _PARENTS.get(item.id.type)
-        if parent is not None and (item.id, parent[0]) not in named:
-            yield Finding(item.path, item.line, "earnest/orphaned", f"`{item.id}` covers no parent: {parent[1]}")
-
-
-def _gaps(index: Index, defined: dict[tuple[str, str], Item]) -> Iterator[Finding]:
+def _gaps(index: Index) -> Iterator[Finding]:
     """A need no cover meets at any revision is a gap; a cover at another revision is outdated or predated instead."""
-    covered = {(link.type, link.target.type, link.target.name) for link in index.links if link.key == "Covers"}
-    for item in defined.values():
+    covered = {(link.type, link.target.key) for link in index.links if link.key == "Covers"}
+    for item in index.defined.values():
         for kind in needs(item):
-            if (kind, item.id.type, item.id.name) not in covered:
+            if (kind, item.id.key) not in covered:
                 hint = _COVER_HINTS.get(kind, "add a `{kind}` item with `Covers: {id}`").format(kind=kind, id=item.id)
                 message = f"`{item.id}` needs a `{kind}` cover and has none: {hint}"
-                yield Finding(item.path, item.line, "earnest/gap", message)
+                yield Finding(item.path, item.line, "earnest/gap", str(item.id), message)
 ```
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
 Run: `uv run pytest tests/unit/test_structural.py -v && make lint`
 
-Expected: `11 passed`, then `make lint` exits 0.
+Expected: `13 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/earnest/structural.py tests/unit/test_structural.py
-git commit -m "feat: check gaps, unwanted covers, duplicates and reference resolution"
+git commit -m "feat: turn the index into link findings and trace levels"
 ```
 
 ### Task 9: `earnest check` end to end, and the exit command green
@@ -2297,8 +2592,8 @@ git commit -m "feat: check gaps, unwanted covers, duplicates and reference resol
 
 **Interfaces:**
 
-- Consumes: `git.repo_root`, `git.head_commit`, `git.tracked_files` and `git.GitError` (Task 2); `build_index` (Tasks 3 and 4); `adapters.scan` (Task 6); `reporter.trace_levels`, `reporter.sarif`, `reporter.summary` and `Finding.level` (Task 7); `structural.check` and `structural.traced` (Task 8); the `files_repo` fixture (Task 2); the feature and its step module (Task 1).
-- Produces: `earnest.cli.main(argv: Sequence[str] | None = None) -> int`, which returns 0 when no error-level finding is in scope, 1 when one is, and 2 when Git cannot answer; argparse exits 2 on a usage error. The console script `earnest`, from `[project.scripts] earnest = "earnest.cli:main"`.
+- Consumes: `git.repo_root`, `git.head_commit`, `git.work_tree_files` and `git.GitError` (Task 2); `build_index` (Tasks 3 and 4); `adapters.scan` and the `OSError` it raises (Task 6); `reporter.sarif`, `reporter.summary` and `Finding.level` (Task 7); `structural.check` and `structural.traced` (Task 8); the `files_repo` fixture (Task 2); `sarif_run` and `located` from `tests/sarif.py`, the feature and its step module (Task 1).
+- Produces: `earnest.cli.main(argv: Sequence[str] | None = None) -> int`, which returns 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when the check cannot run: Git cannot answer, or a file cannot be read, which covers a file that is not UTF-8. Then it writes one line on stderr and nothing on stdout. The console script `earnest`, from `[project.scripts] earnest = "earnest.cli:main"`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2307,41 +2602,42 @@ mkdir -p tests/integration
 touch tests/integration/__init__.py
 ```
 
-Create `packages/earnest/tests/unit/test_cli.py`:
+Create `packages/earnest/tests/unit/test_cli.py`. Git's messages depend on the locale, so the test that reads one runs Git with `LC_ALL=C`:
 
 ```python
-"""Tests for earnest.cli: the command surface and its exit codes."""
-
-import pytest
+"""Tests for earnest.cli: the exit code when the check cannot run."""
 
 from earnest import cli
 
 
-def test_a_command_is_required(capsys):
-    with pytest.raises(SystemExit) as exit_info:
-        cli.main([])
-    assert exit_info.value.code == 2
-    assert "check" in capsys.readouterr().err
-
-
 def test_a_check_outside_a_work_tree_exits_2_with_one_line_on_stderr(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("LC_ALL", "C")
     monkeypatch.chdir(tmp_path)
     assert cli.main(["check"]) == 2
     out, err = capsys.readouterr()
     assert out == ""
-    assert err.startswith("earnest: ")
-    assert "not a git repository" in err
+    assert err.startswith("earnest: fatal: not a git repository")
+    assert len(err.splitlines()) == 1
+
+
+def test_a_file_that_is_not_utf_8_exits_2_naming_the_file(files_repo, monkeypatch, capsys):
+    repo = files_repo({"docs/a.md": "# A\n"})
+    (repo / "docs" / "a.md").write_bytes(b"# \xff\n")
+    monkeypatch.chdir(repo)
+    assert cli.main(["check"]) == 2
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.startswith("earnest: docs/a.md is not UTF-8 text: ")
     assert len(err.splitlines()) == 1
 ```
 
-Create `packages/earnest/tests/integration/test_check.py`:
+Create `packages/earnest/tests/integration/test_check.py`. The second test writes its extra document after the commit, so the check must read an untracked file, from a subdirectory, under a name whose space the SARIF `uri` percent-encodes:
 
 ```python
 """Integration: `earnest check` over a committed repository, from the scan to the exit code."""
 
-import json
-
 from earnest import cli
+from tests.sarif import located, sarif_run
 
 
 CHAIN = {
@@ -2358,7 +2654,7 @@ def check(cwd, monkeypatch, capsys):
     monkeypatch.chdir(cwd)
     code = cli.main(["check"])
     out, err = capsys.readouterr()
-    return code, json.loads(out)["runs"][0], err
+    return code, sarif_run(out), err
 
 
 def test_a_complete_chain_passes_with_every_requirement_traced(files_repo, monkeypatch, capsys):
@@ -2368,12 +2664,16 @@ def test_a_complete_chain_passes_with_every_requirement_traced(files_repo, monke
     assert err.startswith("traced 100%, judged 0%, evidenced 0%; requirements: 1\n")
 
 
-def test_a_check_from_a_subdirectory_reads_the_whole_repository(files_repo, monkeypatch, capsys):
-    repo = files_repo({**CHAIN, "docs/more notes.md": "# More\n\n`req~x~1`\n\nCovers: feat~f~1\n"})
+def test_a_check_from_a_subdirectory_reads_the_whole_work_tree_untracked_files_included(
+    files_repo, monkeypatch, capsys
+):
+    repo = files_repo(CHAIN)
+    (repo / "docs" / "more notes.md").write_text("# More\n\n`req~x~1`\n\nCovers: feat~f~1\n", encoding="utf-8")
     code, run, _ = check(repo / "src", monkeypatch, capsys)
     assert code == 1
-    found = {(r["ruleId"], r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]) for r in run["results"]}
-    assert found == {("earnest/gap", "docs/more notes.md")}
+    assert {(result["ruleId"], located(result)) for result in run["results"]} == {
+        ("earnest/gap", ("docs/more%20notes.md", 3)),
+    }
 ```
 
 - [ ] **Step 2: Run the tests and watch them fail**
@@ -2384,7 +2684,7 @@ Expected: FAIL at collection with `ImportError: cannot import name 'cli' from 'e
 
 - [ ] **Step 3: Write `cli.py` and declare the `earnest` script**
 
-`cli.py` wires the pipeline and keeps no logic of its own. With `GitError` caught, a check outside a work tree prints one line and exits 2.
+`cli.py` wires the pipeline and keeps no logic of its own. The boundary catches `GitError` and `OSError`, the second covering a file that cannot be read or is not UTF-8, since `adapters.scan` raises `OSError` for a `UnicodeDecodeError` and names the file. Either way the check writes one line on stderr, nothing on stdout, and exits 2.
 
 Create `packages/earnest/src/earnest/cli.py`:
 
@@ -2403,7 +2703,8 @@ from earnest.index import build_index
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the command line and return its exit code.
 
-    0 when no error-level finding is in scope, 1 when one is, and 2 when the check cannot run.
+    The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
+    the check cannot run: Git cannot answer or a file cannot be read.
     """
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -2412,15 +2713,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         root = git.repo_root(Path.cwd())
         commit = git.head_commit(root)
-        sources = adapters.scan(root, git.tracked_files(root))
-    except git.GitError as error:
+        sources = adapters.scan(root, git.work_tree_files(root))
+    except (git.GitError, OSError) as error:
         sys.stderr.write(f"earnest: {error}\n")
         return 2
     index = build_index(sources)
     findings = structural.check(index)
-    levels = reporter.trace_levels(structural.traced(index))
+    levels = structural.traced(index)
     sys.stdout.write(reporter.sarif(findings, levels, commit))
     sys.stderr.write(reporter.summary(findings, levels))
+    # ponytail: every finding sits at position current until stages exist, so any error-level one fails the check
     return 1 if any(finding.level == "error" for finding in findings) else 0
 ```
 
@@ -2459,7 +2761,7 @@ Expected: PASS, `5 passed`. It is the first green run of the exit command since 
 
 Run: `make test && make lint`
 
-Expected: `69 passed` across the three tiers, then `make lint` exits 0.
+Expected: `103 passed` across the three tiers, then `make lint` exits 0.
 
 - [ ] **Step 7: Mark M1 done on the milestone DAG**
 

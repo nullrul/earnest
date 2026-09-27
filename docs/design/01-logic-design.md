@@ -135,9 +135,9 @@ of the stage's deliverables that `matches` selects, and records
 id, the sensor id, the stage slug and the output path. Every fire checks the
 whole stage, so every fire returns the same verdict. The gate shows the stage's
 trace, verdicts, evidence, computed status and assessment hash. The sensor
-passes when no error-level finding sits at position behind or current (see
-Frontier and position), and findings ahead of the frontier ride along as
-notes. On a failure AI-DLC writes the sensor's JSON, which carries the
+passes exactly when `earnest check` exits 0 (see Command surface), and
+findings ahead of the frontier ride along as notes. On a failure AI-DLC
+writes the sensor's JSON, which carries the
 findings summary, to the detail file
 `<record>/.aidlc-engine/sensors/<stage>/earnest-<fire id>.md` that the
 `SENSOR_FAILED` row names. A failing sensor holds the gate until the agent
@@ -421,11 +421,10 @@ the declared tier stays a gap until a cover of that tier exists.
 ### Findings
 
 Every finding has a rule id, a level, a location and a position (see Frontier
-and position). The Level column is the SARIF level at position behind or
-current; at position ahead every finding is a note. A finding that reaches no
-stage, such as an orphaned or near-miss tag, takes position current in every
-run, keeps the level in the table and counts as blocking. The first five reuse
-OFT's link-status names; the rest are Earnest's.
+and position, which also places a finding that reaches no stage). The Level
+column is the SARIF level at position behind or current; at position ahead
+every finding is a note. The first five reuse OFT's link-status names; the
+rest are Earnest's.
 
 | Rule id | Level | Meaning |
 | --- | --- | --- |
@@ -520,14 +519,13 @@ out-of-task finding counts against the current task:
   "expected at construction/u1/code-generation", and the agent takes no action
   on it.
 
-A finding that reaches no stage takes position current and names no stage.
-Such findings include an orphaned or near-miss tag, which covers nothing a task
-delivers; a malformed id, which resolves to no item; and every finding of
-a run with no plan, where no `Scope` gives a route and so no stage exists.
-Current is a blocking position, so such a finding counts as blocking in every
-run, `--stage` runs included, and keeps its level whatever the frontier. At
-error level it makes the exit code non-zero and fails the `earnest` sensor at
-each gate until it is fixed, so it is never lost.
+A finding that reaches no stage keeps its level and sits at position current
+in every run, `--stage` runs included, whatever the frontier, so an error
+there fails the check (see Command surface) and the `earnest` sensor at each
+gate until it is fixed. It names no stage. Such findings include an orphaned
+or near-miss tag, which covers nothing a task delivers; a malformed id, which
+resolves to no item; and every finding of a run with no plan, where no `Scope`
+gives a route and so no stage exists.
 
 At the start of an intent the frontier is the first stage on the route, so
 only that stage's work reads as current and everything further along reads as
@@ -680,18 +678,18 @@ built from it. The index is consumable by an editor language server.
 ```ebnf
 (* Identity *)
 id          = type "~" name "~" revision ;
-type        = lower , { lower } ;                     (* [a-z]+ *)
+type        = "tenet" | "goal" | "feat" | "req" | "dsn" | "impl" | "utest"
+            | "itest" | "stest" | "unit" | "task" ;   (* the Item types table *)
 name        = namechar , { namechar } ;               (* [a-z0-9-]+ *)
 namechar    = lower | digit | "-" ;
 revision    = nonzero , { digit } ;                   (* positive integer *)
 commit      = hexchar , { hexchar } ;                 (* git short sha *)
 hexchar     = digit | "a" | "b" | "c" | "d" | "e" | "f" ;
 
-(* Markdown item block: from its id line to the next id line, the next
-   Markdown heading or the end of the file *)
+(* Markdown item block; the prose below gives its span *)
 item        = id_line , { key_line | body_line } ;
 id_line     = ( "`" id "`" | heading_marks " " "`" id "`" ) , newline ;
-heading_marks = "#" , { "#" } ;
+heading_marks = "#" , { "#" } ;                       (* one to six *)
 body_line   = { char } , newline ;                    (* every other line *)
 key_line    = key , ":" , " " , value , newline ;
 key         = "Needs" | "Covers" | "Drivers" | "Delivers" | "Depends"
@@ -704,7 +702,8 @@ type_list   = type , { "," , " " , type } ;           (* Needs *)
 override    = id , " " , ( "implemented" | "tested" ) , " at " , commit , "," , reason ;
 
 (* Comment tag surface: Python "#" and TypeScript "//" or block comments *)
-comment_tag = "[" , type , "->" , id , "]" ;
+comment_tag = "[" , ws , type , ws , "->" , ws , id , ws , "]" ;
+ws          = { " " | "\t" } ;                        (* optional whitespace *)
 
 (* Gherkin tag surface: brackets are illegal in Gherkin tags *)
 gherkin_tag = "@" , type , ":" , id ;
@@ -717,18 +716,27 @@ ears        = [ "Where" , feature , "," ]
 ```
 
 An item runs from its id line to the next id line, the next Markdown heading
-or the end of the file. Within that span, lines matching `key_line` are key
-lines, and every other line, including blank lines and fenced code, is body. A
-line that opens with a key, a colon and a space is a key line even when its
-value fails to parse, so a malformed id there raises a near-miss (see
-Near-miss) and leaves the body and its hash as they were. Fenced code is read
-as code: inside an item every line of a fence is body, and only lines outside
-fences start or end an item. A line that the Near-miss superset catches as a
-malformed id line ends the item above it as an id line would. A `req` body is
-one EARS sentence, which the parse reads as one text with line breaks and blank
-lines taken as spaces, so the sentence may wrap as in the Prose item example.
-Prose that belongs to the section rather than the item sits under a heading of
-its own.
+or the end of the file. A heading is either ATX (one to six `#` after up to
+three spaces, then a space, a tab or the end of the line) or setext (a text
+line underlined by a line of `=` or `-`), and a setext heading ends the item
+before its text line. Within that span, lines
+matching `key_line` are key lines, and every other line, including blank lines
+and fenced code, is body. A line that opens with a key name, in any letter
+case or emphasis, and a colon is a key line even when it fails `key_line`,
+whatever the spacing after the colon, so a malformed key, value or id there
+raises a near-miss (see Near-miss) and leaves the body and its hash as they
+were. Fenced code is read as code: inside an item every line of a fence
+is body, and only lines outside fences start or end an item. A fence opens on
+three or more backticks or tildes after up to three spaces. A backtick fence's
+info string holds no backtick, so a line such as ```` ```x``` is inline code ```` stays body text.
+A line that the Near-miss superset catches as a malformed id line ends the
+item above it as an id line would. A `req` body is one EARS sentence, which
+the parse reads as one text with line breaks and blank lines taken as spaces,
+so the sentence may wrap as in the Prose item example. Prose that belongs to
+the section rather than the item sits under a heading of its own.
+
+A bracket tag follows OFT's whitespace rule: whitespace is optional after `[`,
+around `->` and before `]`, so `[impl -> req~a~1]` is a valid tag.
 
 The five EARS forms fall out of which optional clauses are present:
 ubiquitous (none), event-driven (`When`), state-driven (`While`), unwanted
@@ -741,15 +749,20 @@ clause's text span, and those spans are what the judge asks about.
 A near-miss is any text matching a loose superset of the tag surfaces and of
 the places a prose file writes an id, that fails the strict grammar. The
 superset has three parts: a bracketed or `@`-prefixed token with a `~` inside;
-a Markdown line that holds one backticked token with a `~` inside, alone or
-after heading marks, where an id line goes; and the value of any key line, each
-comma-separated entry of a `Covers:`, `Drivers:`, `Delivers:` or `Depends:`
-value standing for an id. The scanner checks each near-miss against a fixed
-table of patterns in order and reports it with file, line and the canned fix of
-the first pattern that fits. The last row fits whatever the rows above it
-leave, so every near-miss carries a canned fix. OFT and similar tools read
-these as ordinary comments or prose, so the coverage and links they intended
-silently disappear.
+a Markdown line where an id line goes, after heading marks or none, that holds
+one backticked token with a `~` inside alone or opens with a backticked id
+followed by text; and every key line as the Grammar section reads one, with
+its key, its value and each comma-separated entry of a `Covers:`, `Drivers:`,
+`Delivers:` or `Depends:` value standing for an id. The `@`-prefixed forms
+apply only on the Gherkin surface: in Python and TypeScript comments only
+bracketed tokens are candidates, so `/** @see req~x~1 */` raises nothing. The
+scanner checks each near-miss against a fixed table of patterns in order and
+reports it with file, line and the canned fix of the first pattern that fits.
+The last row fits whatever the rows above it leave, so every near-miss carries
+a canned fix. OFT and similar tools read these as ordinary comments or prose,
+so the coverage and links they intended silently disappear.
+
+<!-- markdownlint-disable MD038 -->
 
 | Pattern | Example | Canned fix |
 | --- | --- | --- |
@@ -758,7 +771,17 @@ silently disappear.
 | uppercase name | `@stest:feat~Login~1`, `Delivers: req~Login~1` | lower-case the name |
 | `@` tag without `:` | `@stest feat~login~1` | put `:` between the artifact type and the id |
 | AI-DLC id | `Covers: FR1.2` | lower-case it, turn dots into hyphens, and add the type and the revision, as the id rule under Adopting AI-DLC does: `req~fr1-2~1` |
+| text after the id | `` `req~b~1` Login rate limit `` | put the id alone on its line and move the text into the body |
+| key not written exactly | `**Covers:** feat~f~1`, `covers: feat~f~1`, `Covers:feat~f~1` | write the key exactly as `Covers: `, with a capital, no formatting and one space after the colon |
+| empty value | `Covers: `, `Covers: feat~f~1,` | name at least one id, separated by `, `, with no empty entry |
+| unknown type | `` `rq~rate-limit~1` `` | use a known item type, such as `req` |
 | any other mismatch | `` `req~login_rate~1` ``, `Needs: impl utest` | rewrite it in the form its place takes, which the message quotes from the Grammar section, such as `type~name~revision` with a name of lower-case letters, digits and hyphens |
+
+<!-- markdownlint-enable MD038 -->
+
+The fix for a key not written exactly names the key that was found in place of
+`Covers`, and the fix for an unknown type names the closest known type in
+place of `req`.
 
 ## Key design decisions
 
@@ -907,15 +930,15 @@ silently disappear.
 
 ### D13 Findings as SARIF plus a human summary
 
-- Decision: all findings are emitted as SARIF 2.1.0 with a human summary.
-  `earnest check` writes the SARIF log to stdout and the summary to stderr.
+- Decision: all findings are emitted as SARIF 2.1.0 with a human summary, each
+  on its own stream as the Command surface gives them.
 - Alternatives considered: a bespoke JSON format; both on stdout; the SARIF log
   in a file named by a flag.
 - Rationale: SARIF is already read by editors, code scanning and PR views, so
   findings reach agents and humans with no Earnest integration (T8, T6).
-  Separate streams keep stdout one SARIF document that the sensor's script and
-  a CI job parse as it stands, while a person at the terminal still reads the
-  summary (T6).
+  Separate streams keep the log one SARIF document that the sensor's script
+  and a CI job parse as it stands, while a person at the terminal still reads
+  the summary (T6).
 
 ### D14 The EARS parse drives the judge
 
@@ -1085,8 +1108,8 @@ Each layer runs only when requested and only over what the layers before it
 passed: the judge reads only items that reach traced, and the evidence layer
 reads only items that reach judged, so `--evidence` implies `--judge`. The
 route from the profile and the approvals from the audit rows fix the
-frontier, and every finding takes its position from it before output; a
-finding that reaches no stage takes position current.
+frontier, and every finding takes its position from it before output, as
+Frontier and position describes.
 Out-of-task, impact, plan and stage status are side reports computed from the
 index plus the diff and the record. The check and the judge read one index, so
 they cannot disagree about the graph. At a stage boundary the `earnest` sensor
@@ -1099,26 +1122,24 @@ the `GATE_APPROVED` row only on an approval.
 
 | Command | Output |
 | --- | --- |
-| `earnest check [--task <id>] [--stage <stage>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage, runs the layers its items need, prints the assessment hash in the summary and writes the stage's run header to the record; this is the command the `earnest` sensor's script runs at each gate. |
+| `earnest check [--task <id>] [--stage <stage>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage (see Frontier and position), runs the layers its items need, prints the assessment hash in the summary and writes the stage's run header to the record; this is the command the `earnest` sensor's script runs at each gate. |
 | `earnest plan` | the route with each stage's computed status and approval, the frontier, and the unit and task graph with each item's computed status, plus plan findings; read-only |
 | `earnest calibrate <fixture>` | the judge's verdicts on the fixture beside the maintainer's, the match count and pass or fail against SC4; writes the result to the assessment record |
 
-Agents and maintainers run `earnest check` on demand, and AI-DLC runs it at
-each gate through the `earnest` sensor, whose script reports `pass: true`
-exactly when `earnest check` exits zero. The exit code is non-zero only when an
-error-level finding
-exists at position behind or current, so the agent, the human at the gate and
-a CI job can each act on it. A finding that reaches no stage sits at position
-current in every run, so an error-level one always makes the exit code
-non-zero. While the record holds no
-passing calibration for the current model id and prompt hash, every judge run
-raises `judge-uncalibrated`.
+The exit code is 0 when no error-level finding sits at position behind or
+current, 1 when one does, and 2 when the check cannot run: Git cannot answer
+or a file cannot be read. Agents and maintainers run `earnest check` on
+demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
+script reports `pass: true` exactly when `earnest check` exits 0, so the
+agent, the human at the gate and a CI job can each act on the exit code. While
+the record holds no passing calibration for the current model id and prompt
+hash, every judge run raises `judge-uncalibrated`.
 
 ### SARIF 2.1.0
 
-SARIF is the only findings contract. `earnest check` writes the log to stdout
-as one SARIF 2.1.0 document and the human summary to stderr, so the `earnest`
-sensor's script or a CI job reads stdout as the log.
+SARIF is the only findings contract. The log is one SARIF 2.1.0 document, on
+the stream the Command surface gives it, so the `earnest` sensor's script or a
+CI job reads it as it stands.
 
 - Each finding is one SARIF `result` with `ruleId`, `level`, `message` and a
   `physicalLocation`. The rule ids and levels are exactly those in the Findings
@@ -1132,7 +1153,7 @@ sensor's script or a CI job reads stdout as the log.
   reaches no stage has `properties.position` `current`, omits
   `properties.stage`, and its message opens with `in scope`.
 - Each requirement's trace level and the three percentages travel under the
-  run's `properties`, so stdout alone carries what the summary leads with.
+  run's `properties`, so the log alone carries what the summary leads with.
 - The commit, the model id, the prompt hash and the layers run travel under the
   run's `invocations` and provenance properties.
 
@@ -1172,10 +1193,12 @@ the index. Then the revision decides the class:
 
 ## Runtime and permission model
 
-Earnest reads the repository and writes one thing: the assessment record, kept
-in the repository beside the stage artifacts. `earnest calibrate` also writes
-to it. Every fix to the prose files and the code is the agent's or the
-maintainer's to make.
+Earnest reads the files Git lists for the work tree: tracked files plus
+untracked files that are not ignored, so files an agent has written but not
+yet staged count before commit (UC2). It writes one thing: the assessment
+record, kept in the repository beside the stage artifacts. `earnest calibrate`
+also writes to it. Every fix to the prose files and the code is the agent's or
+the maintainer's to make.
 
 An approval is the human's act, recorded by AI-DLC's gate, which binds the
 answer to the human's reply in their session and marks the row
@@ -1202,6 +1225,7 @@ status, and the frontier run entirely on the local repository.
 | Judge model choice and prompt | maintainer | the calibration gate |
 | SC4 calibration gate | maintainer | unrun; a precondition to the first AI-DLC unit the fork runs through Earnest |
 | What the assessment hash hashes, the value an approval's `Assessment Hash` carries | maintainer | before milestone `stage_status` of `03-implementation-plan.md` |
+| How a stage's computed status reaches the gate, given that the sensor reads only the exit code and the SARIF log | maintainer | before milestone `stage_status` of `03-implementation-plan.md` |
 | The task's base commit, which the out-of-task check diffs against | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | When the coverage map of the Impact rule is taken, and where the map is stored; the record keeps only its commit | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | How a test plugs a stub model into `--judge` | maintainer | before milestone `judge_check` of `03-implementation-plan.md` |
