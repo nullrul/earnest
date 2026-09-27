@@ -62,7 +62,7 @@ SDK, infra, and service packages have no JSX.
 
 - **Build**: `uv build` (hatchling backend)
 - **Lint**: `ruff check` + `ruff format`, `mypy --strict`, `vulture` (dead code, >=80% confidence)
-- **Test**: `pytest` with `pytest-cov` (>=80% coverage)
+- **Test**: `pytest` with `pytest-cov` (coverage reported, no threshold for now)
 - **Package manager**: `uv` (standalone per sub-project)
 
 ### Rust
