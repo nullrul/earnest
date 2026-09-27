@@ -89,7 +89,7 @@ Each later milestone's scenarios are added here when that milestone's plan is wr
 | `docs/plan.md` | 19 | `` `tsk~expire~1` `` | `near-miss`, an unknown type |
 | `docs/requirements.md` | 11 | `req~lockout-notice~2`, with no `utest` | `gap` |
 | `docs/requirements.md` | 18 | `req~session-expiry~1`, with no `Covers:` line | `orphaned`, an item that covers no parent |
-| `docs/requirements.md` | 22 | `Needs: impl utest` | `near-miss`, a key-line value |
+| `docs/requirements.md` | 22 | `Needs: impl utest` | `near-miss`, a list separated by a space |
 | `docs/requirements.md` | 24 | `` `req~remember-me` `` | `near-miss`, an id line without its revision |
 | `docs/requirements.md` | 28 | `req~audit-log~1`, with no `utest` | `gap` |
 | `docs/requirements.md` | 32 | `Covers: feat~sign-in~2, FR1.2` | `predated` for the first entry, `near-miss` for the AI-DLC id |
@@ -103,12 +103,13 @@ Each later milestone's scenarios are added here when that milestone's plan is wr
 | `web/login.ts` | 3 | `[impl->req~lockout-notice~1]` | `outdated`, as the item is at revision 2 |
 | `web/login.ts` | 13 | `[impl->req~lockout-notice]` | `near-miss`, a tag without its revision |
 
-`req~rate-limit~1` and `req~session-expiry~1` each have an `impl` and a `utest`
-cover at their current revision, so two of the four requirements are traced,
-50%. The `utest` cover of `req~session-expiry~1`, on line 12 of
-`tests/test_auth.py`, is the spaced tag `[ utest -> req~session-expiry~1 ]`,
-which OFT's whitespace rule makes valid. The `//` inside a string on line 15 of
-`web/login.ts`, and the `@smoke` tag in `tests/sign_in.feature`, raise nothing.
+Two requirements, `req~rate-limit~1` and `req~session-expiry~1`, each have an
+`impl` and a `utest` cover at their current revision, so two of the four
+requirements are traced, 50%. The `utest` cover of `req~session-expiry~1`, on
+line 12 of `tests/test_auth.py`, is the spaced tag
+`[ utest -> req~session-expiry~1 ]`, which OFT's whitespace rule makes valid.
+The `//` inside a string on line 15 of `web/login.ts`, and the `@smoke` tag in
+`tests/sign_in.feature`, raise nothing.
 
 ### Feature
 
@@ -167,7 +168,7 @@ Feature: Trace check
       | docs/plan.md          | 19   | use a known item type, such as `task`                                 |
       | docs/requirements.md  | 11   | tag a unit test that verifies it with `[utest->req~lockout-notice~2]` |
       | docs/requirements.md  | 18   | add a `Covers:` line naming the `feat` it derives from                |
-      | docs/requirements.md  | 22   | such as `impl, utest`                                                 |
+      | docs/requirements.md  | 22   | name at least one id, separated by `, `, with no empty entry          |
       | docs/requirements.md  | 24   | append `~` and the item's current revision                            |
       | docs/requirements.md  | 28   | tag a unit test that verifies it with `[utest->req~audit-log~1]`      |
       | docs/requirements.md  | 32   | so `FR1.2` becomes `req~fr1-2~1`                                      |

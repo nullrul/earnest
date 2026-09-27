@@ -235,16 +235,18 @@ its line says "Owns", and each such rule has exactly one owner.
 
 ### Scanner
 
-- `adapters/`: Host adapters. Each yields its language's comment, heading or
-  tag lines with their line numbers, and the grammar decides what parses.
+- `adapters/`: Host adapters. Each yields the lines of its language that can
+  hold an item or a tag, with their line numbers, and the grammar decides what
+  parses.
 - `adapters/__init__.py`: picks the adapter by file suffix for each file that
   `git.py` lists.
-- `adapters/markdown.py`: the lines, headings and code fences of Markdown stage
-  artifacts.
+- `adapters/markdown.py`: every line of a Markdown stage artifact, and the
+  numbers of its fenced lines; `index.py` recognizes headings.
 - `adapters/python.py`: `#` comments, through `tokenize`.
-- `adapters/typescript.py`: `//` and block comments outside string and template
-  literals.
-- `adapters/gherkin.py`: `@` tag lines and the scenario each one tags.
+- `adapters/typescript.py`: `//` and block comments outside string, template
+  and regular-expression literals.
+- `adapters/gherkin.py`: `@` tag lines, under the doc-string and comment rules
+  of the Grammar section of `01`.
 
 ### Index
 
@@ -252,11 +254,9 @@ its line says "Owns", and each such rule has exactly one owner.
   (ids, item blocks, key and `Override:` lines, both tag surfaces) and the index
   built from adapter output: items, edges, tags and their regions. Owns the
   Region rule, Reference resolution and the Near-miss table, so the check and
-  the judge read one graph (G7). The Region rule arrives with M2 `stage_status`
-  of `03`: M3 `task_change` (out-of-task and impact) and M4 `judge_check` (the
-  judge cache key and `override-drift`) both read it and run in parallel after
-  M2, so it ships with the milestone they depend on. It is the seam D5 names:
-  an editor language server reads the same index through it.
+  the judge read one graph (G7). The Region rule arrives with M2 of `03`.
+  `index.py` is the seam D5 names: an editor language server reads the same
+  index through it.
 
 ### Assessor
 
@@ -301,9 +301,8 @@ its line says "Owns", and each such rule has exactly one owner.
   unique across tiers.
 - `conftest.py`: shared fixtures. It copies a fixture's files, less its
   `change/` overlay, into `tmp_path` and commits them with `git`, then commits
-  the overlay on a `task/…` branch when there is one. Its
-  `collect_ignore = ["fixtures"]` keeps the fixture repositories out of
-  pytest's collection. Steps that two or more features share live here too.
+  the overlay on a `task/…` branch when there is one. Steps that two or more
+  features share live here too.
 - `sarif.py`: the SARIF helpers shared by the step module and the unit and
   integration tests.
 - `unit/test_<module>.py`: one test module per module of `src/earnest/`.

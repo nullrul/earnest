@@ -27,11 +27,13 @@ flowchart LR
 M1 and M2 are the foundation. M1 fixes the index and the SARIF output that
 every later milestone reads, and M2 adds the assessment record, the contract
 that revision checks, the judge cache, the coverage-map commit, calibration and
-the run header share. M3, M4 and M7 then run in parallel. M5 joins M3 and M4:
+the run header share. M2 also adds the Region rule, which M3 reads for
+out-of-task and impact and M4 for the judge cache key and `override-drift`.
+M3, M4 and M7 then run in parallel. M5 joins M3 and M4:
 evidence runs in `impact.py` beside impact, and `--evidence` implies `--judge`.
 M6 continues the judge branch. Evidence has its own milestone so that M6 waits
 on the judge alone, and the out-of-task check and impact have theirs so that M2
-carries only the record and the stage engine.
+carries only the record, the stage engine and the Region rule.
 
 M1 is the first runnable milestone, and no open question gates it. The
 record-location row of the Open questions section of `02` gates M2, and through
@@ -73,7 +75,8 @@ and the graph doubles as the loop's progress board.
 - Exit command: `uv run pytest tests/steps/test_trace_check.py`.
 - Deliverable: `earnest check` through `cli.py`, `git.py`, the four
   `adapters/`, the grammar, index, Reference resolution and Near-miss table of
-  `index.py`, the link rules of `structural.py`, and the SARIF output and
+  `index.py` (the table validates `Override:` values too), the link rules of
+  `structural.py`, and the SARIF output and
   summary of `reporter.py`; `tests/conftest.py`,
   `tests/fixtures/broken-links/`, `trace_check.feature` and its step module;
   the `earnest` script (L4), pytest-bdd and the fixture excludes (L5, L6).
@@ -81,7 +84,8 @@ and the graph doubles as the loop's progress board.
   SC10 (message text only); the Trace and Report capabilities.
 - Context to load: `00`: Success criteria. `01`: Grammar, Near-miss, Item
   types, Edges, Default Needs, Findings, Trace levels, Frontier and position,
-  Reference resolution, Command surface, SARIF 2.1.0, D1, D13, D16. `02`: the
+  Process vocabulary, Reference resolution, Command surface, SARIF 2.1.0,
+  Runtime and permission model, D1, D13, D16. `02`: the
   File and directory tree; Package, Scanner, Index, `structural.py`, Reporter
   and Tests in Module boundaries; L4 to L6.
 - Gating open questions: none.
@@ -100,7 +104,9 @@ and the graph doubles as the loop's progress board.
   commit, a check flags the tag, edge and approval left at the old revision,
   and a body edited without a bump.
 - Exit command: `uv run pytest tests/steps/test_stage_status.py`.
-- Deliverable: the Region rule in `index.py`; `plan.py` with the route,
+- Deliverable: the Region rule in `index.py`; the per-language code-line scan
+  the Region rule needs in the comment adapters, and `Source.code_lines`;
+  `plan.py` with the route,
   stages, approvals, frontier and position, and computed status; the record's
   reader and writer in `reporter.py`; the Revision lifecycle in `structural.py`;
   `earnest plan` and `--stage` in `cli.py`; `tests/fixtures/seeded-change/`
@@ -111,13 +117,13 @@ and the graph doubles as the loop's progress board.
 - Context to load: `01`: Adopting AI-DLC, Stages, Frontier and position,
   Computed status, Process vocabulary, Revision lifecycle, Command surface,
   Assessment record, Runtime and permission model, Region rule, D6, D9, D10,
-  D15. `02`: `plan.py`, `structural.py`, `reporter.py`, `conftest.py` and
-  `fixtures/seeded-change/` in Module boundaries.
+  D15. `02`: Scanner, Index, `plan.py`, `structural.py`, `reporter.py`,
+  `conftest.py` and `fixtures/seeded-change/` in Module boundaries.
 - Gating open questions: where the assessment record sits and its file format
-  (`02`); assessment hash contents (`01`).
+  (`02`); assessment hash contents, and how a stage's computed status reaches
+  the gate (`01`).
 - Task plan: `docs/superpowers/plans/<date>-stage-status.md`, written when M2
-  is next. It follows the Region rule of `01`:
-  "consecutive tags with no code between them share the region that follows them".
+  is next.
 
 ### M3 `task_change`
 

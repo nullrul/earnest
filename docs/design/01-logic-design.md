@@ -335,7 +335,7 @@ items.
 | `task` | a step of AI-DLC's `code-generation-plan.md`; spec-kit tasks file | — | `Delivers:` `req` or `dsn`; `Depends:` `task` | plan status |
 
 Only `req` has a body rule. The use-case form for `feat` and the MADR sections
-for `dsn` are writing conventions the scanner leaves unchecked. A Markdown
+for `dsn` are writing conventions the scanner leaves unchecked. An ATX
 heading ends an item (see Grammar), so those sections are labelled paragraphs
 or list items inside the body, as in the Key design decisions section. Only
 `tenet`, `goal`, `unit` and `task` are additions to what OFT ships. OFT treats
@@ -688,7 +688,7 @@ hexchar     = digit | "a" | "b" | "c" | "d" | "e" | "f" ;
 
 (* Markdown item block; the prose below gives its span *)
 item        = id_line , { key_line | body_line } ;
-id_line     = ( "`" id "`" | heading_marks " " "`" id "`" ) , newline ;
+id_line     = ( "`" id "`" | heading_marks " " "`" id "`" [ " " "#" { "#" } ] ) , newline ;
 heading_marks = "#" , { "#" } ;                       (* one to six *)
 body_line   = { char } , newline ;                    (* every other line *)
 key_line    = key , ":" , " " , value , newline ;
@@ -703,7 +703,7 @@ override    = id , " " , ( "implemented" | "tested" ) , " at " , commit , "," , 
 
 (* Comment tag surface: Python "#" and TypeScript "//" or block comments *)
 comment_tag = "[" , ws , type , ws , "->" , ws , id , ws , "]" ;
-ws          = { " " | "\t" } ;                        (* optional whitespace *)
+ws          = { " " | "\t" } ;                        (* optional whitespace, as OFT allows *)
 
 (* Gherkin tag surface: brackets are illegal in Gherkin tags *)
 gherkin_tag = "@" , type , ":" , id ;
@@ -715,17 +715,21 @@ ears        = [ "Where" , feature , "," ]
               "the" , system , "shall" , response , "." ;
 ```
 
-An item runs from its id line to the next id line, the next Markdown heading
-or the end of the file. A heading is either ATX (one to six `#` after up to
-three spaces, then a space, a tab or the end of the line) or setext (a text
-line underlined by a line of `=` or `-`), and a setext heading ends the item
-before its text line. Within that span, lines
-matching `key_line` are key lines, and every other line, including blank lines
-and fenced code, is body. A line that opens with a key name, in any letter
-case or emphasis, and a colon is a key line even when it fails `key_line`,
-whatever the spacing after the colon, so a malformed key, value or id there
-raises a near-miss (see Near-miss) and leaves the body and its hash as they
-were. Fenced code is read as code: inside an item every line of a fence
+An item runs from its id line to the next id line, the next ATX heading or the
+end of the file. An ATX heading is one to six `#` after up to three spaces,
+then a space, a tab or the end of the line; an optional closing run of `#`
+ends it. Within that span, lines matching `key_line` are key lines, and every
+other line, including blank lines and fenced code, is body. A line is a key
+line when its text, after indentation, a list marker (`-`, `*`, `+`, or a
+number and `.`), a quote marker (`>`) and emphasis, opens with a key name in
+any letter case and a colon. It is a key line even when it fails `key_line`,
+whatever the spacing after the colon, so a malformed key, value or id there,
+`Override:` values included, raises a near-miss (see Near-miss) and leaves the
+body and its hash as they were. A decorated or misspelled key raises the
+"key not written exactly" near-miss. Every list value, id lists and type lists
+alike, separates its entries with exactly a comma and one space, and any other
+separator, or an empty entry, raises the "empty value" near-miss.
+Fenced code is read as code: inside an item every line of a fence
 is body, and only lines outside fences start or end an item. A fence opens on
 three or more backticks or tildes after up to three spaces. A backtick fence's
 info string holds no backtick, so a line such as ```` ```x``` is inline code ```` stays body text.
@@ -733,10 +737,12 @@ A line that the Near-miss superset catches as a malformed id line ends the
 item above it as an id line would. A `req` body is one EARS sentence, which
 the parse reads as one text with line breaks and blank lines taken as spaces,
 so the sentence may wrap as in the Prose item example. Prose that belongs to
-the section rather than the item sits under a heading of its own.
+the section rather than the item sits under an ATX heading of its own.
 
-A bracket tag follows OFT's whitespace rule: whitespace is optional after `[`,
-around `->` and before `]`, so `[impl -> req~a~1]` is a valid tag.
+On the Gherkin surface, tags are read from the tag lines outside doc strings.
+A doc string opens and closes on a line whose text starts with `"""` or three
+backticks. A tag line ends at the first `#` that follows a space, which starts
+a Gherkin comment.
 
 The five EARS forms fall out of which optional clauses are present:
 ubiquitous (none), event-driven (`When`), state-driven (`While`), unwanted
@@ -750,10 +756,14 @@ A near-miss is any text matching a loose superset of the tag surfaces and of
 the places a prose file writes an id, that fails the strict grammar. The
 superset has three parts: a bracketed or `@`-prefixed token with a `~` inside;
 a Markdown line where an id line goes, after heading marks or none, that holds
-one backticked token with a `~` inside alone or opens with a backticked id
-followed by text; and every key line as the Grammar section reads one, with
-its key, its value and each comma-separated entry of a `Covers:`, `Drivers:`,
-`Delivers:` or `Depends:` value standing for an id. The `@`-prefixed forms
+a backticked id alone or opens with one followed by text; and every key line
+as the Grammar section reads one, with its key, its value and each
+comma-separated entry of a `Covers:`, `Drivers:`, `Delivers:` or `Depends:`
+value standing for an id. A backticked id here is a token that opens with a
+word and `~`, such as `` `rq~b~1` `` or `` `Req~b~1` ``. Any other backticked
+token, such as `` `~/.config` ``, is body text. A heading's closing `#` run is
+not text
+after the id. The `@`-prefixed forms
 apply only on the Gherkin surface: in Python and TypeScript comments only
 bracketed tokens are candidates, so `/** @see req~x~1 */` raises nothing. The
 scanner checks each near-miss against a fixed table of patterns in order and
@@ -770,12 +780,12 @@ so the coverage and links they intended silently disappear.
 | missing revision | `[impl->req~x]`, `` `req~x` ``, `Covers: feat~x` | append `~` and the item's current revision |
 | uppercase name | `@stest:feat~Login~1`, `Delivers: req~Login~1` | lower-case the name |
 | `@` tag without `:` | `@stest feat~login~1` | put `:` between the artifact type and the id |
-| AI-DLC id | `Covers: FR1.2` | lower-case it, turn dots into hyphens, and add the type and the revision, as the id rule under Adopting AI-DLC does: `req~fr1-2~1` |
+| AI-DLC id | `Covers: FR1.2` | lower-case it, turn dots into hyphens, and add the type and the revision, so `FR1.2` becomes `req~fr1-2~1` |
 | text after the id | `` `req~b~1` Login rate limit `` | put the id alone on its line and move the text into the body |
 | key not written exactly | `**Covers:** feat~f~1`, `covers: feat~f~1`, `Covers:feat~f~1` | write the key exactly as `Covers: `, with a capital, no formatting and one space after the colon |
-| empty value | `Covers: `, `Covers: feat~f~1,` | name at least one id, separated by `, `, with no empty entry |
+| empty value, empty entry or a separator other than `, ` | `Covers: `, `Covers: feat~f~1,`, `Needs: impl utest` | name at least one id, separated by `, `, with no empty entry |
 | unknown type | `` `rq~rate-limit~1` `` | use a known item type, such as `req` |
-| any other mismatch | `` `req~login_rate~1` ``, `Needs: impl utest` | rewrite it in the form its place takes, which the message quotes from the Grammar section, such as `type~name~revision` with a name of lower-case letters, digits and hyphens |
+| any other mismatch | `` `req~login_rate~1` `` | rewrite it in the form its place takes, which the message quotes from the Grammar section, such as `type~name~revision` with a name of lower-case letters, digits and hyphens |
 
 <!-- markdownlint-enable MD038 -->
 
@@ -1075,7 +1085,7 @@ flowchart TB
   plan --> reporter
 ```
 
-Host adapters know only how to find comments, headings and Gherkin tags in
+Host adapters know only how to find comments, code fences and Gherkin tags in
 their language; the grammar alone decides what parses. Everything downstream of
 the index is language-agnostic, so adding a language means adding one adapter.
 The plan and stage engine maps each prose file to its stage by its path in the
@@ -1195,7 +1205,10 @@ the index. Then the revision decides the class:
 
 Earnest reads the files Git lists for the work tree: tracked files plus
 untracked files that are not ignored, so files an agent has written but not
-yet staged count before commit (UC2). It writes one thing: the assessment
+yet staged count before commit (UC2). Earnest reads them in path order,
+decodes each as UTF-8 with bytes that are not UTF-8 replaced, and skips a
+binary file, one with a NUL byte in its first 8000 bytes, as Git does.
+Earnest writes one thing: the assessment
 record, kept in the repository beside the stage artifacts. `earnest calibrate`
 also writes to it. Every fix to the prose files and the code is the agent's or
 the maintainer's to make.
