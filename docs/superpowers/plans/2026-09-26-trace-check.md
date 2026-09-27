@@ -1925,8 +1925,13 @@ def test_tag_lines_are_read_and_comments_and_doc_strings_are_text():
 
 
 def test_a_doc_string_closes_on_a_delimiter_line_with_a_comment_after_it():
-    text = '  """\n  @stest:feat~a~1\n  """ # end\n  @stest:feat~b~1\n'
-    assert gherkin.scan(text) == (Line(4, "  @stest:feat~b~1"),)
+    text = '  Given a note\n  """\n  @stest:feat~a~1\n  """ # end\n  @stest:feat~b~1\n'
+    assert gherkin.scan(text) == (Line(5, "  @stest:feat~b~1"),)
+
+
+def test_a_delimiter_in_a_description_opens_no_doc_string():
+    text = 'Feature: F\n  """Quoted""" is the product\'s tagline.\n\n  @stest:feat~a~1\n  Scenario: S\n'
+    assert gherkin.scan(text) == (Line(4, "  @stest:feat~a~1"),)
 
 
 @pytest.mark.parametrize("space", [" ", "\t"], ids=["space", "tab"])
@@ -2038,26 +2043,31 @@ from earnest.index import Line, split_lines
 
 
 _DOC_STRINGS = ('"""', "```")
+_STEPS = ("Given ", "When ", "Then ", "And ", "But ", "* ")
 
 
 def scan(text: str) -> tuple[Line, ...]:
     """Return the `@` tag lines, each cut at its first `#` after whitespace, where a comment opens, as Gherkin cuts it.
 
-    A doc string opens and closes on a line whose stripped text starts with its delimiter, three double quotes or three
-    backticks, and its lines are text, never tags.
+    A doc string opens on a line whose stripped text starts with its delimiter, three double quotes or three backticks,
+    right after a step, blank lines and comments aside, and closes on the next line that starts with the same delimiter.
+    Its lines are text, never tags, and a delimiter line anywhere else, such as in a description, is text too.
     """
-    # ponytail: a description line that starts with a delimiter opens a doc string and hides the tags below it until the
-    # next delimiter line; the official Gherkin parser tells the two apart, at the cost of a dependency.
+    # ponytail: step keywords are English only, so a feature written in another `# language:` opens no doc strings; the
+    # official Gherkin parser knows every language's keywords, at the cost of a dependency.
     tags: list[Line] = []
     doc_string = ""
+    after_step = False
     for line in split_lines(text):
         stripped = line.text.strip()
         if doc_string:
             doc_string = "" if stripped.startswith(doc_string) else doc_string
-        elif stripped.startswith(_DOC_STRINGS):
+        elif after_step and stripped.startswith(_DOC_STRINGS):
             doc_string = stripped[:3]
         elif stripped.startswith("@"):
             tags.append(Line(line.number, re.split(r"\s#", line.text, maxsplit=1)[0]))
+        if stripped and not stripped.startswith("#"):
+            after_step = stripped.startswith(_STEPS)
     return tuple(tags)
 ```
 
@@ -2119,7 +2129,7 @@ def scan(root: Path, paths: Iterable[str]) -> list[Source]:
 
 Run: `uv run pytest tests/unit -v && make lint`
 
-Expected: `97 passed`, the 17 new tests among them, then `make lint` exits 0.
+Expected: `98 passed`, the 18 new tests among them, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -2886,7 +2896,7 @@ Expected: PASS, `5 passed`. It is the first green run of the exit command since 
 
 Run: `make test && make lint`
 
-Expected: `130 passed` across the three tiers, then `make lint` exits 0.
+Expected: `131 passed` across the three tiers, then `make lint` exits 0.
 
 - [ ] **Step 7: Mark M1 done on the milestone DAG**
 
