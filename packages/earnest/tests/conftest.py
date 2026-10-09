@@ -58,3 +58,17 @@ def fixture_repo(tmp_path: Path) -> Callable[[str], Path]:
         return _commit(repo)
 
     return build
+
+
+@pytest.fixture
+def files_repo(tmp_path: Path) -> Callable[[dict[str, str]], Path]:
+    """Return a builder that writes the given files into tmp_path / "repo" and commits them on main."""
+
+    def build(files: dict[str, str]) -> Path:
+        repo = tmp_path / "repo"
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text, encoding="utf-8")
+        return _commit(repo)
+
+    return build
