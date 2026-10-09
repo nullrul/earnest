@@ -44,11 +44,10 @@ class Finding:
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
     """Return the share of requirements at each level or above, in whole percent rounded down, so 100 means all."""
     ranks = [LEVELS.index(level) for level in levels.values()]
-    shares: dict[str, int] = {}
-    for rank, name in enumerate(LEVELS[1:], start=1):
-        reached = sum(1 for value in ranks if value >= rank)
-        shares[name] = 100 * reached // len(ranks) if ranks else 0
-    return shares
+    return {
+        name: 100 * sum(rank >= floor for rank in ranks) // len(ranks) if ranks else 0
+        for floor, name in enumerate(LEVELS[1:], start=1)
+    }
 
 
 def sarif(findings: Sequence[Finding], levels: Mapping[str, str], commit: str) -> str:

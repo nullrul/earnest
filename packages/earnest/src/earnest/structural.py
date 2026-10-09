@@ -94,7 +94,7 @@ def _links(index: Index) -> Iterator[Finding]:
         if link.key == "Covers" and link.type not in needs(item):
             wanted = ", ".join(f"`{kind}`" for kind in needs(item)) or "no cover"
             message = (
-                f"`{link.type}` covers `{link.target}` and counts toward nothing, because the item needs {wanted}:"
+                f"`{link.type}` covers `{subject}` and counts toward nothing, because the item needs {wanted}:"
                 f" use a type it needs, or add `{link.type}` to its `Needs:` line"
             )
             yield Finding(link.path, link.line, "earnest/unwanted", subject, message)

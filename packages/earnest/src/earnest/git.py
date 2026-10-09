@@ -36,8 +36,8 @@ def _git(cwd: Path, *args: str) -> str:
         raise GitError(msg)
     done = subprocess.run([executable, *args], cwd=cwd, capture_output=True, check=False)  # noqa: S603
     if done.returncode != 0:
-        lines = done.stderr.decode(errors="replace").splitlines()
-        msg = next((line.strip() for line in lines if line.strip()), f"git {args[0]} failed")
+        lines = map(str.strip, done.stderr.decode(errors="replace").splitlines())
+        msg = next((line for line in lines if line), f"git {args[0]} failed")
         raise GitError(msg)
     # decoded from bytes, so no newline is translated, and a name that is not UTF-8 reaches the file system intact
     return done.stdout.decode("utf-8", "surrogateescape")
