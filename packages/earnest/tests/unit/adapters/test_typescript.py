@@ -48,3 +48,11 @@ def test_a_regular_expression_literal_opens_no_template_or_comment(code):
 )
 def test_a_slash_that_divides_or_closes_a_jsx_tag_opens_no_regular_expression(code):
     assert typescript.scan(f"{code} // [impl->req~a~1]\n") == (Line(1, "// [impl->req~a~1]"),)
+
+
+@pytest.mark.parametrize("quote", ["'", '"', "`"])
+def test_a_string_continued_by_a_backslash_under_crlf_ends_on_its_next_line(quote):
+    lf = f"const s = {quote}a\\\nb{quote}; // [impl->req~a~1]\n// [impl->req~b~1]\n"
+    assert typescript.scan(lf) == (Line(2, "// [impl->req~a~1]"), Line(3, "// [impl->req~b~1]"))
+    crlf = typescript.scan(lf.replace("\n", "\r\n"))
+    assert tuple(Line(line.number, line.text.rstrip()) for line in crlf) == typescript.scan(lf)

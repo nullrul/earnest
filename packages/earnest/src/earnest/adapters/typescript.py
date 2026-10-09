@@ -10,7 +10,7 @@ from earnest.index import Line
 # A TypeScript parser lifts both limits, at the cost of a dependency.
 _TOKEN = re.compile(
     r"(?P<comment>//[^\n]*|/\*[\s\S]*?(?:\*/|\Z))"
-    r"|(?P<literal>'(?:\\[\s\S]|[^'\\\n])*'?|\"(?:\\[\s\S]|[^\"\\\n])*\"?|`(?:\\[\s\S]|[^`\\])*`?)"
+    r"|(?P<literal>'(?:\\(?:\r\n|[\s\S])|[^'\\\n])*'?|\"(?:\\(?:\r\n|[\s\S])|[^\"\\\n])*\"?|`(?:\\[\s\S]|[^`\\])*`?)"
     r"|(?P<word>[\w$]+)|(?P<space>\s+)|(?P<step>\+\+|--)|(?P<other>[\s\S])",
 )
 # Possessive: each alternative opens on a character of its own, so a literal that never closes costs one pass.
