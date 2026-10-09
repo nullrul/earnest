@@ -14,11 +14,14 @@ dev = [
     "pre-commit",
     "ruff",
     "taskipy",
-    "pytest",
+    # pytest-bdd 8.1 calls pytest APIs that pytest 9 deprecates and pytest 10 removes: the
+    # "Passing (nodeid|baseid) to" warning filter below matches pytest 9, and this pin keeps the run on pytest 9.
+    "pytest>=9,<10",
     "pytest-cov",
     "pytest-asyncio",
     "hypothesis>=6.100",
     "vulture>=2.14",
+    "pytest-bdd>=8.1.0,<9",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -28,6 +31,7 @@ packages = ["src/earnest"]
 line-length = 120
 target-version = "py312"
 src = ["src", "tests"]
+extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = [
@@ -71,10 +75,12 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--cov=earnest --cov-report=term-missing"
+bdd_features_base_dir = "tests/features"
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:hypothesis.*",
     "ignore::DeprecationWarning:pytest_asyncio.*",
+    "ignore:Passing (nodeid|baseid) to:pytest.PytestRemovedIn10Warning",
 ]
 
 [tool.coverage.run]
