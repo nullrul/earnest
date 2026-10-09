@@ -2,7 +2,7 @@
 
 import pytest
 
-from earnest.index import MARKDOWN, Id, Item, Line, Source, build_index, split_lines
+from earnest.index import COMMENT, GHERKIN, MARKDOWN, Id, Item, Line, Link, Source, build_index, split_lines
 
 
 def markdown(text, fenced=frozenset()):
@@ -171,3 +171,75 @@ def test_crlf_line_ends_parse_like_newlines():
     assert crlf.items[0].needs == ("impl",)
     assert [str(link.target) for link in crlf.links] == ["feat~f~1"]
     assert crlf.near_misses == ()
+
+
+def comments(*lines):
+    return Source("src/a.py", COMMENT, tuple(Line(number, text) for number, text in lines))
+
+
+def gherkin(*lines):
+    return Source("tests/a.feature", GHERKIN, tuple(Line(number, text) for number, text in lines))
+
+
+def test_a_comment_tag_covers_its_target_from_its_artifact_type_with_or_without_spaces():
+    index = build_index([comments((3, "# see [impl->req~a~2] and [ utest -> req~b~1 ]"))])
+    assert index.links == (
+        Link("Covers", "impl", Id("req", "a", 2), "src/a.py", 3),
+        Link("Covers", "utest", Id("req", "b", 1), "src/a.py", 3),
+    )
+    assert index.near_misses == ()
+
+
+@pytest.mark.parametrize(
+    ("source", "fix"),
+    [
+        (comments((1, "# [impl-req~x~1]")), "write `->`"),
+        (comments((1, "# [ impl-req~x~1 ]")), "write `->`"),
+        (comments((1, "# [impl->req~x]")), "append `~`"),
+        (comments((1, "# [impl->req~x_y~1]")), "rewrite it as `[type->type~name~revision]`"),
+        (comments((1, "# [impel->req~x~1]")), "use a known item type, such as `impl`"),
+        (gherkin((1, "@stest:feat~Login~1")), "lower-case the name"),
+        (gherkin((1, "@stest feat~login~1")), "put `:`"),
+        (gherkin((1, "@stest:fet~login~1")), "use a known item type, such as `feat`"),
+        (gherkin((1, "@stest:feat~login~1,")), "rewrite it as `@type:type~name~revision`"),
+    ],
+)
+def test_a_tag_that_fails_its_surface_is_a_near_miss(source, fix):
+    (miss,) = build_index([source]).near_misses
+    assert miss.fix.startswith(fix)
+
+
+def test_a_line_of_bracket_and_arrow_runs_parses_at_once():
+    line = "# [" + "->~" * 2000 + " [impl->req~a~1]"
+    assert build_index([comments((1, line))]).links == (Link("Covers", "impl", Id("req", "a", 1), "src/a.py", 1),)
+
+
+def test_at_forms_are_tags_only_on_the_gherkin_surface():
+    index = build_index(
+        [
+            gherkin((1, "@smoke @stest:feat~a~1")),
+            comments((1, "/** @see req~x~1 */"), (2, "// @stest feat~y~1, and user@host:~/notes")),
+        ]
+    )
+    assert [str(link.target) for link in index.links] == ["feat~a~1"]
+    assert index.near_misses == ()
+
+
+def test_each_written_id_resolves_once_by_type_and_name_then_by_revision():
+    items = markdown("`feat~login~2`\n`req~login~1`\n")
+    tags = comments(
+        (1, "# [impl->feat~login~2] [impl->feat~login~1] [impl->feat~login~3]"),
+        (2, "# [impl->feat~logn~2] [impl->feat~logn~2] [impl->dsn~login~1]"),
+    )
+    index = build_index([items, tags])
+    feat = index.defined[Id("feat", "login", 2).key]
+    assert {
+        str(target): (resolution.item, resolution.status, resolution.closest)
+        for target, resolution in index.resolutions.items()
+    } == {
+        "feat~login~2": (feat, "resolved", None),
+        "feat~login~1": (feat, "outdated", None),
+        "feat~login~3": (feat, "predated", None),
+        "feat~logn~2": (None, "orphaned", Id("feat", "login", 2)),
+        "dsn~login~1": (None, "orphaned", None),
+    }

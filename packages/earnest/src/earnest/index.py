@@ -51,10 +51,25 @@ _KEY_FIX = "write the key exactly as `{}: `, with a capital, no formatting and o
 _EMPTY_FIX = "name at least one id, separated by `, `, with no empty entry"
 _NAME_RULE = "a name of lower-case letters, digits and hyphens, and a revision from 1"
 _FORMS = {
+    COMMENT: f"`[type->type~name~revision]`, with {_NAME_RULE}",
+    GHERKIN: f"`@type:type~name~revision`, with {_NAME_RULE}",
     "id line": f"`type~name~revision` in backticks, alone on its line or after heading marks, with {_NAME_RULE}",
     "id": f"`type~name~revision`, with {_NAME_RULE}",
     "Needs": "item types separated by a comma and a space, such as `impl, utest`",
     "Override": f"`type~name~revision implemented at commit, reason`, or `tested` for tests, with {_NAME_RULE}",
+}
+# Each run ends where the next part begins, at the first `->` or `~`, so no line backtracks more than linearly.
+_BRACKET = r"\[\s*(?:(?:[^\[\]\s>-]+\s*)?->\s*)?[^\[\]\s~]*~[^\[\]\s]*\s*\]"
+_TAG_FORMS = {
+    COMMENT: re.compile(rf"\[\s*{_TYPE}\s*->\s*{_ID}\s*\]"),
+    GHERKIN: re.compile(rf"@{_TYPE}:{_ID}"),
+}
+# A tag candidate is the near-miss superset of a surface: a bracketed token with a `~` inside, spaced as OFT allows, and
+# on the Gherkin surface alone a token that opens with `@` and holds a `~`, including `@stest feat~login~1`. A JSDoc
+# `@see req~x~1` in a comment is therefore no candidate.
+_TAG_CANDIDATES = {
+    COMMENT: re.compile(_BRACKET),
+    GHERKIN: re.compile(rf"{_BRACKET}|(?<!\S)@[a-z]+[ \t]+[a-z]+~\S*|(?<!\S)@[^\s@~]*~\S*"),
 }
 
 
@@ -135,6 +150,18 @@ class NearMiss:
 
 
 @dataclass(frozen=True)
+class Resolution:
+    """What a written id names: its item, and `resolved`, `outdated`, `predated` or `orphaned`.
+
+    An orphaned id carries the closest id of its own type, when one is close enough to suggest.
+    """
+
+    item: Item | None
+    status: str
+    closest: Id | None = None
+
+
+@dataclass(frozen=True)
 class Index:
     """The graph that the check and the judge share."""
 
@@ -149,6 +176,23 @@ class Index:
         for item in self.items:
             found.setdefault(item.id.key, item)
         return found
+
+    @cached_property
+    def resolutions(self) -> dict[Id, Resolution]:
+        """Resolve each id the links name, once per id written, by type and name and then by revision."""
+        return {target: self._resolve(target) for target in dict.fromkeys(link.target for link in self.links)}
+
+    def _resolve(self, target: Id) -> Resolution:
+        item = self.defined.get(target.key)
+        if item is None:
+            same_type = {found.id.name: found.id for found in self.defined.values() if found.id.type == target.type}
+            close = difflib.get_close_matches(target.name, same_type, n=1)
+            return Resolution(None, "orphaned", same_type[close[0]] if close else None)
+        if target.revision < item.id.revision:
+            return Resolution(item, "outdated")
+        if target.revision > item.id.revision:
+            return Resolution(item, "predated")
+        return Resolution(item, "resolved")
 
 
 _Parsed = tuple[list[Item], list[Link], list[NearMiss]]
@@ -165,11 +209,11 @@ def build_index(sources: Iterable[Source]) -> Index:
     links: list[Link] = []
     misses: list[NearMiss] = []
     for source in sources:
-        if source.surface == MARKDOWN:
-            found_items, found_links, found_misses = _markdown(source)
-            items.extend(found_items)
-            links.extend(found_links)
-            misses.extend(found_misses)
+        parse = _markdown if source.surface == MARKDOWN else _tags
+        found_items, found_links, found_misses = parse(source)
+        items.extend(found_items)
+        links.extend(found_links)
+        misses.extend(found_misses)
     return Index(tuple(items), tuple(links), tuple(misses))
 
 
@@ -273,3 +317,17 @@ def _list(
         else:
             misses.append(NearMiss(path, line.number, entry, _fix(entry, place)))
     return parsed, misses
+
+
+def _tags(source: Source) -> _Parsed:
+    strict = _TAG_FORMS[source.surface]
+    links: list[Link] = []
+    misses: list[NearMiss] = []
+    for line in source.lines:
+        for candidate in _TAG_CANDIDATES[source.surface].finditer(line.text):
+            text = candidate.group()
+            if tag := strict.fullmatch(text):
+                links.append(Link("Covers", tag.group(1), _to_id(tag, 2), source.path, line.number))
+            else:
+                misses.append(NearMiss(source.path, line.number, text, _fix(text, source.surface)))
+    return [], links, misses
