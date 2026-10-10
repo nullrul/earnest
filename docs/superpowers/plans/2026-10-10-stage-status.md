@@ -4708,6 +4708,9 @@ def test_backward_jump_voids_rows_of_its_target_and_every_later_execute_row():
     later = gate("2026-09-26T10:30:00Z", stage="code-generation")
     kept = counted(START, SKIPS, APPROVED, later, jump("2026-09-26T11:00:00Z", "BACKWARD", "requirements-analysis"))
     assert kept == [("STAGE_SKIPPED", "reverse-engineering"), ("STAGE_JUMPED", None)]
+    again = gate("2026-09-26T12:00:00Z")  # an approval after the jump belongs to the new attempt
+    after = jump("2026-09-26T11:00:00Z", "BACKWARD", "requirements-analysis")
+    assert REQUIREMENTS in intent_of(START, SKIPS, APPROVED, after, again).approvals
 
 
 def test_backward_jump_reset_span_includes_skipped_marks():
@@ -4726,6 +4729,8 @@ def test_backward_jump_leaves_earlier_stages_alone():
 def test_redo_jump_voids_its_target_only():
     (event,) = events_of(jump("2026-09-26T11:00:00Z", "REDO", "code-generation"))
     assert plan.jump_span(event, ROWS) == {"code-generation"}
+    (lower,) = events_of(jump("2026-09-26T11:00:00Z", "redo", "code-generation"))  # Direction is read in any case
+    assert plan.jump_span(lower, ROWS) == {"code-generation"}
 
 
 def test_forward_jump_voids_nothing():
@@ -4834,6 +4839,9 @@ def test_unreadable_row_is_a_route_mismatch_finding_at_its_line():
     )
     assert "Earnest cannot read line 14" in found.message
     assert "Stage Progress row" in found.message
+    only = "## Stage Progress\n### CONSTRUCTION PHASE\n- [x] code-generation -- EXECUTE\n"
+    (alone,) = plan.route_findings(intent_of(BASE, state=only))  # an unreadable row is no empty section as well
+    assert "Earnest cannot read line 3" in alone.message
 
 
 def test_empty_stage_progress_section_is_a_route_mismatch_finding_at_the_heading():
@@ -4892,6 +4900,9 @@ def test_latest_counting_row_per_stage_is_the_approval():
     second = gate("2026-09-26T10:30:00Z", Items="req~a~2, req~b~1", Approved_By="automatic")
     approval = intent_of(START, APPROVED, second).approvals[REQUIREMENTS]
     assert (approval.items, approval.by) == (("req~a~2", "req~b~1"), "automatic")
+    events = tuple(reversed(events_of(START, APPROVED, second)))  # the result does not depend on the input order
+    unsorted = plan.intent(Record("r", "r/aidlc-state.md", plan.parse_state(FULL_STATE), events))
+    assert unsorted.approvals[REQUIREMENTS] == approval
 
 
 def test_rejection_after_the_approval_leaves_none():
@@ -4952,11 +4963,15 @@ def test_voided_rows_name_nothing():
     assert intent_of(APPROVED, block("2026-09-26T11:00:00Z", "WORKFLOW_STARTED")).named_items == frozenset()
     later = gate("2026-09-26T12:00:00Z", Items="req~c~1")
     assert intent_of(START, APPROVED, rejected, later).named_items == {"req~c~1"}
+    other = gate("2026-09-26T11:00:00Z", "GATE_REJECTED", stage="code-generation")  # another stage's rejection
+    assert intent_of(START, APPROVED, other).named_items == {"req~a~1", "req~b~1"}
 
 
 def test_rows_without_items_name_nothing():
     assert intent_of(START, gate("2026-09-26T10:00:00Z")).named_items == frozenset()
     assert intent_of(START, gate("2026-09-26T10:00:00Z", Items="nonsense")).named_items == frozenset()
+    rejected = gate("2026-09-26T10:00:00Z", "GATE_REJECTED", Items="req~z~9")  # only an approval names its items
+    assert intent_of(START, rejected).named_items == frozenset()
 
 
 def test_team_rows_name_nothing_in_named_items():
@@ -4968,6 +4983,8 @@ def test_approval_is_current_when_items_and_revisions_match():
     index = Index((item("req~a~1"), item("req~b~1")), (), ())
     state = plan.build(intent_of(BASE), index).stages[0]
     assert (state.state, state.items) == ("current", index.items)
+    extra = Index((*index.items, item("req~c~1", stage=f"{REQUIREMENTS}-extra")), (), ())  # a stage of a longer name
+    assert plan.build(intent_of(BASE), extra).stages[0].state == "current"
 
 
 def test_approval_is_outdated_when_a_revision_moved():
@@ -4975,6 +4992,8 @@ def test_approval_is_outdated_when_a_revision_moved():
     assert plan.build(intent_of(BASE), index).stages[0].state == "outdated"
     assert plan.build(intent_of(BASE), Index((item("req~a~1"),), (), ())).stages[0].state == "outdated"  # one gone
     assert plan.build(intent_of(BASE), Index((*index.items, item("req~c~1")), (), ())).stages[0].state == "outdated"
+    grown = Index((item("req~a~1"), item("req~b~1"), item("req~c~1")), (), ())  # an item added after the approval
+    assert plan.build(intent_of(BASE), grown).stages[0].state == "outdated"
 
 
 def test_approval_without_items_is_current_and_never_outdated():
@@ -5235,7 +5254,7 @@ def _approval(stage: str, gates: Sequence[Event]) -> Approval | None:
     ]
     if not approved:
         return None
-    event, items = approved[-1]
+    event, items = max(approved, key=lambda pair: pair[0].key)
     if any(other.name == "GATE_REJECTED" and other.key > event.key for other in mine):
         return None
     by = event.fields.get("Approved By")

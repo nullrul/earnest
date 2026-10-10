@@ -449,7 +449,7 @@ rest are Earnest's.
 | `earnest/gap` | error | an item lacks a child its `Needs:` requires |
 | `earnest/unplanned` | warning | a `req` is delivered by no task |
 | `earnest/cycle` | error | the plan's dependency graph has a cycle |
-| `earnest/route-mismatch` | error | a stage row of the state file's Stage Progress that is marked EXECUTE carries the skipped mark with no counting `STAGE_SKIPPED` row; the message names the stage and the audit row that is missing. The finding reaches no stage |
+| `earnest/route-mismatch` | error | a stage row of the state file's Stage Progress that is marked EXECUTE carries the skipped mark with no counting `STAGE_SKIPPED` row, or a Stage Progress row, or the section itself, that Earnest cannot read; the message names the stage and the audit row that is missing, or the line Earnest cannot read. The finding reaches no stage |
 | `earnest/out-of-task` | warning | a changed region lies outside what the current task delivers; the message offers the three exits |
 | `earnest/override-expired` | warning | an `Override:` line names a revision other than the item's current one |
 | `earnest/override-drift` | warning | the region an override covers changed since the override's commit; the judge reruns and both verdicts show |
@@ -513,8 +513,9 @@ that names the unsupported route when the selected or only intent has it, and
 plain `earnest check` places that intent's findings as in a run with no plan and
 leaves it out of `properties.plan`. Earnest reads the route as configuration. It
 never reads the checkbox marks as status; it compares a skipped mark on an
-EXECUTE row with the audit log, and such a row with no `STAGE_SKIPPED` row
-raises `earnest/route-mismatch`. The route rule: needs and edges that name an
+EXECUTE row with the audit log, and such a row with no `STAGE_SKIPPED` row,
+like a Stage Progress row or section it cannot read, raises
+`earnest/route-mismatch`. The route rule: needs and edges that name an
 item type no stage on the route produces are dropped, and the chain root is the
 highest type reached by climbing from `req` through types the route produces.
 Enterprise, Feature and MVP run Intent Capture and Scope Definition, so they
