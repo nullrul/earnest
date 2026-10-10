@@ -1,5 +1,7 @@
 """Tests for earnest.plan: the state file's Stage Progress, the audit shards, and loading both from a work tree."""
 
+import pytest
+
 from earnest import plan
 from earnest.index import MARKDOWN, Id, Index, Item, Link, Source
 from earnest.index import digest as digest_of
@@ -1352,3 +1354,80 @@ def test_dirty_ignores_the_files_of_an_unsupported_intent_that_ai_dlc_writes():
     unsupported = intent_of(BASE, state=state, directory="u")
     assert not plan.dirty(["u/aidlc-state.md", "u/audit/a.md", "u/.aidlc-engine/x.md"], [unsupported])
     assert plan.dirty(["u/inception/requirements-analysis/r.md"], [unsupported])
+
+
+UNSUPPORTED_STATE = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+
+
+def test_select_intent_by_directory_option():
+    one, two = intent_of(BASE, directory="a"), intent_of(BASE, directory="b")
+    assert plan.select_intent([one, two], "b") is two
+    assert plan.select_intent([one, two], "a") is one
+
+
+def test_select_intent_single_record_without_the_option():
+    only = intent_of(BASE, directory="a")
+    assert plan.select_intent([only], None) is only
+
+
+def test_select_intent_with_several_records_and_no_option_lists_them():
+    with pytest.raises(plan.PlanError, match=r"--intent.*a.*b"):
+        plan.select_intent([intent_of(BASE, directory="a"), intent_of(BASE, directory="b")], None)
+
+
+def test_select_intent_with_no_record_raises():
+    with pytest.raises(plan.PlanError, match=r"no record directory holds an aidlc-state\.md"):
+        plan.select_intent([], None)
+
+
+def test_select_intent_unknown_directory_names_the_candidates():
+    with pytest.raises(plan.PlanError, match=r"zzz.*a, b"):
+        plan.select_intent([intent_of(BASE, directory="a"), intent_of(BASE, directory="b")], "zzz")
+
+
+def test_select_intent_unsupported_raises_the_unsupported_route_error():
+    unsupported = intent_of(BASE, state=UNSUPPORTED_STATE, directory="u")
+    with pytest.raises(plan.PlanError) as error:
+        plan.select_intent([unsupported], None)
+    assert str(error.value) == "unsupported route: units-generation is on the route, so per-unit stages"
+    assert plan.find_intent([unsupported], "u") is unsupported  # finding it is no refusal; selecting it is
+
+
+def test_select_stage_by_phase_slash_slug():
+    built, _ = planned(BASE)
+    assert plan.select_stage(built, CODE_GENERATION) == CODE_GENERATION
+
+
+def test_select_stage_by_unique_bare_slug():
+    built, _ = planned(BASE)
+    assert plan.select_stage(built, "code-generation") == CODE_GENERATION
+    assert plan.select_stage(built, "requirements-analysis") == REQUIREMENTS
+
+
+def test_select_stage_rejects_an_unknown_slug():
+    built, _ = planned(BASE)
+    with pytest.raises(plan.PlanError, match=r"no-such is not a stage on the route: .*requirements-analysis"):
+        plan.select_stage(built, "no-such")
+    with pytest.raises(plan.PlanError, match="not a stage on the route"):
+        plan.select_stage(built, "inception/units-generation")  # a SKIP row is not on the route
+
+
+def test_select_stage_names_the_state_file_when_an_unreadable_stage_progress_emptied_the_route():
+    built, _ = planned(BASE, state=FULL_STATE.replace("## Stage Progress", "## Stage  Progress"))
+    with pytest.raises(plan.PlanError) as error:
+        plan.select_stage(built, "requirements-analysis")
+    assert str(error.value) == (
+        "requirements-analysis is not a stage on the route: the state file's Stage Progress cannot be read"
+        " (r/aidlc-state.md:1)"
+    )
+    empty, _ = planned(START, state="## Stage Progress\n### INCEPTION PHASE\n" + f"- [x] a {DASH} SKIP\n")
+    with pytest.raises(plan.PlanError, match=r"route: none$"):  # an empty route that reads fine says so plainly
+        plan.select_stage(empty, "a")
+
+
+def test_select_stage_rejects_an_ambiguous_bare_slug():
+    state = FULL_STATE.replace(f"- [x] build-and-test {DASH}", f"- [x] requirements-analysis {DASH}")
+    built, _ = planned(BASE, state=state)
+    with pytest.raises(plan.PlanError, match=r"names several stages.*inception/requirements-analysis.*construction/"):
+        plan.select_stage(built, "requirements-analysis")
+    assert plan.select_stage(built, "inception/requirements-analysis") == "inception/requirements-analysis"

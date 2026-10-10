@@ -817,3 +817,71 @@ def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -
         reasons={"errors": status.errors, "openTasks": status.open_tasks, "approval": status.approval},
         digest=digest,
     )
+
+
+UNSUPPORTED_ROUTE = "unsupported route: units-generation is on the route, so per-unit stages"
+
+
+class PlanError(Exception):
+    """The command cannot pick what it was asked for: an intent, a stage, or a route that M2 does not report."""
+
+
+def find_intent(intents: Sequence[Intent], option: str | None) -> Intent:
+    """Return the intent named by `--intent`, or the only one.
+
+    Raises:
+        PlanError: the option names no record directory, or none is named and there is not exactly one.
+    """
+    known = ", ".join(current.directory for current in intents)
+    if option is not None:
+        found = next((current for current in intents if current.directory == option), None)
+        if found is None:
+            msg = f"no record directory {option}: the record directories are {known or 'none'}"
+            raise PlanError(msg)
+        return found
+    if not intents:
+        msg = "no record directory holds an aidlc-state.md"
+        raise PlanError(msg)
+    if len(intents) > 1:
+        msg = f"several record directories hold an aidlc-state.md, so name one with --intent: {known}"
+        raise PlanError(msg)
+    return intents[0]
+
+
+def select_intent(intents: Sequence[Intent], option: str | None) -> Intent:
+    """Return the intent a stage check runs on: `find_intent`, refusing a route with per-unit stages.
+
+    Raises:
+        PlanError: see `find_intent`, or the intent's route holds `units-generation`.
+    """
+    found = find_intent(intents, option)
+    if found.unsupported:
+        raise PlanError(UNSUPPORTED_ROUTE)
+    return found
+
+
+def select_stage(plan: Plan, text: str) -> str:
+    """Return the stage that `--stage` names: its id, or its slug when exactly one route stage has it.
+
+    Raises:
+        PlanError: the text is not a stage on the route, or its slug names several.
+    """
+    route = plan.intent.route
+    if text in route:
+        return text
+    named = [stage for stage in route if stage.partition("/")[2] == text]
+    if len(named) == 1:
+        return named[0]
+    if named:
+        msg = f"{text} names several stages, so name one of {', '.join(named)}"
+        raise PlanError(msg)
+    msg = f"{text} is not a stage on the route: {', '.join(route) or _unreadable(plan.intent)}"
+    raise PlanError(msg)
+
+
+def _unreadable(intent: Intent) -> str:
+    """Say where the state file's Stage Progress cannot be read, when that is why the route is empty."""
+    found = [each for each in route_findings(intent) if each.subject == "Stage Progress"]
+    if not found:
+        return "none"
+    return f"the state file's Stage Progress cannot be read ({found[0].path}:{found[0].line})"
