@@ -125,3 +125,112 @@ def test_a_decision_names_its_drivers_and_they_count_toward_no_need():
     impl = Link("Covers", "impl", dsn, "src/b.py", 1)
     assert check(IMPL, UTEST, drivers, impl, items=items) == []
     assert located("earnest/orphaned", check(IMPL, UTEST, impl, items=items)) == [("docs/d.md", 1)]
+
+
+ROUTE = frozenset({"req", "impl", "utest"})
+GOAL = Item(Id("goal", "g", 1), "docs/g.md", 1)
+BARE_REQ = Item(REQ, "docs/r.md", 5)
+WRONG_PARENT = Link("Covers", "req", Id("feat", "zzz", 1), "docs/r.md", 7, owner=REQ)
+
+
+def rules(found):
+    return sorted((finding.rule, finding.path, finding.line) for finding in found)
+
+
+def test_route_without_ideation_exempts_req_from_a_parent():
+    bare = Index((BARE_REQ,), (), ())
+    assert rules(structural.check(bare)) == [
+        ("earnest/gap", "docs/r.md", 5),
+        ("earnest/gap", "docs/r.md", 5),
+        ("earnest/orphaned", "docs/r.md", 5),
+    ]
+    assert rules(structural.check(bare, produces=ROUTE)) == [
+        ("earnest/gap", "docs/r.md", 5),
+        ("earnest/gap", "docs/r.md", 5),
+    ]
+
+
+def test_route_without_scope_definition_keeps_the_goal_parent_and_exempts_req():
+    poc = frozenset({"tenet", "goal", "req", "impl", "utest"})
+    found = structural.check(Index((GOAL, BARE_REQ), (), ()), produces=poc)
+    assert [(f.rule, f.path) for f in found if f.rule == "earnest/orphaned"] == [("earnest/orphaned", "docs/g.md")]
+    assert [f.path for f in found if f.rule == "earnest/gap"] == ["docs/r.md", "docs/r.md"]  # the goal needs no feat
+
+
+def test_full_route_still_requires_the_req_parent():
+    full = frozenset({"tenet", "goal", "feat", "req", "impl", "utest", "stest"})
+    found = structural.check(Index((BARE_REQ,), (), ()), produces=full)
+    assert [(f.path, f.line) for f in found if f.rule == "earnest/orphaned"] == [("docs/r.md", 5)]
+
+
+def test_no_route_keeps_the_m1_behavior():
+    assert rules(structural.check(Index((BARE_REQ,), (), ()), produces=None)) == rules(
+        structural.check(Index((BARE_REQ,), (), ()))
+    )
+    assert "earnest/orphaned" in {f.rule for f in structural.check(Index((BARE_REQ,), (), ()))}
+
+
+def test_needs_drop_types_the_route_does_not_produce():
+    assert structural.needs(BARE_REQ) == ("impl", "utest")
+    assert structural.needs(BARE_REQ, frozenset({"impl"})) == ("impl",)
+    explicit = Item(REQ, "docs/r.md", 5, ("impl", "itest"))
+    assert structural.needs(explicit, frozenset({"impl"})) == ("impl",)
+    assert structural.needs(Item(Id("feat", "f", 1), "docs/f.md", 1), ROUTE) == ("req",)
+
+
+def test_edges_naming_types_the_route_does_not_produce_are_dropped():
+    index_ = Index((BARE_REQ,), (WRONG_PARENT,), ())
+    assert ("earnest/orphaned", "docs/r.md", 7) in rules(structural.check(index_))
+    assert rules(structural.check(index_, produces=ROUTE)) == [
+        ("earnest/gap", "docs/r.md", 5),
+        ("earnest/gap", "docs/r.md", 5),
+    ]
+
+
+def test_edges_naming_produced_types_still_resolve():
+    route = ROUTE | {"feat"}
+    found = structural.check(Index((BARE_REQ,), (WRONG_PARENT,), ()), produces=route)
+    assert ("earnest/orphaned", "docs/r.md", 7) in rules(found)
+
+
+def test_traced_follows_the_routed_needs():
+    index_ = Index((BARE_REQ,), (IMPL,), ())
+    assert structural.traced(index_) == {"req~r~2": "untraced"}
+    assert structural.traced(index_, frozenset({"req", "impl"})) == {"req~r~2": "traced"}
+    assert structural.resolved_covers(index_) == {("impl", BARE_REQ)}
+
+
+def hashed(held, current):
+    item = Item(REQ, "docs/r.md", 5, None, current)
+    found = structural.check(Index((ITEMS[0], item), (PARENT, IMPL, UTEST), ()), frozen=held)
+    return [finding for finding in found if finding.path != "docs/f.md"]  # the feat names no goal, as in `check` above
+
+
+def test_unbumped_change_when_the_frozen_hash_differs():
+    found = hashed({"req~r~2": "sha256:aaa"}, "sha256:bbb")
+    assert located("earnest/unbumped-change", found) == [("docs/r.md", 5)]
+    assert [(f.rule, f.subject, f.level) for f in found if f.line == 5] == [
+        ("earnest/unbumped-change", "req~r~2", "error")
+    ]
+
+
+def test_no_unbumped_change_when_the_hash_is_equal():
+    assert hashed({"req~r~2": "sha256:aaa"}, "sha256:aaa") == []
+
+
+def test_no_entry_in_frozen_no_unbumped_change():
+    assert hashed({"req~r~1": "sha256:aaa"}, "sha256:bbb") == []  # a bump gives a new key, so the new revision is free
+    assert hashed({}, "sha256:bbb") == []
+    assert hashed(None, "sha256:bbb") == []
+
+
+def test_unbumped_message_names_the_next_revision_and_the_restore():
+    text = message("earnest/unbumped-change", hashed({"req~r~2": "sha256:aaa"}, "sha256:bbb"))
+    assert "bump the revision to 3" in text
+    assert "restore the text" in text
+    assert text.startswith("`req~r~2` ")
+
+
+def test_gap_carries_the_missing_type():
+    found = structural.check(Index((BARE_REQ,), (PARENT,), ()))
+    assert [f.child for f in found if f.rule == "earnest/gap"] == ["impl", "utest"]
