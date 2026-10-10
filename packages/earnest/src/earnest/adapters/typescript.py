@@ -1,6 +1,7 @@
 """TypeScript host adapter: `//` and block comments outside string, template and regular expression literals."""
 
 import re
+from collections.abc import Iterator
 
 from earnest.index import Line
 
@@ -31,6 +32,27 @@ def scan(text: str) -> tuple[Line, ...]:
     not, unless it follows `.` or `?.` as a property name; and a postfix `!` leaves the state as it was.
     """
     comments: list[Line] = []
+    for kind, value, number in _tokens(text):
+        if kind == "comment":
+            comments.extend(Line(number + offset, part) for offset, part in enumerate(value.split("\n")))
+    return tuple(comments)
+
+
+def code_lines(text: str) -> frozenset[int]:
+    """Return the numbers of the lines that hold code: every line of each token that is no comment or space.
+
+    A string or template literal that spans lines holds code on each of them, and code after a block comment on the
+    line where it ends counts, because the tokens are the ones `scan` reads.
+    """
+    found: set[int] = set()
+    for kind, value, number in _tokens(text):
+        if kind not in {"comment", "space"}:
+            found.update(range(number, number + value.count("\n") + 1))
+    return frozenset(found)
+
+
+def _tokens(text: str) -> Iterator[tuple[str | None, str, int]]:
+    """Yield each token as its kind, its text and the line it starts on."""
     operand = False  # whether the last token that is no comment or space ends an operand, so a `/` after it divides
     previous = ""  # the last token that is no comment or space
     number = 1  # the line the next token starts on
@@ -39,15 +61,13 @@ def scan(text: str) -> tuple[Line, ...]:
         kind, value = token.lastgroup, token.group()
         if value == "/" and not operand and previous != "<" and (regex := _REGEX.match(text, position)):
             token, kind, value = regex, "literal", regex.group()
-        if kind == "comment":
-            comments.extend(Line(number + offset, part) for offset, part in enumerate(value.split("\n")))
-        elif kind != "space":
+        yield kind, value, number
+        if kind not in {"comment", "space"}:
             if value != "!" or text.startswith("=", token.end()):  # a postfix `!` leaves the state as it was
                 operand = _ends_operand(kind, value, previous)
             previous = value
         number += value.count("\n")
         position = token.end()
-    return tuple(comments)
 
 
 def _ends_operand(kind: str | None, value: str, previous: str) -> bool:

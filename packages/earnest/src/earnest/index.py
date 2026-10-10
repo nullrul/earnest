@@ -1,6 +1,7 @@
 """Grammar and index: items, links and near-misses from the lines the host adapters hand over."""
 
 import difflib
+import hashlib
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -81,18 +82,27 @@ class Line:
     text: str
 
 
+def digest(data: bytes) -> str:
+    """Return `sha256:` and the lower-case hex SHA-256 of data."""
+    return "sha256:" + hashlib.sha256(data).hexdigest()
+
+
 @dataclass(frozen=True)
 class Source:
     """One listed file as its host adapter saw it.
 
     For Markdown, `lines` holds every line and `fenced` the lines inside code fences. For the comment and Gherkin
-    surfaces, `lines` holds the comment or tag lines.
+    surfaces, `lines` holds the comment or tag lines and `code_lines` the numbers of the lines that hold code, which
+    the Region rule reads. `digest` is the digest of the raw bytes read, and `line_count` the lines Git counts.
     """
 
     path: str
     surface: str
     lines: tuple[Line, ...]
     fenced: frozenset[int] = frozenset()
+    code_lines: frozenset[int] = frozenset()
+    digest: str = ""
+    line_count: int = 0
 
 
 @dataclass(frozen=True)

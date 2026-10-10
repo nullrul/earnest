@@ -56,3 +56,16 @@ def test_a_string_continued_by_a_backslash_under_crlf_ends_on_its_next_line(quot
     assert typescript.scan(lf) == (Line(2, "// [impl->req~a~1]"), Line(3, "// [impl->req~b~1]"))
     crlf = typescript.scan(lf.replace("\n", "\r\n"))
     assert tuple(Line(line.number, line.text.rstrip()) for line in crlf) == typescript.scan(lf)
+
+
+def test_code_lines_skip_comments_and_blank_lines():
+    text = "// [impl->req~a~1]\nlet x = 1; // trailing\n\n/* block\n comment */\nlet y = 2;\n"
+    assert typescript.code_lines(text) == frozenset({2, 6})
+
+
+def test_code_lines_count_template_literal_lines():
+    assert typescript.code_lines("const s = `a\n// not a comment\nb`;\n// done\n") == frozenset({1, 2, 3})
+
+
+def test_code_lines_after_a_block_comment_on_the_same_line():
+    assert typescript.code_lines("/* a\n b */ let x = 1;\n") == frozenset({2})

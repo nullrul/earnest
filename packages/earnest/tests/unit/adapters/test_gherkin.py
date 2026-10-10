@@ -29,3 +29,11 @@ def test_a_delimiter_in_a_description_opens_no_doc_string():
 @pytest.mark.parametrize("space", [" ", "\t"], ids=["space", "tab"])
 def test_a_tag_line_ends_at_its_first_hash_after_whitespace(space):
     assert gherkin.scan(f"@stest:feat~f~2{space}# was @stest:feat~f~1\n") == (Line(1, "@stest:feat~f~2"),)
+
+
+def test_code_lines_skip_tags_comments_and_blank_lines():
+    text = (
+        "# language: en\nFeature: F\n\n  @stest:feat~a~1\n  # a note\n  Scenario: S\n    Given a note\n"
+        '      """\n      @stest:feat~b~1\n\n      """\n    Then done\n'
+    )
+    assert gherkin.code_lines(text) == frozenset({2, 6, 7, 8, 9, 11, 12})
