@@ -1,8 +1,24 @@
 """Tests for earnest.index: the grammar, the Near-miss table and Reference resolution."""
 
+import hashlib
+
 import pytest
 
-from earnest.index import COMMENT, GHERKIN, MARKDOWN, Id, Item, Line, Link, Source, build_index, split_lines
+from earnest import adapters
+from earnest.index import (
+    COMMENT,
+    GHERKIN,
+    MARKDOWN,
+    Id,
+    Item,
+    Line,
+    Link,
+    Region,
+    Source,
+    build_index,
+    digest,
+    split_lines,
+)
 
 
 def markdown(text, fenced=frozenset()):
@@ -243,3 +259,127 @@ def test_each_written_id_resolves_once_by_type_and_name_then_by_revision():
         "feat~logn~2": (None, "orphaned", Id("feat", "login", 2)),
         "dsn~login~1": (None, "orphaned", None),
     }
+
+
+def body_hash(text, fenced=frozenset()):
+    return build_index([markdown(text, fenced)]).items[0].body_hash
+
+
+def sha(text):
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_body_hash_ignores_blank_lines_and_trailing_whitespace():
+    plain = "`req~a~1`\n\nWhen x, the s shall y.\n\n"
+    noisy = "`req~a~1`\nWhen x, the s shall y.   \n\n\n\t\n"
+    assert body_hash(plain) == body_hash(noisy)
+
+
+def test_body_hash_ignores_key_lines_and_where_they_sit():
+    above = "`req~a~1`\n\nCovers: feat~f~1\nNeeds: impl\n\nWhen x, the s shall y.\n"
+    below = "`req~a~1`\n\nWhen x, the s shall y.\n\nNeeds: impl\n\nCovers: feat~f~1, feat~g~1\n"
+    assert body_hash(above) == body_hash(below) == sha("When x, the s shall y.")
+
+
+def test_body_hash_counts_fenced_lines():
+    text = "`req~a~1`\n\nBody.\n\n```text\ncode\n```\n"
+    assert body_hash(text, frozenset({5, 6, 7})) == sha("Body.\n```text\ncode\n```")
+    assert body_hash(text, frozenset({5, 6, 7})) != body_hash("`req~a~1`\n\nBody.\n")
+
+
+def test_fenced_key_like_line_stays_body_and_keys_nothing():
+    text = "`req~a~1`\n\nBody.\n\n```\nCovers: feat~z~9\n```\n"
+    index = build_index([markdown(text, frozenset({5, 6, 7}))])
+    assert index.links == ()
+    assert index.items[0].body_hash == sha("Body.\n```\nCovers: feat~z~9\n```")
+
+
+def test_body_hash_changes_with_one_word():
+    assert body_hash("`req~a~1`\n\nThe s shall y.\n") != body_hash("`req~a~1`\n\nThe s shall z.\n")
+
+
+def test_item_without_body_hashes_the_empty_body():
+    assert body_hash("`req~a~1`\n") == digest(b"") == sha("")
+
+
+def test_each_item_hashes_its_own_span():
+    index = build_index([markdown("`req~a~1`\n\nOne.\n\n`req~b~1`\n\nTwo.\n")])
+    assert [item.body_hash for item in index.items] == [sha("One."), sha("Two.")]
+
+
+def test_crlf_and_lf_bodies_hash_alike():
+    lf = "`req~a~1`\n\nOne.\nTwo.\n"
+    assert body_hash(lf.replace("\n", "\r\n")) == body_hash(lf)
+
+
+def test_body_hash_is_the_sha256_of_utf8_lines_joined_by_lf_with_no_final_lf():
+    text = "`req~a~1`\n\nalpha caf\u00e9\n\n  beta\n"
+    expected = "sha256:" + hashlib.sha256("alpha caf\u00e9\n  beta".encode()).hexdigest()
+    assert body_hash(text) == expected
+
+
+def test_body_hash_removes_only_trailing_spaces_and_tabs():
+    base = body_hash("`req~a~1`\n\nx y\n")
+    assert body_hash("`req~a~1`\n\nx y \t \n") == base
+    assert body_hash("`req~a~1`\n\n  x y\n") != base
+    assert body_hash("`req~a~1`\n\nx  y\n") != base
+
+
+def test_a_line_of_other_unicode_whitespace_is_not_blank():
+    assert body_hash("`req~a~1`\n\na\n\u00a0\nb\n") == sha("a\n\u00a0\nb")
+    assert body_hash("`req~a~1`\n\na\n\u00a0\nb\n") != body_hash("`req~a~1`\n\na\nb\n")
+
+
+def test_body_hash_of_bad_bytes_uses_the_replacement_character(tmp_path):
+    (tmp_path / "a.md").write_bytes(b"`req~a~1`\n\nCaf\xe9\n")
+    index = build_index(adapters.scan(tmp_path, ["a.md"]))
+    assert index.items[0].body_hash == sha("Caf\ufffd")
+
+
+def tagged(tags, code, count, path="src/a.py", surface=COMMENT):
+    """Return a source with a tag comment at each (line, id), code on the given lines, and count lines in all."""
+    lines = tuple(Line(number, f"# [impl->{item}]") for number, item in tags)
+    return Source(path, surface, lines, code_lines=frozenset(code), line_count=count)
+
+
+A, B = Id("req", "a", 1), Id("req", "b", 1)
+
+
+def test_region_runs_from_a_tag_to_the_next_tag():
+    source = tagged([(1, "req~a~1"), (5, "req~b~1")], {2, 3, 4, 6, 7}, 8)
+    assert build_index([source]).regions == (Region(A, "src/a.py", 1, 4), Region(B, "src/a.py", 5, 8))
+
+
+def test_region_of_the_last_tag_ends_at_the_end_of_the_file():
+    assert build_index([tagged([(3, "req~a~1")], {4, 5}, 6)]).regions == (Region(A, "src/a.py", 3, 6),)
+    assert build_index([tagged([(3, "req~a~1")], {4, 5}, 0)]).regions == (Region(A, "src/a.py", 3, 3),)
+
+
+def test_stacked_tags_share_the_region_that_follows():
+    stacked = tagged([(1, "req~a~1"), (2, "req~b~1")], {3, 4}, 5)
+    assert build_index([stacked]).regions == (Region(A, "src/a.py", 1, 5), Region(B, "src/a.py", 1, 5))
+    on_code = tagged([(1, "req~a~1"), (2, "req~b~1")], {1, 3, 4}, 5)  # a code line on the tag's own line is code
+    assert build_index([on_code]).regions == (Region(A, "src/a.py", 1, 1), Region(B, "src/a.py", 2, 5))
+
+
+def test_repeated_tags_for_one_id_union_their_regions():
+    joined = tagged([(1, "req~a~1"), (4, "req~a~1"), (7, "req~b~1")], {2, 3, 5, 6, 8, 9}, 9)
+    assert build_index([joined]).regions == (Region(A, "src/a.py", 1, 6), Region(B, "src/a.py", 7, 9))
+    apart = tagged([(1, "req~a~1"), (4, "req~b~1"), (7, "req~a~1")], {2, 3, 5, 6, 8, 9}, 9)
+    assert build_index([apart]).regions == (
+        Region(A, "src/a.py", 1, 3),
+        Region(B, "src/a.py", 4, 6),
+        Region(A, "src/a.py", 7, 9),
+    )
+
+
+def test_tags_in_different_files_never_share_a_region():
+    one = tagged([(1, "req~a~1")], {2}, 3, path="src/a.py")
+    two = tagged([(1, "req~a~1")], {2, 3}, 4, path="src/b.py")
+    assert build_index([two, one]).regions == (Region(A, "src/a.py", 1, 3), Region(A, "src/b.py", 1, 4))
+
+
+def test_gherkin_tags_have_regions():
+    lines = (Line(1, "@stest:feat~f~1"),)
+    source = Source("tests/a.feature", GHERKIN, lines, code_lines=frozenset({2, 3}), line_count=4)
+    assert build_index([source]).regions == (Region(Id("feat", "f", 1), "tests/a.feature", 1, 4),)

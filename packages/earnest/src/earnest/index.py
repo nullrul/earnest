@@ -3,9 +3,10 @@
 import difflib
 import hashlib
 import re
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 from functools import cached_property
+from typing import Literal
 
 
 MARKDOWN = "markdown"
@@ -125,12 +126,17 @@ class Id:
 
 @dataclass(frozen=True)
 class Item:
-    """A Markdown item: its id, where its id line sits, and the types on its `Needs:` line."""
+    """A Markdown item: its id, where its id line sits, the types on its `Needs:` line, and its body hash.
+
+    The body hash derives from the lines, so it takes no part in equality: two items with one id, place and needs are
+    the same item.
+    """
 
     id: Id
     path: str
     line: int
     needs: tuple[str, ...] | None = None
+    body_hash: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True)
@@ -159,6 +165,19 @@ class NearMiss:
     fix: str
 
 
+Status = Literal["resolved", "outdated", "predated", "orphaned"]
+
+
+@dataclass(frozen=True)
+class Region:
+    """The lines of a file that a tag governs, from `first` to `last` inclusive."""
+
+    target: Id
+    path: str
+    first: int
+    last: int
+
+
 @dataclass(frozen=True)
 class Resolution:
     """What a written id names: its item, and `resolved`, `outdated`, `predated` or `orphaned`.
@@ -167,7 +186,7 @@ class Resolution:
     """
 
     item: Item | None
-    status: str
+    status: Status
     closest: Id | None = None
 
 
@@ -178,6 +197,7 @@ class Index:
     items: tuple[Item, ...]
     links: tuple[Link, ...]
     near_misses: tuple[NearMiss, ...]
+    regions: tuple[Region, ...] = ()
 
     @cached_property
     def defined(self) -> dict[tuple[str, str], Item]:
@@ -218,13 +238,53 @@ def build_index(sources: Iterable[Source]) -> Index:
     items: list[Item] = []
     links: list[Link] = []
     misses: list[NearMiss] = []
+    regions: list[Region] = []
     for source in sources:
         parse = _markdown if source.surface == MARKDOWN else _tags
         found_items, found_links, found_misses = parse(source)
         items.extend(found_items)
         links.extend(found_links)
         misses.extend(found_misses)
-    return Index(tuple(items), tuple(links), tuple(misses))
+        if source.surface != MARKDOWN:
+            regions.extend(_regions(source, found_links))
+    return Index(tuple(items), tuple(links), tuple(misses), tuple(sorted(regions, key=_region_order)))
+
+
+def _region_order(region: Region) -> tuple[str, int, str]:
+    return region.path, region.first, str(region.target)
+
+
+def _regions(source: Source, tags: Sequence[Link]) -> list[Region]:
+    """Derive the regions of a file's tags by the Region rule.
+
+    A tag governs the lines from itself to the next group of tags, or to the end of the file. Tags with no code line
+    from one to the next are one group, and share the region that follows them, which starts at the group's first tag.
+    A code line on a tag's own line counts as code. The regions of one id that overlap or touch merge into one.
+    """
+    groups: list[list[Link]] = []
+    for tag in sorted(tags, key=lambda link: link.line):
+        if groups and not any(line in source.code_lines for line in range(groups[-1][-1].line, tag.line)):
+            groups[-1].append(tag)
+        else:
+            groups.append([tag])
+    spans: dict[Id, list[tuple[int, int]]] = {}
+    for group, after in zip(groups, [*groups[1:], None], strict=False):
+        last = after[0].line - 1 if after else max(source.line_count, group[-1].line)
+        for tag in group:
+            spans.setdefault(tag.target, []).append((group[0].line, last))
+    return [
+        Region(target, source.path, first, last) for target, found in spans.items() for first, last in _merge(found)
+    ]
+
+
+def _merge(spans: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for first, last in sorted(spans):
+        if merged and first <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], last))
+        else:
+            merged.append((first, last))
+    return merged
 
 
 def _to_id(match: re.Match[str], first: int = 1) -> Id:
@@ -248,21 +308,27 @@ def _markdown(source: Source) -> _Parsed:
     links: list[Link] = []
     spans, misses = _spans(source)
     for item_id, number, lines in spans:
-        needs, item_links, key_misses = _keys(source.path, item_id, lines)
-        items.append(Item(item_id, source.path, number, needs))
+        keyed = [line for line in lines if line.number not in source.fenced]
+        needs, item_links, key_misses = _keys(source.path, item_id, keyed)
+        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced)))
         links.extend(item_links)
         misses.extend(key_misses)
     return items, links, misses
 
 
 def _spans(source: Source) -> tuple[list[tuple[Id, int, list[Line]]], list[NearMiss]]:
-    """Split a Markdown file into items: an id line owns the lines up to the next id line or ATX heading."""
+    """Split a Markdown file into items: an id line owns the lines up to the next id line or ATX heading.
+
+    Fenced lines belong to the item above them, and never start, end or key an item.
+    """
     spans: list[tuple[Id, int, list[Line]]] = []
     misses: list[NearMiss] = []
     body: list[Line] | None = None
     for line in source.lines:
         if line.number in source.fenced:
-            continue  # fenced code is body, and never starts, ends or keys an item
+            if body is not None:
+                body.append(line)
+            continue
         text = line.text.rstrip()
         if loose := _ID_LINE.fullmatch(text):
             token, after = loose.group(2, 3)
@@ -278,6 +344,18 @@ def _spans(source: Source) -> tuple[list[tuple[Id, int, list[Line]]], list[NearM
         elif body is not None:
             body.append(line)
     return spans, misses
+
+
+def _body_hash(lines: Iterable[Line], fenced: frozenset[int]) -> str:
+    """Return the digest of an item's body: its non-blank lines, less its key lines, joined by line feeds.
+
+    A fenced line is body even where it looks like a key line. Each line loses one carriage return before its line
+    feed, then trailing spaces and tabs, and is blank when nothing is left; other whitespace stays, so only what Git
+    and an editor add at a line's end leaves the hash as it was.
+    """
+    stripped = [(line.number, line.text.removesuffix("\r").rstrip(" \t")) for line in lines]
+    kept = [text for number, text in stripped if text and (number in fenced or _KEY.match(text) is None)]
+    return digest("\n".join(kept).encode("utf-8"))
 
 
 def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] | None, list[Link], list[NearMiss]]:
