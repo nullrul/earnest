@@ -3360,7 +3360,8 @@ def test_canonical_compact_bytes_have_no_trailing_newline():
 
 
 def test_canonical_pretty_bytes_end_with_one_newline():
-    assert reporter.canonical({"b": 1, "a": {"c": 2}}, pretty=True) == '{\n  "a": {\n    "c": 2\n  },\n  "b": 1\n}\n'
+    pretty = reporter.canonical({"b": 1, "a": {"c": 2}, "e": "\u00e9"}, pretty=True)
+    assert pretty == '{\n  "a": {\n    "c": 2\n  },\n  "b": 1,\n  "e": "\\u00e9"\n}\n'
 
 
 def test_canonical_rejects_floats_and_nan():
@@ -3402,7 +3403,19 @@ def test_missing_record_is_empty_with_the_slot_defaults(tmp_path):
 
 def test_corrupt_record_raises_and_names_the_file(tmp_path):
     (tmp_path / ".earnest").mkdir()
-    for text in ("{not json", "[]", '{"version": 1}', '{"version": "1"}', '{"version": 1, "runs": []}', "\xff"):
+    slots = '"runs": {}, "bodies": {}, "coverage": {}, "judge": {}, "calibration": null'  # a whole record's slots
+    for text in (
+        "{not json",
+        "[]",
+        '{"version": 1}',
+        '{"version": 0}',
+        '{"version": "1"}',
+        '{"version": 1, "runs": []}',
+        f'{{"version": 1, {slots}, "x": 1.5}}',  # a float or NaN would crash the next write
+        f'{{"version": 1, {slots}, "x": NaN}}',
+        "[" * 100_000,  # RecursionError
+        "\xff",
+    ):
         (tmp_path / ".earnest" / "assessment.json").write_text(text, encoding="utf-8")
         with pytest.raises(RecordError, match=r"\.earnest/assessment\.json"):
             reporter.read_record(tmp_path)
@@ -3605,7 +3618,7 @@ def read_record(root: Path) -> Record:
         record = _record(json.loads((root / RECORD).read_text(encoding="utf-8")))
     except FileNotFoundError:
         return Record()
-    except (ValueError, KeyError, TypeError, AttributeError) as error:  # a UnicodeDecodeError is a ValueError
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:  # UnicodeDecodeError: ValueError
         msg = f"{RECORD} is not an assessment record: {error!r}"
         raise RecordError(msg) from error
     return record
@@ -3668,6 +3681,7 @@ def _record(data: object) -> Record:
     if data["version"] > VERSION:
         msg = f"{RECORD} has version {data['version']}, and this release reads up to version {VERSION}: update earnest"
         raise RecordError(msg)
+    _integers_only(data)  # a float would pass the read and crash the next write
     return Record(
         version=data["version"],
         runs={key: _header(held) for key, held in data["runs"].items()},

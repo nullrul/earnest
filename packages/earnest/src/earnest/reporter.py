@@ -1,8 +1,12 @@
 """Reporter: the SARIF 2.1.0 log, with each requirement's trace level, and the summary that leads with three percentages."""
 
 import json
+import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Literal, cast
 from urllib.parse import quote
 
@@ -186,4 +190,203 @@ def _result(finding: Finding) -> dict[str, object]:
         "message": {"text": finding.text},
         "locations": [{"physicalLocation": location}],
         "properties": properties,
+    }
+
+
+RECORD = ".earnest/assessment.json"
+VERSION = 1
+_KNOWN = frozenset({"version", "runs", "bodies", "coverage", "judge", "calibration"})
+
+
+class RecordError(Exception):
+    """The assessment record cannot be used: it does not parse, has the wrong shape, or is newer than this release."""
+
+
+@dataclass(frozen=True)
+class RunHeader:
+    """The latest run of one stage of one intent, as the record keeps it; the digest is stored under the key `hash`."""
+
+    intent: str
+    stage: str
+    commit: str
+    dirty: bool
+    timestamp: str
+    layers: tuple[str, ...]
+    model: str | None
+    prompt: str | None
+    items: tuple[str, ...]
+    status: str
+    reasons: Mapping[str, int | str]
+    digest: str
+
+
+def _empty_coverage() -> dict[str, object]:
+    # ponytail: a placeholder shape; Milestone 3 settles whether `coverage` holds an object or the bare commit
+    return {"commit": None}
+
+
+def _empty_judge() -> dict[str, object]:
+    return {"cache": {}}
+
+
+@dataclass
+class Record:
+    """The assessment record: the latest run header of each stage, the body hashes, and the slots later layers fill.
+
+    `extra` holds the top-level keys another tool added, so a write does not lose them. `Record()` is the empty record.
+    """
+
+    version: int = VERSION
+    runs: dict[str, RunHeader] = field(default_factory=dict)
+    bodies: dict[str, str] = field(default_factory=dict)
+    coverage: dict[str, object] = field(default_factory=_empty_coverage)
+    judge: dict[str, object] = field(default_factory=_empty_judge)
+    calibration: dict[str, object] | None = None
+    extra: dict[str, object] = field(default_factory=dict)
+
+
+def canonical(obj: object, *, pretty: bool = False) -> str:
+    """Return obj as canonical JSON: sorted keys, ASCII, integers only.
+
+    The compact form has no trailing newline and is what the assessment hash and the SARIF log use; the pretty form
+    indents two spaces and ends with one newline, and is what the record file holds.
+
+    Raises:
+        TypeError: obj holds a float.
+    """
+    _integers_only(obj)
+    if pretty:
+        return json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=True, allow_nan=False) + "\n"
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+
+
+def run_key(intent: str, stage: str) -> str:
+    """Return the key of a stage's run header in `runs`: the intent's record directory and the stage's id."""
+    # ponytail: a record directory at the repository root is "", which gives a leading slash that `--intent ""` cannot
+    # name; give the root a name here if a repository ever keeps its state file there
+    return f"{intent}/{stage}"
+
+
+def utc_timestamp(now: datetime | None = None) -> str:
+    """Return now, or the current time, in UTC to the second as `YYYY-MM-DDTHH:MM:SSZ`."""
+    return (now or datetime.now(UTC)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def read_record(root: Path) -> Record:
+    """Return the assessment record under root; a missing file is the empty record.
+
+    Raises:
+        RecordError: the file does not parse, has the wrong shape, or has a newer `version` than this release reads.
+        OSError: the file cannot be read.
+    """
+    try:
+        record = _record(json.loads((root / RECORD).read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        return Record()
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:  # UnicodeDecodeError: ValueError
+        msg = f"{RECORD} is not an assessment record: {error!r}"
+        raise RecordError(msg) from error
+    return record
+
+
+def write_record(root: Path, record: Record) -> None:
+    """Replace the assessment record under root with record, whole or not at all.
+
+    The text goes to a temporary file in `.earnest/` and replaces the record, so a crash or a second writer leaves a
+    whole file. A new `.earnest/` gets a `.gitignore` holding `*`; an existing one is left as it is.
+
+    Raises:
+        OSError: the directory or the file cannot be written; the old record stays and no temporary file does.
+    """
+    directory = root / ".earnest"
+    created = not directory.exists()
+    directory.mkdir(exist_ok=True)
+    if created:
+        (directory / ".gitignore").write_text("*\n", encoding="utf-8")
+    body = {
+        **record.extra,
+        "version": VERSION,
+        "runs": {key: _header_json(held) for key, held in record.runs.items()},
+        "bodies": record.bodies,
+        "coverage": record.coverage,
+        "judge": record.judge,
+        "calibration": record.calibration,
+    }
+    # ponytail: mkstemp makes the file mode 0600 (Git tracks 100644 either way), and a write that fails after the
+    # directory is new leaves its `.gitignore` behind; chmod and clean up if either ever matters
+    descriptor, name = tempfile.mkstemp(dir=directory, prefix="assessment.", suffix=".tmp")
+    temp = Path(name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(canonical(body, pretty=True))
+        temp.replace(root / RECORD)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+
+
+def _integers_only(obj: object) -> None:
+    if isinstance(obj, float):
+        msg = f"canonical JSON holds integers only, not {obj!r}"
+        raise TypeError(msg)
+    if isinstance(obj, Mapping):
+        for value in obj.values():
+            _integers_only(value)
+    elif isinstance(obj, list | tuple):
+        for value in obj:
+            _integers_only(value)
+
+
+def _record(data: object) -> Record:
+    # ponytail: shallow validation, so `version: true` or a non-string body hash passes; type-check every field when
+    # something other than Earnest writes the record
+    if not isinstance(data, dict) or not isinstance(data["version"], int) or data["version"] < 1:
+        msg = "the file is not a JSON object with a version"
+        raise TypeError(msg)
+    if data["version"] > VERSION:
+        msg = f"{RECORD} has version {data['version']}, and this release reads up to version {VERSION}: update earnest"
+        raise RecordError(msg)
+    _integers_only(data)  # a float would pass the read and crash the next write
+    return Record(
+        version=data["version"],
+        runs={key: _header(held) for key, held in data["runs"].items()},
+        bodies=dict(data["bodies"]),
+        coverage=dict(data["coverage"]),
+        judge=dict(data["judge"]),
+        calibration=None if data["calibration"] is None else dict(data["calibration"]),
+        extra={key: value for key, value in data.items() if key not in _KNOWN},
+    )
+
+
+def _header(held: Mapping[str, Any]) -> RunHeader:
+    return RunHeader(
+        intent=held["intent"],
+        stage=held["stage"],
+        commit=held["commit"],
+        dirty=held["dirty"],
+        timestamp=held["timestamp"],
+        layers=tuple(held["layers"]),
+        model=held["model"],
+        prompt=held["prompt"],
+        items=tuple(held["items"]),
+        status=held["status"],
+        reasons=dict(held["reasons"]),
+        digest=held["hash"],
+    )
+
+
+def _header_json(held: RunHeader) -> dict[str, object]:
+    return {
+        "intent": held.intent,
+        "stage": held.stage,
+        "commit": held.commit,
+        "dirty": held.dirty,
+        "timestamp": held.timestamp,
+        "layers": list(held.layers),
+        "model": held.model,
+        "prompt": held.prompt,
+        "items": list(held.items),
+        "status": held.status,
+        "reasons": dict(held.reasons),
+        "hash": held.digest,
     }

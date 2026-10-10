@@ -1,11 +1,15 @@
 """Tests for earnest.reporter: SARIF 2.1.0, percentages and the summary."""
 
+import ast
 import json
+import re
+from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
 from earnest import reporter
-from earnest.reporter import Finding, Run
+from earnest.reporter import Finding, Record, RecordError, Run, RunHeader
 from tests.sarif import sarif_run
 
 
@@ -218,3 +222,166 @@ def test_summary_counts_items_without_a_held_hash():
         line for line in reporter.summary([], {}, Run(commit="abc", unheld=0)).splitlines() if "baseline" in line
     ]
     assert reporter.summary(FINDINGS, LEVELS) == reporter.summary(FINDINGS, LEVELS, Run(commit="abc"))
+
+
+INTENT = "aidlc/spaces/default/intents/260926-checkout"
+
+
+def header(intent=INTENT, stage="construction/code-generation"):
+    return RunHeader(
+        intent=intent,
+        stage=stage,
+        commit="a" * 40,
+        dirty=False,
+        timestamp="2026-09-26T12:00:00Z",
+        layers=("trace",),
+        model=None,
+        prompt=None,
+        items=("task~a~1", "task~b~1"),
+        status="not done",
+        reasons={"errors": 0, "openTasks": 2, "approval": "none"},
+        digest="sha256:" + "1" * 64,
+    )
+
+
+def stored(root):
+    return json.loads((root / ".earnest" / "assessment.json").read_text(encoding="utf-8"))
+
+
+def test_canonical_compact_bytes_have_no_trailing_newline():
+    assert reporter.canonical({"b": [1, 2], "a": "caf\u00e9", "c": None}) == '{"a":"caf\\u00e9","b":[1,2],"c":null}'
+    assert reporter.canonical({"t": (1, 2), "f": False}) == '{"f":false,"t":[1,2]}'
+
+
+def test_canonical_pretty_bytes_end_with_one_newline():
+    pretty = reporter.canonical({"b": 1, "a": {"c": 2}, "e": "\u00e9"}, pretty=True)
+    assert pretty == '{\n  "a": {\n    "c": 2\n  },\n  "b": 1,\n  "e": "\\u00e9"\n}\n'
+
+
+def test_canonical_rejects_floats_and_nan():
+    for value in (1.5, float("nan"), float("inf"), [1, (2, 0.5)], {"a": {"b": 2.0}}):
+        with pytest.raises(TypeError, match="integers only"):
+            reporter.canonical({"value": value})
+
+
+def test_run_key_joins_intent_and_stage():
+    assert reporter.run_key(INTENT, "inception/requirements-analysis") == f"{INTENT}/inception/requirements-analysis"
+
+
+def test_utc_timestamp_shape():
+    assert reporter.utc_timestamp(datetime(2026, 9, 26, 12, 0, 0, tzinfo=UTC)) == "2026-09-26T12:00:00Z"
+    plus_two = timezone(timedelta(hours=2))
+    assert reporter.utc_timestamp(datetime(2026, 9, 26, 12, 0, 0, 999, tzinfo=plus_two)) == "2026-09-26T10:00:00Z"
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", reporter.utc_timestamp())
+
+
+def test_record_round_trips(tmp_path):
+    held = header()
+    record = Record(runs={reporter.run_key(INTENT, held.stage): held}, bodies={"req~a~1": "sha256:" + "2" * 64})
+    reporter.write_record(tmp_path, record)
+    assert reporter.read_record(tmp_path) == record
+    data = stored(tmp_path)
+    assert data["runs"][f"{INTENT}/{held.stage}"]["hash"] == held.digest  # the digest travels as the key `hash`
+    assert "digest" not in data["runs"][f"{INTENT}/{held.stage}"]
+    text = (tmp_path / ".earnest" / "assessment.json").read_text(encoding="utf-8")
+    assert text == reporter.canonical(data, pretty=True)
+
+
+def test_missing_record_is_empty_with_the_slot_defaults(tmp_path):
+    record = reporter.read_record(tmp_path)
+    assert record == Record()
+    assert (record.version, record.runs, record.bodies) == (1, {}, {})
+    assert (record.coverage, record.judge, record.calibration) == ({"commit": None}, {"cache": {}}, None)
+    assert not (tmp_path / ".earnest").exists()  # reading writes nothing
+
+
+def test_corrupt_record_raises_and_names_the_file(tmp_path):
+    (tmp_path / ".earnest").mkdir()
+    slots = '"runs": {}, "bodies": {}, "coverage": {}, "judge": {}, "calibration": null'  # a whole record's slots
+    for text in (
+        "{not json",
+        "[]",
+        '{"version": 1}',
+        '{"version": 0}',
+        '{"version": "1"}',
+        '{"version": 1, "runs": []}',
+        f'{{"version": 1, {slots}, "x": 1.5}}',  # a float or NaN would crash the next write
+        f'{{"version": 1, {slots}, "x": NaN}}',
+        "[" * 100_000,  # RecursionError
+        "\xff",
+    ):
+        (tmp_path / ".earnest" / "assessment.json").write_text(text, encoding="utf-8")
+        with pytest.raises(RecordError, match=r"\.earnest/assessment\.json"):
+            reporter.read_record(tmp_path)
+    (tmp_path / ".earnest" / "assessment.json").write_bytes(b"\xff\xfe\x00")
+    with pytest.raises(RecordError, match=r"\.earnest/assessment\.json"):
+        reporter.read_record(tmp_path)
+
+
+def test_newer_version_raises(tmp_path):
+    (tmp_path / ".earnest").mkdir()
+    (tmp_path / ".earnest" / "assessment.json").write_text('{"version": 2}', encoding="utf-8")
+    with pytest.raises(RecordError, match="version 2"):
+        reporter.read_record(tmp_path)
+
+
+def test_unknown_top_level_keys_survive_a_write_at_the_same_version(tmp_path):
+    reporter.write_record(tmp_path, Record(extra={"future": {"a": [1, 2]}}))
+    record = reporter.read_record(tmp_path)
+    assert record.extra == {"future": {"a": [1, 2]}}
+    record.bodies["req~a~1"] = "sha256:" + "3" * 64
+    reporter.write_record(tmp_path, record)
+    data = stored(tmp_path)
+    assert data["future"] == {"a": [1, 2]}
+    assert data["bodies"] == {"req~a~1": "sha256:" + "3" * 64}
+    assert data["version"] == 1
+
+
+def test_write_creates_the_marker_once_and_never_rewrites_an_existing_directory(tmp_path):
+    reporter.write_record(tmp_path, Record())
+    marker = tmp_path / ".earnest" / ".gitignore"
+    assert marker.read_text(encoding="utf-8") == "*\n"
+    marker.write_text("custom\n", encoding="utf-8")  # a repository's own choice
+    reporter.write_record(tmp_path, Record())
+    assert marker.read_text(encoding="utf-8") == "custom\n"
+    other = tmp_path / "other"
+    (other / ".earnest").mkdir(parents=True)
+    reporter.write_record(other, Record())
+    assert not (other / ".earnest" / ".gitignore").exists()
+
+
+def test_write_is_atomic_when_replace_fails(tmp_path, monkeypatch):
+    reporter.write_record(tmp_path, Record(bodies={"req~a~1": "sha256:" + "4" * 64}))
+    before = (tmp_path / ".earnest" / "assessment.json").read_bytes()
+
+    def refuse(self, target):
+        raise PermissionError(target)
+
+    monkeypatch.setattr(Path, "replace", refuse)
+    with pytest.raises(PermissionError):
+        reporter.write_record(tmp_path, Record(bodies={"req~a~1": "sha256:" + "5" * 64}))
+    assert (tmp_path / ".earnest" / "assessment.json").read_bytes() == before
+    assert sorted(path.name for path in (tmp_path / ".earnest").iterdir()) == [".gitignore", "assessment.json"]
+
+
+def test_runs_are_keyed_by_intent_and_stage_so_two_intents_never_collide(tmp_path):
+    one, two = header("intents/one"), header("intents/two")
+    record = Record(runs={reporter.run_key(h.intent, h.stage): h for h in (one, two)})
+    reporter.write_record(tmp_path, record)
+    assert sorted(stored(tmp_path)["runs"]) == [
+        "intents/one/construction/code-generation",
+        "intents/two/construction/code-generation",
+    ]
+    assert reporter.read_record(tmp_path) == record
+
+
+def test_reporter_imports_neither_structural_nor_plan():
+    tree = ast.parse(Path(reporter.__file__).read_text(encoding="utf-8"))
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            names.add(node.module or "")
+            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+    assert not {name for name in names if name.startswith(("earnest.structural", "earnest.plan"))}
