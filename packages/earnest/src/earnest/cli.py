@@ -32,7 +32,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     findings = structural.check(index)
     levels = structural.traced(index)
     try:
-        sys.stdout.write(reporter.sarif(findings, levels, commit))
+        sys.stdout.write(reporter.sarif(findings, levels, reporter.Run(commit=commit)))
         sys.stdout.flush()
         sys.stderr.write(reporter.summary(findings, levels))
         sys.stderr.flush()
