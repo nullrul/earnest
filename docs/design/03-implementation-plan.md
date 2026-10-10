@@ -24,7 +24,7 @@ flowchart LR
   M4 --> M5
   M4 --> M6["M6 calibration_gate"]
   classDef done fill:#d4edda,stroke:#2e7d32
-  class M1 done
+  class M1,M2 done
 ```
 
 M1 and M2 are the foundation. M1 fixes the index and the SARIF output that
@@ -133,8 +133,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   `reporter.py`, `conftest.py` and `fixtures/seeded-change/` in Module
   boundaries.
 - Gating open questions: none.
-- Task plan: `docs/superpowers/plans/<date>-stage-status.md`, written when M2
-  is next.
+- Task plan:
+  [2026-10-10-stage-status.md](../superpowers/plans/2026-10-10-stage-status.md).
 
 ### M2b `unit_status`
 
