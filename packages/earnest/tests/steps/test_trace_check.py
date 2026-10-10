@@ -1,29 +1,16 @@
 """Steps for tests/features/trace_check.feature: `earnest check` over the broken-links fixture."""
 
-import json
-import subprocess
-import sys
-from pathlib import Path
-
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from tests.sarif import located, sarif_run
+from tests.sarif import located, rows, run_earnest, sarif_run
 
 
 scenarios("trace_check.feature")
 
-EARNEST = Path(sys.executable).with_name("earnest")
-
 
 def run_check(repo):
     """Run `earnest check` in repo, as the coding agent does."""
-    return subprocess.run([str(EARNEST), "check"], cwd=repo, capture_output=True, text=True, check=False)
-
-
-def rows(datatable):
-    """Return a data table's rows as dicts keyed by its header."""
-    header, *body = datatable
-    return [dict(zip(header, row, strict=True)) for row in body]
+    return run_earnest(repo, "check")
 
 
 @given(
@@ -42,20 +29,6 @@ def agent_runs_check(repo):
 @when("the coding agent runs earnest check twice", target_fixture="runs")
 def agent_runs_check_twice(repo):
     return [run_check(repo), run_check(repo)]
-
-
-@then("both runs write the same SARIF log")
-def same_log(runs):
-    first, second = runs
-    assert json.loads(first.stdout)["version"] == "2.1.0"
-    assert first.stdout == second.stdout
-
-
-@then("the SARIF log holds exactly these findings:")
-def exact_findings(run, datatable):
-    expected = sorted((row["rule"], row["file"], int(row["line"])) for row in rows(datatable))
-    actual = sorted((result["ruleId"], *located(result)) for result in sarif_run(run.stdout)["results"])
-    assert actual == expected
 
 
 @then("every finding is in scope at position current, with no stage")
