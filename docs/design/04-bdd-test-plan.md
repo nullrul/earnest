@@ -243,7 +243,7 @@ Base commit, record directory `aidlc/spaces/default/intents/260926-checkout/`
 
 | File | Line | Seeded text | Role |
 | --- | --- | --- | --- |
-| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 6 | `- **Scope**: bugfix` | the profile, read for display |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 6 | `- **Scope**: bugfix` | the profile; M2 parses it and does not display it |
 | `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 11-14 | `### INITIALIZATION PHASE`, then `- [x] workspace-scaffold — EXECUTE: always`, `workspace-detection`, `state-init`, in that order | auto-proceeding stages with no gate, outside the route |
 | `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 16-19 | `### INCEPTION PHASE`, then `- [S] reverse-engineering — EXECUTE: greenfield project`, `- [x] requirements-analysis — EXECUTE: always`, `- [S] units-generation — SKIP: not in bugfix scope` | a runtime skip, a route stage, a planned skip |
 | `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 21-23 | `### CONSTRUCTION PHASE`, then `- [x] code-generation — EXECUTE: always`, `- [x] build-and-test — EXECUTE: always` | agent-written marks that Earnest never reads as status |

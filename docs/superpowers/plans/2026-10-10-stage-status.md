@@ -75,7 +75,9 @@ Tasks run in the order below, one at a time in one worktree. The regression run 
 | 10 | Status, `unplanned`, `cycle`, positions, `plan.py` | T7, T9 | 44 | 349 |
 | 11 | The assessment hash, baseline and `dirty`, `plan.py` | T10, T2, T3, T6 | 27 | 376 |
 | 12 | `earnest plan`, `check --stage`, `--intent`, `cli.py`; the gate turns green | T11, T4, T6 | 48 | 424 |
-| 13 | The full suite, the review and the milestone DAG | T12 | 0 | 452 (424 plus 28 scenarios) |
+| 13 | The full suite, the review and the milestone DAG | T12 | 0 | 452 (424 plus 28 scenarios): the historical checkpoint at T12; 481 at HEAD (see below) |
+
+The counts in this table and in each task's steps are the historical TDD checkpoints. The milestone review pass (D17, commit bc7e5c1) added 29 tests, 24 gap tests (D9 3, D11 2, D12 5, D14 8, D15 2, D16 4) and 5 fix tests (2 in `test_cli.py`, 1 in `test_reporter.py`, 2 in `test_plan.py`), so the suite at HEAD is 481 = 453 + 28 scenarios. Task 13 states the final figures.
 
 ## File Structure
 
@@ -114,6 +116,18 @@ Each is a ceiling that the milestone accepts, with the upgrade path; most have a
 - One union `produces` serves every intent's items when a repository mixes supported and unsupported intents (Task 10).
 - A record directory at the repository root drops every source file from the evaluated tree, since each path lies inside it (Task 10, D14).
 - The index is built over all sources, so an edit outside the evaluated tree can move the body hash and the assessment hash while `dirty` stays false (Task 11, D15).
+- The symlink refusal covers `.earnest` only: a symlinked `assessment.json` is read through, the atomic replace swaps it for a regular file, and the write is not fsynced (Task 6, D10).
+- Stage Progress rows must start at column 0 with `- [`, so an indented or `* [` row is neither a row nor an unread line, as upstream's own setter requires; audit blocks end only at a line that is exactly `---`, so a separator with a trailing space merges two blocks; any `###` heading sets the phase (Task 8, D12).
+- A slug that appears in two phases collapses into one row, and a `STAGE_JUMPED` row that carries a `Unit` still voids the rows it follows (Task 9, D13).
+- With several intents, every `stest` finding goes to the first plan's Build and Test and each plan counts all `stest`s; `task_done` is quadratic in the tasks; "id order" is string order (Task 10, D14).
+- A file that the scanner drops (an untagged `.py` or `.ts`, a binary) makes `dirty` true without moving the hash, which over-reports and never hides; `next_bodies` reads the intent's own items while `frozen_bodies` reads every intent's, which differ for an item that another intent cites (Task 11, D15).
+- D17-1: stage slugs are parsed with `partition("/")` in several places in `plan.py`, which breaks per-unit ids, so M2b replaces it with one slug and id parser.
+- D17-2: the header's `reasons` are built twice, in `cli._stage` and in `plan.header`.
+- D17-3: `Row.reason`, `Approval.digest`, `State.scope` and `Record.version` are parsed and kept but read only by tests or not at all.
+- D17-4: `State.scope` is parsed but not displayed in M2; `04` no longer calls it read for display.
+- D17-5: M4 needs the layers, model and prompt threaded through `Run`, and body text or spans on `Item`.
+- D17-6: the record-directory rule is decided in three places: `adapters`, `plan.load` and `plan.dirty`.
+- D17-7: `plan._SUBJECT` accepts a looser grammar than the item-id grammar `index.ID_ENTRY`.
 
 ---
 
@@ -147,6 +161,8 @@ git commit -m "docs: add the M2 stage_status plan"
 ```
 
 ### Task 1: The `stage_status` behavior gate, red
+
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
 
 **Files:**
 
@@ -3284,6 +3300,8 @@ git commit -m "feat: place findings by stage and position in SARIF and the summa
 
 ### Task 6: The assessment record, `reporter.py`
 
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
+
 **Files:**
 
 - Modify: `packages/earnest/src/earnest/reporter.py`
@@ -4117,6 +4135,8 @@ git commit -m "feat: apply the route rule and raise unbumped-change"
 
 ### Task 8: The state and audit readers, `plan.py`
 
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
+
 **Files:**
 
 - Create: `packages/earnest/src/earnest/plan.py`
@@ -4594,6 +4614,8 @@ git commit -m "feat: read the state file's Stage Progress and the audit shards"
 ```
 
 ### Task 9: The route, the counting rules, approvals and the frontier, `plan.py`
+
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
 
 **Files:**
 
@@ -5337,6 +5359,8 @@ git commit -m "feat: build the route, read approvals and find the frontier"
 ```
 
 ### Task 10: Stage status, `unplanned`, `cycle`, approval notes and positions, `plan.py`
+
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
 
 **Files:**
 
@@ -6224,6 +6248,8 @@ git commit -m "feat: compute stage status, unplanned and cycle, and place findin
 
 ### Task 11: The assessment hash, the body-hash baseline and `dirty`, `plan.py`
 
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
+
 **Files:**
 
 - Modify: `packages/earnest/src/earnest/plan.py`
@@ -6669,6 +6695,8 @@ git commit -m "feat: hash the stage assessment, keep the body-hash baseline and 
 ```
 
 ### Task 12: `earnest plan`, `earnest check --stage` and `--intent`, `cli.py`
+
+> Superseded in part by the final state in Task 13 (D17, S1–S7); these snippets are the historical TDD record.
 
 **Files:**
 
@@ -7270,7 +7298,7 @@ def test_an_unreadable_audit_shard_exits_two_with_one_line(fixture_repo):
 
 Run: `uv run pytest tests/unit/test_plan.py tests/unit/test_cli.py tests/integration/test_stage.py --no-cov -q`
 
-Expected: `47 failed, 143 passed`. Forty-seven of the 48 new tests fail (`AttributeError` for `select_intent` and the like, and exit 2 from the M1 command-line parser for `plan` and `--stage`); `test_plain_check_places_an_unsupported_intents_findings_without_a_plan` already holds, since M1's check places every finding without a plan. The other 134 are the tests these files held.
+Expected: `47 failed, 143 passed`. Forty-seven of the 48 new tests fail (`AttributeError` for `select_intent` and the like, and exit 2 from the M1 command-line parser for `plan` and `--stage`); `test_plain_check_places_an_unsupported_intents_findings_without_a_plan` already holds, since M1's check places every finding without a plan. The other 142 are the tests these files held (190 collected, less the 48 new).
 
 - [ ] **Step 2: Add the selection functions to `plan.py`**
 
@@ -7579,6 +7607,30 @@ git commit -m "feat: run earnest plan and earnest check --stage"
 
 ### Task 13: The full suite, the review and the milestone DAG
 
+#### Final state after the milestone review (D17 and S1–S7)
+
+This subsection supersedes the historical snippets of Tasks 1, 6, 8, 9, 10, 11 and 12 wherever they differ; each of those tasks carries a pointer to it. Those snippets are the TDD record as the tasks ran; the code at HEAD is what bc7e5c1 left, and anyone replaying the plan applies the items below on top of them. Each item names the module and function in `packages/earnest/src/earnest/`.
+
+- **Symlinked record (MUST-FIX 2, Task 6).** `reporter._refuse_symlink(root)` runs first in `read_record` and `write_record` and raises `OSError(".earnest is a symlink; the record must lie in the repository")`. `cli.main` already catches `OSError`, so `plan` and `check --stage` exit 2 with one stderr line and write nothing outside the repository.
+- **Looping `--intent` symlink (MUST-FIX 1, Task 12).** `cli._option` catches `(ValueError, RuntimeError)`; the `RuntimeError` is the symlink loop that `Path.resolve` raises before Python 3.13.
+- **ReDoS in the state reader (Task 8).** `plan._SCOPE` is `^- \*\*Scope\*\*:[ \t]*(.*)$` with no lazy group before the trailing blanks, and `parse_state` strips them with `.rstrip(" \t")`. `_PHASE_WORD` is gone: `plan._phase(heading)` strips a trailing separate word PHASE by string comparison, not by regex. Both are linear; 50 000 spaces took about 7 s before and 0.0 s after.
+- **S1 (Task 9).** `index._ID_ENTRY` is `index.ID_ENTRY`, and `plan._items` uses it. `plan._ITEM_ID` and the `TYPES` import are gone.
+- **S2 (Task 6).** `reporter.Record` builds `coverage` and `judge` with `field(default_factory=lambda: ...)`. The `_empty_coverage` and `_empty_judge` factories are gone.
+- **S3–S5 (tests; Tasks 1, 8, 9, 10, 11 and 12).** S3: `tests/sarif.py` defines `RECORD`, `SHARD`, `REQUIREMENTS` and `PLAN_FILE` once, and `test_stage.py`, `tests/steps/test_stage_status.py`, `test_seeded_change.py` and `test_cli.py` import them (Tasks 1 and 12); `test_adapters.py`, `test_reporter.py` and `test_plan.py` keep their own local `RECORD` or `REQUIREMENTS`. S4: `tests/sarif.py` has one `write(repo, path, text)` helper that makes the parents, which the step file, `test_plan.py` (whose `put` loops over it), `test_cli.py` and `conftest.py` import in place of their own mkdir-then-write copies (Tasks 1, 8 and 12). S5: in `test_plan.py`, `item()` calls `ident()` (Tasks 9 and 10), and the tests that need the unsupported state use the `UNSUPPORTED_STATE` constant instead of rebuilding it inline (Tasks 10, 11 and 12).
+- **S6 (Tasks 9 and 12).** `plan.Intent` has no `scope` field and `cli._Analysis` has no `index` field, since neither was read.
+- **S7 (Task 8).** `plan.load` uses `adapters.STATE` and defines no `STATE` of its own.
+- **Not applied.** S8, sharing one `adapters.read_bytes` for the skip rule, was optional and is left out.
+- **State scope.** `plan.State.scope` is still parsed, but nothing displays it in M2 (D17); the Task 8 text that says "for display" is historical, and `04` no longer says it. The live `State` docstring in `plan.py` still says "its scope, for display"; correcting it is a D17-4 follow-up for the next code change, and this correction does not touch code.
+- **Tests.** The pass added 29: the D9, D11, D12, D14, D15 and D16 gap tests and the fix tests above. The suite at HEAD is 481 passed (453 plus the 28 scenarios).
+
+The commit that holds all of this is bc7e5c1; ee26b31 adds the two Known limits and the Reporter clause in `02`.
+
+#### Archival gap
+
+The hash of the plan text that the plan reviews read before c9bfd33 was not recorded, and the reviews cite no hash, so no review is tied to that exact text. The count corrections in ee26b31 and this subsection are the reconciliation.
+
+#### The task itself
+
 **Files:**
 
 - Modify: `docs/design/03-implementation-plan.md` (the `done` class on M2; the M2 task-plan entry)
@@ -7606,7 +7658,7 @@ The milestone pass (D17) added tests to this task's run: the suite total is now 
 make test && make lint
 ```
 
-Expected: `452 passed` across the unit, integration and behavior tiers (as root, `450 passed, 2 skipped`: M1's unreadable-file test and Task 12's unreadable-shard test skip), then `make lint` exits 0.
+Expected: `481 passed` across the unit, integration and behavior tiers (as root, `479 passed, 2 skipped`: M1's unreadable-file test in `test_check.py` and Task 12's unreadable-shard test in `test_stage.py` skip), then `make lint` exits 0. At the T12 checkpoint the same run read `452 passed` (`450 passed, 2 skipped` as root); the 29 tests of the milestone pass account for the difference.
 
 - [ ] **Step 3: Fix what the run exposed**
 
