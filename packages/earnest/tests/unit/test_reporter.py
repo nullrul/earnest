@@ -76,6 +76,24 @@ def test_the_same_findings_in_another_order_give_the_same_bytes():
     assert reporter.sarif(FINDINGS, LEVELS, run) == reporter.sarif(FINDINGS[::-1], shuffled, run)
 
 
+def test_the_log_is_one_line_that_ends_in_a_single_newline():
+    log = reporter.sarif(FINDINGS, LEVELS, Run(commit="abc"))
+    assert log.endswith("}\n")
+    assert log.count("\n") == 1
+
+
+def test_the_summary_lists_the_levels_by_requirement_id_whatever_their_order():
+    lines = reporter.summary([], dict(reversed(LEVELS.items()))).splitlines()
+    assert lines[1:4] == ["  req~a~1: traced", "  req~b~1: untraced", "  req~c~1: traced"]
+
+
+def test_the_summary_counts_no_error_for_a_finding_of_an_error_rule_that_reads_as_a_note():
+    notes = [gap(stage=STAGE, position="ahead"), Finding("a.md", 1, "earnest/outdated", "req~a~1", "m", note=True)]
+    lines = reporter.summary(notes, {}).splitlines()
+    assert [line.split(" ", 2)[1] for line in lines if line.startswith(("a.md:", "r/x.md:"))] == ["note", "note"]
+    assert lines[-1] == "findings: 2, errors: 0"
+
+
 def test_the_summary_leads_with_the_three_percentages():
     lines = reporter.summary(FINDINGS, LEVELS).splitlines()
     assert lines[0] == "traced 66%, judged 0%, evidenced 0%; requirements: 3"
@@ -293,6 +311,19 @@ def test_missing_record_is_empty_with_the_slot_defaults(tmp_path):
     assert (record.version, record.runs, record.bodies) == (1, {}, {})
     assert (record.coverage, record.judge, record.calibration) == ({"commit": None}, {"cache": {}}, None)
     assert not (tmp_path / ".earnest").exists()  # reading writes nothing
+
+
+def test_a_symlinked_earnest_directory_is_neither_read_nor_written(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".earnest").symlink_to(outside)
+    with pytest.raises(OSError, match=r"\.earnest"):
+        reporter.read_record(repo)
+    with pytest.raises(OSError, match=r"\.earnest"):
+        reporter.write_record(repo, Record())
+    assert list(outside.iterdir()) == []
 
 
 def test_corrupt_record_raises_and_names_the_file(tmp_path):

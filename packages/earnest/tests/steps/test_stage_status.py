@@ -6,16 +6,12 @@ import re
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from tests.sarif import git_output, located, rows, run_earnest, sarif_run
+from tests.sarif import PLAN_FILE, RECORD, REQUIREMENTS, SHARD, git_output, located, rows, run_earnest, sarif_run, write
 
 
 scenarios("stage_status.feature")
 
-RECORD = "aidlc/spaces/default/intents/260926-checkout"
 STATE = f"{RECORD}/aidlc-state.md"
-SHARD = f"{RECORD}/audit/fixture-a1b2c3d4.md"
-REQUIREMENTS = f"{RECORD}/inception/requirements-analysis/requirements.md"
-PLAN = f"{RECORD}/construction/code-generation/code-generation-plan.md"
 UNSUPPORTED = "earnest: unsupported route: units-generation is on the route, so per-unit stages"
 HASH_LINE = re.compile(r"^assessment (\S+): (sha256:[0-9a-f]{64}) \((?:done|not done)\)$", re.MULTILINE)
 ROW = re.compile(r"^- \[.\] (\S+) — (EXECUTE|SKIP)")
@@ -30,11 +26,6 @@ def memory():
 
 def read(repo, path):
     return (repo / path).read_text(encoding="utf-8")
-
-
-def write(repo, path, text):
-    (repo / path).parent.mkdir(parents=True, exist_ok=True)
-    (repo / path).write_text(text, encoding="utf-8")
 
 
 def block(event, timestamp, fields=()):
@@ -124,7 +115,7 @@ def uncommitted_edit(repo, path):
 
 @given(parsers.parse('the coding agent has an uncommitted edit to the body of "{item}"'))
 def uncommitted_body_edit(repo, item):
-    for path in (REQUIREMENTS, PLAN):
+    for path in (REQUIREMENTS, PLAN_FILE):
         lines = read(repo, path).split("\n")
         if f"`{item}`" in lines:
             lines[lines.index(f"`{item}`") + 2] += " (edited)"  # the id line, a blank line, then the first body line
@@ -135,10 +126,10 @@ def uncommitted_body_edit(repo, item):
 
 @given(parsers.parse('the repo maintainer makes "{first}" wait on "{second}", which already waits on it'))
 def task_cycle(repo, first, second):
-    lines = read(repo, PLAN).split("\n")
+    lines = read(repo, PLAN_FILE).split("\n")
     assert (lines[2], lines[7]) == (f"`{first}`", "")
     lines[7] = f"Depends: {second}"
-    write(repo, PLAN, "\n".join(lines))
+    write(repo, PLAN_FILE, "\n".join(lines))
 
 
 @given(parsers.parse('the repo maintainer restores the approved text of "{item}"'))

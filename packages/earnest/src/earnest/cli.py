@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from earnest import adapters, git, plan, reporter, structural
-from earnest.index import Index, Source, build_index
+from earnest.index import Source, build_index
 from earnest.reporter import Finding, Run
 
 
@@ -30,7 +30,6 @@ class _World:
 class _Analysis:
     """What the run works out: the plans, every placed finding, the plan's own, and what each stage's status is."""
 
-    index: Index
     levels: dict[str, str]
     plans: list[plan.Plan]
     findings: list[Finding]
@@ -115,7 +114,7 @@ def _analyse(world: _World) -> _Analysis:
         record_absent=not world.record_exists and bool(index.defined),
         unheld=unheld if world.record_exists else 0,
     )
-    return _Analysis(index, levels, plans, findings, derived, statuses, run)
+    return _Analysis(levels, plans, findings, derived, statuses, run)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -136,7 +135,7 @@ def _option(world: _World, text: str | None) -> str | None:
         return named
     try:
         relative = (Path.cwd() / text).resolve().relative_to(world.root.resolve()).as_posix()
-    except ValueError:
+    except (ValueError, RuntimeError):  # RuntimeError: a symlink loop, on Python before 3.13
         return named
     return relative if relative in directories else named
 

@@ -7,7 +7,7 @@ import sys
 import pytest
 
 from earnest import cli
-from tests.sarif import located, sarif_run
+from tests.sarif import PLAN_FILE, RECORD, located, sarif_run, write
 
 
 CHECK = [sys.executable, "-c", "import sys; from earnest.cli import main; sys.exit(main(['check']))"]
@@ -47,8 +47,6 @@ def test_a_reader_of_the_summary_that_goes_away_early_gets_exit_code_2(files_rep
 
 
 DASH = "\u2014"
-RECORD = "aidlc/spaces/default/intents/260926-checkout"
-PLAN_FILE = f"{RECORD}/construction/code-generation/code-generation-plan.md"
 UNSUPPORTED = "earnest: unsupported route: units-generation is on the route, so per-unit stages\n"
 STATE = f"""## Stage Progress
 ### INCEPTION PHASE
@@ -65,11 +63,6 @@ def run(repo, monkeypatch, capsys, *args):
     code = cli.main(list(args))
     out, err = capsys.readouterr()
     return code, out, err
-
-
-def put(repo, path, text):
-    (repo / path).parent.mkdir(parents=True, exist_ok=True)
-    (repo / path).write_text(text, encoding="utf-8")
 
 
 def test_stage_with_no_record_directory_exits_two(files_repo, monkeypatch, capsys):
@@ -110,9 +103,35 @@ def test_intent_option_names_a_missing_record_exits_two(fixture_repo, monkeypatc
     assert len(err.splitlines()) == 1
 
 
+def test_intent_option_naming_a_looping_symlink_exits_two_with_one_line_and_no_traceback(
+    fixture_repo, monkeypatch, capsys
+):
+    repo = fixture_repo("seeded-change")
+    (repo / "loop").symlink_to("loop")
+    code, out, err = run(repo, monkeypatch, capsys, "check", "--intent", "loop")
+    assert (code, out) == (2, "")
+    assert len(err.splitlines()) == 1
+    assert "Traceback" not in err
+
+
+def test_a_symlinked_earnest_directory_exits_two_and_writes_nothing_outside_the_repo(
+    fixture_repo, tmp_path, monkeypatch, capsys
+):
+    repo = fixture_repo("seeded-change")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / ".earnest").symlink_to(outside)
+    for command in (["plan"], ["check", "--stage", "construction/code-generation"]):
+        code, out, err = run(repo, monkeypatch, capsys, *command)
+        assert (code, out) == (2, "")
+        assert ".earnest" in err
+        assert len(err.splitlines()) == 1
+    assert list(outside.iterdir()) == []
+
+
 def test_corrupt_record_exits_two_with_empty_stdout(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
-    put(repo, ".earnest/assessment.json", "{not json")
+    write(repo, ".earnest/assessment.json", "{not json")
     for command in (["plan"], ["check"], ["check", "--stage", "construction/code-generation"]):
         code, out, err = run(repo, monkeypatch, capsys, *command)
         assert (code, out) == (2, "")
@@ -131,7 +150,7 @@ def test_stage_exit_code_follows_the_scoped_findings(fixture_repo, monkeypatch, 
     repo = fixture_repo("seeded-change")
     lines = (repo / PLAN_FILE).read_text(encoding="utf-8").split("\n")
     lines[7] = "Depends: task~notify-lockout~1"  # a cycle, in the code generation stage
-    put(repo, PLAN_FILE, "\n".join(lines))
+    write(repo, PLAN_FILE, "\n".join(lines))
     assert run(repo, monkeypatch, capsys, "check", "--stage", "inception/requirements-analysis")[0] == 0
     assert run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")[0] == 1
 
@@ -170,7 +189,7 @@ def test_plain_check_places_an_unsupported_intents_findings_without_a_plan(files
 def test_plan_lists_the_supported_intents_when_another_is_unsupported(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
     other = "aidlc/spaces/default/intents/260927-other"
-    put(repo, f"{other}/aidlc-state.md", UNITS)
+    write(repo, f"{other}/aidlc-state.md", UNITS)
     code, out, err = run(repo, monkeypatch, capsys, "plan")
     assert code == 0
     assert [entry["intent"] for entry in sarif_run(out)["properties"]["plan"]["intents"]] == [RECORD]

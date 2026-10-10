@@ -7,13 +7,9 @@ import re
 import pytest
 
 from earnest import cli, reporter
-from tests.sarif import git_output, located, run_earnest, sarif_run
+from tests.sarif import PLAN_FILE, RECORD, REQUIREMENTS, SHARD, git_output, located, run_earnest, sarif_run
 
 
-RECORD = "aidlc/spaces/default/intents/260926-checkout"
-SHARD = f"{RECORD}/audit/fixture-a1b2c3d4.md"
-REQUIREMENTS = f"{RECORD}/inception/requirements-analysis/requirements.md"
-PLAN_FILE = f"{RECORD}/construction/code-generation/code-generation-plan.md"
 REQ_STAGE = "inception/requirements-analysis"
 CODE_STAGE = "construction/code-generation"
 HASH = re.compile(r"^assessment \S+: (sha256:[0-9a-f]{64}) \((?:done|not done)\)$", re.MULTILINE)
@@ -101,6 +97,35 @@ def test_check_stage_writes_the_header_and_the_marker(fixture_repo):
     assert held["reasons"] == {"errors": 0, "openTasks": 2, "approval": "none"}
     assert held["hash"] == HASH.search(done.stderr).group(1)
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", held["timestamp"])
+
+
+def test_the_hash_ignores_the_commit_of_the_run(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    first = stage_check(repo, CODE_STAGE)
+    first_held = record_of(repo)["runs"][f"{RECORD}/{CODE_STAGE}"]
+    git_output(
+        repo, "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-q", "--allow-empty", "--no-verify", "-m", "x"
+    )
+    second = stage_check(repo, CODE_STAGE)
+    held = record_of(repo)["runs"][f"{RECORD}/{CODE_STAGE}"]
+    assert held["commit"] != first_held["commit"]
+    assert (
+        held["hash"] == first_held["hash"] == HASH.search(second.stderr).group(1) == HASH.search(first.stderr).group(1)
+    )
+
+
+def test_the_first_stage_check_counts_its_items_without_a_held_hash_and_does_not_call_the_record_absent(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    lines = stage_check(repo, CODE_STAGE).stderr.splitlines()
+    assert "body-hash baseline: 2 items without a held hash" in lines
+    assert "record: absent, body-hash baseline unavailable" not in lines
+    assert not [line for line in stage_check(repo, CODE_STAGE).stderr.splitlines() if "baseline" in line]
+
+
+def test_plan_without_a_record_says_so_and_counts_no_baseline(fixture_repo):
+    lines = run_earnest(fixture_repo("seeded-change"), "plan").stderr.splitlines()
+    assert "record: absent, body-hash baseline unavailable" in lines
+    assert not [line for line in lines if line.startswith("body-hash baseline")]
 
 
 def test_runs_are_keyed_by_intent_directory_and_stage(fixture_repo):
@@ -223,6 +248,25 @@ def test_plain_check_prints_the_count_of_indexed_items_without_a_held_hash(fixtu
     repo = fixture_repo("seeded-change")
     stage_check(repo, CODE_STAGE)  # holds the two tasks; the record now exists
     assert "body-hash baseline: 3 items without a held hash" in run_earnest(repo, "check").stderr.splitlines()
+
+
+def test_plan_exits_zero_where_check_exits_one_on_the_overlay(fixture_repo, commit_overlay):
+    repo = fixture_repo("seeded-change")
+    stage_check(repo, REQ_STAGE)
+    commit_overlay(repo, "seeded-change", "task/add-limiter-window")
+    assert run_earnest(repo, "check").returncode == 1  # the unbumped change is an error against the requirements stage
+    assert run_earnest(repo, "plan").returncode == 0  # and a plan reports only what the plan itself raises
+
+
+def test_the_header_records_the_errors_and_open_tasks_that_hold_a_stage_back(fixture_repo, commit_overlay):
+    repo = fixture_repo("seeded-change")
+    stage_check(repo, REQ_STAGE)
+    commit_overlay(repo, "seeded-change", "task/add-limiter-window")
+    stage_check(repo, REQ_STAGE)
+    stage_check(repo, CODE_STAGE)
+    runs = record_of(repo)["runs"]
+    assert runs[f"{RECORD}/{REQ_STAGE}"]["reasons"] == {"errors": 1, "openTasks": 0, "approval": "outdated"}
+    assert runs[f"{RECORD}/{CODE_STAGE}"]["reasons"] == {"errors": 0, "openTasks": 2, "approval": "none"}
 
 
 def test_plan_results_include_the_stale_approval_note(fixture_repo, commit_overlay):

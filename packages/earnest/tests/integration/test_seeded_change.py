@@ -1,14 +1,10 @@
 """Integration: the seeded-change fixture holds the seeds and the overlay that the stage_status scenarios read."""
 
 from earnest.index import MARKDOWN, Source, build_index, split_lines
-from tests.sarif import git_output
+from tests.sarif import PLAN_FILE, RECORD, REQUIREMENTS, SHARD, git_output
 
 
-RECORD = "aidlc/spaces/default/intents/260926-checkout"
 STATE = f"{RECORD}/aidlc-state.md"
-SHARD = f"{RECORD}/audit/fixture-a1b2c3d4.md"
-REQUIREMENTS = f"{RECORD}/inception/requirements-analysis/requirements.md"
-PLAN = f"{RECORD}/construction/code-generation/code-generation-plan.md"
 
 
 def lines_of(repo, path):
@@ -45,7 +41,7 @@ def test_base_commit_holds_the_seeded_lines(fixture_repo):
         "`req~audit-log~1`",
     ]
     assert requirements[10] == "when they may try again."
-    plan = lines_of(repo, PLAN)
+    plan = lines_of(repo, PLAN_FILE)
     assert [plan[n - 1] for n in (3, 9)] == ["`task~add-limiter~1`", "`task~notify-lockout~1`"]
     assert [plan[n - 1] for n in (7, 13, 14)] == [
         "Delivers: req~rate-limit~1",

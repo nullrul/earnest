@@ -17,7 +17,7 @@ KEYS = ("Needs", "Covers", "Drivers", "Delivers", "Depends", "Override")
 
 _TYPE = f"({'|'.join(TYPES)})"
 _ID = rf"{_TYPE}~([a-z0-9-]+)~([1-9][0-9]{{0,8}})"  # nine digits at most, far under int()'s 4300-digit limit
-_ID_ENTRY = re.compile(_ID)
+ID_ENTRY = re.compile(_ID)
 _TYPE_ENTRY = re.compile(_TYPE)
 _ATX = r"#{1,6}(?:[ \t]+|$)"  # the marks that open an ATX heading, after up to three spaces
 _HEADING = re.compile(rf" {{0,3}}{_ATX}")
@@ -332,7 +332,7 @@ def _spans(source: Source) -> tuple[list[tuple[Id, int, list[Line]]], list[NearM
         text = line.text.rstrip()
         if loose := _ID_LINE.fullmatch(text):
             token, after = loose.group(2, 3)
-            strict = None if after else _ID_ENTRY.fullmatch(token)
+            strict = None if after else ID_ENTRY.fullmatch(token)
             if strict is None:
                 misses.append(NearMiss(source.path, line.number, token + after, _fix(token + after, "id line")))
                 body = None  # a malformed id line ends the item above it, as an id line would
@@ -380,7 +380,7 @@ def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] 
             if not found:
                 needs = tuple(entry.group() for entry in types)
         else:
-            ids, found = _list(path, line, value, _ID_ENTRY, "id")
+            ids, found = _list(path, line, value, ID_ENTRY, "id")
             misses.extend(found)
             links.extend(Link(name, owner.type, _to_id(entry), path, line.number, owner=owner) for entry in ids)
     return needs, links, misses

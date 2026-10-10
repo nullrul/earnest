@@ -220,15 +220,6 @@ class RunHeader:
     digest: str
 
 
-def _empty_coverage() -> dict[str, object]:
-    # ponytail: a placeholder shape; Milestone 3 settles whether `coverage` holds an object or the bare commit
-    return {"commit": None}
-
-
-def _empty_judge() -> dict[str, object]:
-    return {"cache": {}}
-
-
 @dataclass
 class Record:
     """The assessment record: the latest run header of each stage, the body hashes, and the slots later layers fill.
@@ -239,8 +230,9 @@ class Record:
     version: int = VERSION
     runs: dict[str, RunHeader] = field(default_factory=dict)
     bodies: dict[str, str] = field(default_factory=dict)
-    coverage: dict[str, object] = field(default_factory=_empty_coverage)
-    judge: dict[str, object] = field(default_factory=_empty_judge)
+    # ponytail: a placeholder shape; Milestone 3 settles whether `coverage` holds an object or the bare commit
+    coverage: dict[str, object] = field(default_factory=lambda: {"commit": None})
+    judge: dict[str, object] = field(default_factory=lambda: {"cache": {}})
     calibration: dict[str, object] | None = None
     extra: dict[str, object] = field(default_factory=dict)
 
@@ -272,13 +264,21 @@ def utc_timestamp(now: datetime | None = None) -> str:
     return (now or datetime.now(UTC)).astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _refuse_symlink(root: Path) -> None:
+    """Raise OSError when `.earnest` is a symlink, which would send the record out of the repository."""
+    if (root / ".earnest").is_symlink():
+        msg = ".earnest is a symlink; the record must lie in the repository"
+        raise OSError(msg)
+
+
 def read_record(root: Path) -> Record:
     """Return the assessment record under root; a missing file is the empty record.
 
     Raises:
         RecordError: the file does not parse, has the wrong shape, or has a newer `version` than this release reads.
-        OSError: the file cannot be read.
+        OSError: the file cannot be read, or `.earnest` is a symlink.
     """
+    _refuse_symlink(root)
     try:
         record = _record(json.loads((root / RECORD).read_text(encoding="utf-8")))
     except FileNotFoundError:
@@ -296,8 +296,10 @@ def write_record(root: Path, record: Record) -> None:
     whole file. A new `.earnest/` gets a `.gitignore` holding `*`; an existing one is left as it is.
 
     Raises:
-        OSError: the directory or the file cannot be written; the old record stays and no temporary file does.
+        OSError: the directory or the file cannot be written, or `.earnest` is a symlink; the old record stays and no
+            temporary file does.
     """
+    _refuse_symlink(root)
     directory = root / ".earnest"
     created = not directory.exists()
     directory.mkdir(exist_ok=True)

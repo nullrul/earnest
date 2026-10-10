@@ -1,5 +1,7 @@
 """Tests for earnest.plan: the state file's Stage Progress, the audit shards, and loading both from a work tree."""
 
+import time
+
 import pytest
 
 from earnest import plan
@@ -7,6 +9,7 @@ from earnest.index import MARKDOWN, Id, Index, Item, Link, Source
 from earnest.index import digest as digest_of
 from earnest.plan import Approval, Event, Record, Row
 from earnest.reporter import Finding, Run
+from tests.sarif import write
 
 
 DASH = "\u2014"
@@ -40,13 +43,33 @@ def block(timestamp, event, **fields):
 
 def put(root, files):
     for path, text in files.items():
-        (root / path).parent.mkdir(parents=True, exist_ok=True)
-        (root / path).write_text(text, encoding="utf-8")
+        write(root, path, text)
 
 
 def test_scope_is_read_from_the_state_file():
     assert plan.parse_state(STATE_TEXT).scope == "bugfix"
     assert plan.parse_state("# nothing\n").scope == ""
+
+
+def test_a_long_run_of_spaces_in_a_scope_or_a_phase_heading_parses_in_linear_time():
+    spaces = " " * 50_000
+    started = time.perf_counter()
+    scope = plan.parse_state(f"- **Scope**: a{spaces}b\n").scope
+    plan.parse_state(f"## Stage Progress\n### a{spaces}b\n- [x] s \u2014 EXECUTE\n")
+    assert time.perf_counter() - started < 1  # the quadratic regexes took about 7 seconds each
+    assert scope == f"a{spaces}b"
+
+
+def test_scope_loses_trailing_blanks_and_phase_loses_only_a_separate_word():
+    assert plan.parse_state("- **Scope**:  \t bugfix \t \n").scope == "bugfix"
+    state = "## Stage Progress\n### {}\n- [x] s \u2014 EXECUTE\n"
+    for heading, phase in (
+        ("A  phase ", "a"),
+        ("PHASE", "phase"),
+        ("aPHASE", "aphase"),
+        ("Two Words PHASE", "two words"),
+    ):
+        assert plan.parse_state(state.format(heading)).rows[0].phase == phase
 
 
 def test_stage_progress_rows_are_read_in_order_with_phase_slug_mark_action_reason_and_line():
@@ -65,6 +88,15 @@ def test_phase_heading_loses_the_word_phase_and_is_lower_cased():
         ("construction", ""),
         ("operation", "x"),
     ]
+
+
+def test_a_second_level_heading_resets_the_phase():
+    text = (
+        f"## Stage Progress\n### A PHASE\n- [x] a {DASH} EXECUTE\n## Other\n## Stage Progress\n- [x] b {DASH} EXECUTE\n"
+    )
+    state = plan.parse_state(text)
+    assert state.rows == (Row("a", "a", "x", "EXECUTE", "", 3),)  # `b` follows a heading that reset the phase
+    assert (state.unread, state.heading) == ((6,), 1)
 
 
 def test_checkbox_lines_outside_stage_progress_are_ignored():
@@ -165,6 +197,15 @@ def test_crlf_shard_is_read_like_lf():
     assert plan.parse_audit(text.replace("\n", "\r\n"), "a.md")[0].fields["Stage"] == "a"
 
 
+def test_crlf_shard_of_two_events_reads_both_with_their_positions():
+    text = block("2026-09-26T09:00:00Z", "WORKFLOW_STARTED") + block("2026-09-26T09:05:00Z", "STAGE_SKIPPED", Stage="x")
+    found = plan.parse_audit(text.replace("\n", "\r\n"), "a.md")
+    assert [(event.key, event.name, event.fields.get("Stage")) for event in found] == [
+        (("2026-09-26T09:00:00Z", "a.md", 0), "WORKFLOW_STARTED", None),
+        (("2026-09-26T09:05:00Z", "a.md", 1), "STAGE_SKIPPED", "x"),
+    ]
+
+
 def test_events_order_by_timestamp_then_shard_name_then_position():
     same = "2026-09-26T09:00:00Z"
     early = plan.parse_audit(block("2026-09-26T08:00:00Z", "STAGE_STARTED"), "z.md")
@@ -199,6 +240,40 @@ def test_load_merges_every_audit_shard_into_one_ordered_log(tmp_path):
         ("b-1.md", "GATE_APPROVED"),
         ("a-1.md", "GATE_REJECTED"),
     ]
+
+
+def test_load_reads_a_shard_only_from_the_audit_directory_of_its_own_record(tmp_path):
+    started = block("2026-09-26T09:00:00Z", "WORKFLOW_STARTED")
+    files = {
+        "r/aidlc-state.md": STATE_TEXT,
+        "r/audit/a.md": started,
+        "r/audit/nested/b.md": started,  # below the audit directory, not in it
+        "r/audit-old/c.md": started,
+        "r-b/aidlc-state.md": STATE_TEXT,
+        "r-b/audit/d.md": started,
+    }
+    put(tmp_path, files)
+    records = plan.load(tmp_path, sorted(files))
+    assert [(record.directory, [event.key[1] for event in record.events]) for record in records] == [
+        ("r", ["a.md"]),
+        ("r-b", ["d.md"]),
+    ]
+
+
+def test_load_takes_only_a_file_named_exactly_aidlc_state_md_for_a_state_file(tmp_path):
+    files = {f"x/{name}": STATE_TEXT for name in ("aidlc-state.md.bak", "old-aidlc-state.md", "AIDLC-STATE.md")}
+    put(tmp_path, files)
+    assert plan.load(tmp_path, sorted(files)) == []
+
+
+def test_load_reads_a_shard_that_opens_with_a_byte_order_mark_on_its_first_field(tmp_path):
+    put(tmp_path, {"x/aidlc-state.md": STATE_TEXT})
+    (tmp_path / "x" / "audit").mkdir()
+    (tmp_path / "x" / "audit" / "a.md").write_bytes(
+        b"\xef\xbb\xbf**Timestamp**: 2026-09-26T09:00:00Z\n**Event**: HUMAN_TURN\n---\n"
+    )
+    (found,) = plan.load(tmp_path, ["x/aidlc-state.md", "x/audit/a.md"])
+    assert [(event.key, event.name) for event in found.events] == [(("2026-09-26T09:00:00Z", "a.md", 0), "HUMAN_TURN")]
 
 
 def test_load_lists_one_record_per_directory_holding_a_state_file(tmp_path):
@@ -297,6 +372,7 @@ FULL_STATE = f"""## Project Information
 - [S] deployment-execution {DASH} EXECUTE: no pipeline change
 """
 ROWS = plan.parse_state(FULL_STATE).rows
+UNSUPPORTED_STATE = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
 START = block("2026-09-26T09:00:00Z", "WORKFLOW_STARTED", Scope="bugfix")
 SKIPS = "".join(
     block(f"2026-09-26T09:{minute}:00Z", "STAGE_SKIPPED", Stage=slug, Skip_Kind="conditional-runtime")
@@ -327,9 +403,13 @@ def intent_of(*blocks, state=FULL_STATE, directory="r"):
     return plan.intent(Record(directory, f"{directory}/aidlc-state.md", plan.parse_state(state), events))
 
 
-def item(text, stage=REQUIREMENTS, line=1):
+def ident(text):
     kind, name, revision = text.split("~")
-    return Item(Id(kind, name, int(revision)), f"r/{stage}/doc.md", line)
+    return Id(kind, name, int(revision))
+
+
+def item(text, stage=REQUIREMENTS, line=1):
+    return Item(ident(text), f"r/{stage}/doc.md", line)
 
 
 def counted(*blocks):
@@ -680,11 +760,6 @@ BUILD_AND_TEST = STAGES[2]
 PLAN_PATH = f"r/{CODE_GENERATION}/plan.md"
 
 
-def ident(text):
-    kind, name, revision = text.split("~")
-    return Id(kind, name, int(revision))
-
-
 def delivers(task_text, req_text, line=7):
     return Link("Delivers", "task", ident(req_text), PLAN_PATH, line, owner=ident(task_text))
 
@@ -757,21 +832,26 @@ def test_unknown_slug_produces_nothing():
     assert plan.produces([intent_of(BASE, state=state)]) == {"req", "task", "impl", "utest", "itest", "stest"}
 
 
+def test_nfr_requirements_produces_req():
+    state = f"## Stage Progress\n### CONSTRUCTION PHASE\n- [x] nfr-requirements {DASH} EXECUTE: x\n"
+    assert plan.produces([intent_of(BASE, state=state)]) == {"req"}
+
+
 def test_produces_is_none_when_the_route_produces_nothing():
     assert plan.produces([intent_of(BASE, state="## Stage Progress\n")]) is None  # an emptied route is no route rule
     assert plan.produces([intent_of(BASE, state="")]) is None
 
 
 def test_produces_is_none_when_no_intent_is_supported():
-    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
     assert plan.produces([]) is None
-    assert plan.produces([intent_of(BASE, state=state)]) is None
-    assert plan.produces([intent_of(BASE, state=state), intent_of(BASE)]) == plan.produces([intent_of(BASE)])
+    assert plan.produces([intent_of(BASE, state=UNSUPPORTED_STATE)]) is None
+    assert plan.produces([intent_of(BASE, state=UNSUPPORTED_STATE), intent_of(BASE)]) == plan.produces(
+        [intent_of(BASE)]
+    )
 
 
 def test_in_tree_is_false_for_an_unsupported_intents_state_and_audit_files():
-    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
-    unsupported = intent_of(BASE, state=state, directory="u")
+    unsupported = intent_of(BASE, state=UNSUPPORTED_STATE, directory="u")
     assert unsupported.unsupported
     assert not plan.in_tree([unsupported], "u/aidlc-state.md")
     assert not plan.in_tree([unsupported], "u/audit/a.md")
@@ -855,6 +935,12 @@ def test_unplanned_ignores_the_delivered_revision():
     assert plan.plan_findings(built, index) == []
 
 
+def test_unplanned_leaves_out_a_requirement_outside_the_intent_directory():
+    outside = [Item(Id("req", "z", 1), "docs/z.md", 1), Item(Id("req", "y", 1), "rr/inception/y.md", 1)]
+    built, index = planned(BASE, items=[item("req~a~1"), *outside], links=[delivers("task~t~1", "req~a~1")])
+    assert plan.plan_findings(built, index) == []
+
+
 def test_route_without_code_generation_raises_no_unplanned():
     state = FULL_STATE.replace(f"- [x] code-generation {DASH} EXECUTE", f"- [x] code-generation {DASH} SKIP")
     built, index = planned(BASE, items=[item("req~a~1")], state=state)
@@ -903,6 +989,22 @@ def test_overlapping_cycles_are_each_located_at_their_first_item_in_id_order():
     assert all(f.message.startswith("the plan's dependencies form a cycle, task~aa~1 -> ") for f in found)
 
 
+def test_cycles_are_found_through_the_lowest_id_neighbour_first():
+    items = [task("task~a~1", 3), task("task~b~1", 9), task("task~c~1", 15)]
+    links = [
+        depends("task~a~1", "task~c~1"),
+        depends("task~a~1", "task~b~1"),
+        depends("task~b~1", "task~a~1"),
+        depends("task~c~1", "task~a~1"),
+    ]
+    built, index = planned(BASE, items=items, links=links)
+    found = plan.plan_findings(built, index)
+    assert [f.message.split("cycle, ")[1].split(":")[0] for f in found] == [
+        "task~a~1 -> task~b~1 -> task~a~1",
+        "task~a~1 -> task~c~1 -> task~a~1",
+    ]
+
+
 def test_acyclic_graph_has_no_cycle():
     items = [task("task~a~1", 3), task("task~b~1", 9)]
     built, index = planned(BASE, items=items, links=[depends("task~b~1", "task~a~1")])
@@ -942,6 +1044,55 @@ def test_tag_finding_reaches_the_stage_of_the_delivering_task():
     tag = Finding("src/a.py", 4, "earnest/outdated", "req~a~1", "m")
     (found,) = plan.place([built], index, [tag])
     assert (found.stage, found.intent, found.position) == (CODE_GENERATION, "r", "current")
+
+
+def test_a_tag_finding_reaches_the_stage_of_the_first_task_that_delivers_its_item():
+    in_code = delivers("task~t~1", "dsn~x~1")
+    in_build = Link("Delivers", "task", ident("dsn~x~1"), f"r/{BUILD_AND_TEST}/plan.md", 2, owner=ident("task~u~1"))
+    for subject in ("dsn~x~1", "dsn~x~12"):  # a revision other than the delivered one still names the item
+        tag = Finding("src/a.py", 4, "earnest/orphaned", subject, "m")
+        stages = []
+        for links in ([in_code, in_build], [in_build, in_code]):
+            built, index = planned(BASE, links=links)
+            stages.append(plan.place([built], index, [tag])[0].stage)
+        assert stages == [CODE_GENERATION, BUILD_AND_TEST]
+
+
+def test_a_gap_counts_against_the_first_route_stage_that_produces_its_type():
+    analysis = f"- [x] requirements-analysis {DASH} EXECUTE: always\n"
+    state = FULL_STATE.replace(analysis, f"{analysis}- [x] domain-design {DASH} EXECUTE: x\n").replace(
+        "### CONSTRUCTION PHASE\n", f"### CONSTRUCTION PHASE\n- [x] functional-design {DASH} EXECUTE: x\n"
+    )
+    built, index = planned(BASE, state=state)
+    (found,) = plan.place([built], index, [Finding("r/x.md", 1, "earnest/gap", "req~a~1", "m", child="dsn")])
+    assert found.stage == "inception/domain-design"  # functional-design, later on the route, produces dsn too
+
+
+def test_place_gives_a_finding_to_the_innermost_intent_that_holds_its_path():
+    outer, index = planned(BASE)
+    inner = plan.build(intent_of(BASE, directory="r/sub"), index)
+    finding = Finding(f"r/sub/{REQUIREMENTS}/x.md", 1, "earnest/duplicate", "req~a~1", "m")
+    for plans in ([outer, inner], [inner, outer]):
+        (placed,) = plan.place(plans, index, [finding])
+        assert (placed.intent, placed.stage) == ("r/sub", REQUIREMENTS)
+
+
+def test_inside_holds_whole_path_components_only():
+    assert plan.inside(intent_of(BASE), "r/a.md")
+    assert not plan.inside(intent_of(BASE), "rr/a.md")
+    assert not plan.inside(intent_of(BASE), "r-b/a.md")
+    assert plan.inside(intent_of(BASE, directory=""), "any/a.md")  # the root record directory holds every path
+
+
+def test_a_plan_without_a_frontier_places_every_finding_behind():
+    rows = [gate("2026-09-26T10:00:00Z", stage=slug, Items="") for slug in ("requirements-analysis", "code-generation")]
+    rows.append(gate("2026-09-26T10:30:00Z", stage="build-and-test"))
+    index = Index((), (), ())
+    built = plan.build(intent_of(START, SKIPS, *rows), index)
+    assert built.frontier is None
+    findings = [Finding(f"r/{stage}/x.md", 1, "earnest/duplicate", "req~a~1", "m") for stage in STAGES]
+    placed = plan.place([built], index, findings)
+    assert [(f.stage, f.position, f.level) for f in placed] == [(stage, "behind", "error") for stage in STAGES]
 
 
 def test_stest_reaches_the_build_and_test_stage():
@@ -1091,9 +1242,8 @@ def test_properties_hold_one_entry_per_supported_intent():
 
 
 def test_properties_leave_out_an_unsupported_intent():
-    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
     built, index = planned(BASE)
-    unsupported = plan.build(intent_of(BASE, state=state, directory="u"), index)
+    unsupported = plan.build(intent_of(BASE, state=UNSUPPORTED_STATE, directory="u"), index)
     statuses = {p.intent.directory: plan.statuses(p, index, [], {}) for p in (built, unsupported)}
     props = plan.properties([unsupported, built], statuses, index, {})
     assert [entry["intent"] for entry in props["intents"]] == ["r"]
@@ -1134,6 +1284,15 @@ def test_tree_digest_changes_when_an_evaluated_file_changes():
     pair = [source("b.py", "1"), source("a.py", "1")]
     assert plan.tree_digest(pair) == plan.tree_digest(pair[::-1])  # sorted by uri
     assert plan.tree_digest([source("a b.py", "1")]) != plan.tree_digest([source("a%20b.py", "2")])
+
+
+def test_tree_digest_is_the_digest_of_the_compact_json_of_uri_and_digest_pairs_sorted_by_uri():
+    tree = [
+        Source("src/z.py", MARKDOWN, (), digest="sha256:2"),
+        Source("src/\u00e9.py", MARKDOWN, (), digest="sha256:1"),
+    ]
+    # the encoded name sorts before `z`, though the name itself sorts after it
+    assert plan.tree_digest(tree) == digest_of(b'[["src/%C3%A9.py","sha256:1"],["src/z.py","sha256:2"]]')
 
 
 def test_tree_digest_ignores_a_state_or_audit_edit():
@@ -1350,13 +1509,9 @@ def test_dirty_ignores_a_stage_diary_memory_md():
 
 
 def test_dirty_ignores_the_files_of_an_unsupported_intent_that_ai_dlc_writes():
-    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
-    unsupported = intent_of(BASE, state=state, directory="u")
+    unsupported = intent_of(BASE, state=UNSUPPORTED_STATE, directory="u")
     assert not plan.dirty(["u/aidlc-state.md", "u/audit/a.md", "u/.aidlc-engine/x.md"], [unsupported])
     assert plan.dirty(["u/inception/requirements-analysis/r.md"], [unsupported])
-
-
-UNSUPPORTED_STATE = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
 
 
 def test_select_intent_by_directory_option():

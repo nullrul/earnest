@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pytest_bdd import then
 
-from tests.sarif import located, rows, sarif_run
+from tests.sarif import located, rows, sarif_run, write
 
 
 collect_ignore = ["fixtures"]  # fixture repositories are data, and their tests are not this package's
@@ -80,8 +80,7 @@ def files_repo(tmp_path: Path) -> Callable[[dict[str, str]], Path]:
     def build(files: dict[str, str]) -> Path:
         repo = tmp_path / "repo"
         for path, text in files.items():
-            (repo / path).parent.mkdir(parents=True, exist_ok=True)
-            (repo / path).write_text(text, encoding="utf-8")
+            write(repo, path, text)
         return _commit(repo)
 
     return build

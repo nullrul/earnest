@@ -9,17 +9,15 @@ from pathlib import Path
 from typing import Literal
 
 from earnest import adapters, structural
-from earnest.index import TYPES, Index, Item, Source, split_lines
+from earnest.index import ID_ENTRY, Index, Item, Source, split_lines
 from earnest.index import digest as digest_of
 from earnest.reporter import Finding, Position, Run, RunHeader, canonical, run_key, uri
 
 
-STATE = "aidlc-state.md"
 AUDIT = "audit"
-_SCOPE = re.compile(r"^- \*\*Scope\*\*:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+_SCOPE = re.compile(r"^- \*\*Scope\*\*:[ \t]*(.*)$", re.MULTILINE)  # no lazy group before `[ \t]*$`: that is quadratic
 _ROW = re.compile(r"- \[([ \-?RxS])\] (\S+) \u2014 (EXECUTE|SKIP)(?:[:\s][ \t]*(.*))?")
 _FIELD = re.compile(r"\*\*([^*:]+)\*\*:[ \t]*(.*)")
-_PHASE_WORD = re.compile(r"\s+PHASE$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -73,6 +71,15 @@ class Record:
     events: tuple[Event, ...]
 
 
+def _phase(heading: str) -> str:
+    """Return the phase a `###` heading names: lower case, without a trailing ` PHASE`."""
+    name = heading.strip()
+    head = name[:-5]  # not a regex: `\s+PHASE$` backtracks quadratically over a long run of spaces
+    if name[-5:].upper() == "PHASE" and head[-1:].isspace():
+        name = head.rstrip()
+    return name.lower()
+
+
 def parse_state(text: str) -> State:
     """Read the scope and the Stage Progress rows of a state file; the marks are returned as written, never trusted."""
     normalized = text.replace("\r\n", "\n")
@@ -89,13 +96,13 @@ def parse_state(text: str) -> State:
             heading = heading or (line.number if in_progress else 0)
             phase = ""
         elif in_progress and stripped.startswith("### "):
-            phase = _PHASE_WORD.sub("", stripped[4:].strip()).lower()
+            phase = _phase(stripped[4:])
         elif in_progress and stripped.startswith("- ["):
             if phase and (row := _ROW.fullmatch(stripped)):
                 rows.append(Row(phase, row[2], row[1], row[3], row[4] or "", line.number))
             else:
                 unread.append(line.number)
-    return State(scope.group(1) if scope else "", tuple(rows), tuple(unread), heading)
+    return State(scope.group(1).rstrip(" \t") if scope else "", tuple(rows), tuple(unread), heading)
 
 
 def parse_audit(text: str, shard: str) -> list[Event]:
@@ -123,7 +130,7 @@ def load(root: Path, files: Sequence[str]) -> list[Record]:
     """
     records: list[Record] = []
     for path in files:
-        state = _read(root, path) if posixpath.basename(path) == STATE else None
+        state = _read(root, path) if posixpath.basename(path) == adapters.STATE else None
         if state is not None:
             directory = posixpath.dirname(path)
             events = [event for shard in _shards(files, directory) for event in _events(root, shard)]
@@ -160,7 +167,6 @@ def _read(root: Path, path: str) -> str | None:
 _INITIALIZATION = "initialization"
 _TEAM_FIELDS = ("Unit", "Gate Scope", "Gate Stages")
 _NO_BOUNDARY = ("", "", -1)  # sorts before every key
-_ITEM_ID = re.compile(rf"(?:{'|'.join(TYPES)})~[a-z0-9-]+~[1-9][0-9]{{0,8}}")
 _UNSUPPORTED = "units-generation"
 
 
@@ -180,7 +186,6 @@ class Intent:
 
     directory: str
     state_path: str
-    scope: str
     rows: tuple[Row, ...]
     route: tuple[str, ...]
     approvals: Mapping[str, Approval]
@@ -263,7 +268,6 @@ def intent(record: Record) -> Intent:
     return Intent(
         record.directory,
         record.state_path,
-        state.scope,
         rows,
         route,
         approvals,
@@ -333,7 +337,7 @@ def _items(event: Event) -> tuple[bool, tuple[str, ...] | None]:
     if text is None:
         return True, None
     tokens = tuple(token for token in re.split(r"[\s,]+", text) if token)
-    return all(_ITEM_ID.fullmatch(token) for token in tokens), tokens
+    return all(ID_ENTRY.fullmatch(token) for token in tokens), tokens
 
 
 def _approval(stage: str, gates: Sequence[Event]) -> Approval | None:

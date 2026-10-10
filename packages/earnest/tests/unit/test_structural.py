@@ -178,6 +178,25 @@ def test_needs_drop_types_the_route_does_not_produce():
     assert structural.needs(Item(Id("feat", "f", 1), "docs/f.md", 1), ROUTE) == ("req",)
 
 
+def test_a_route_that_produces_nothing_needs_nothing_where_no_route_keeps_every_need():
+    bare = Index((BARE_REQ,), (), ())
+    assert structural.needs(BARE_REQ, frozenset()) == ()
+    assert structural.needs(BARE_REQ, None) == ("impl", "utest")
+    assert structural.check(bare, produces=frozenset()) == []
+    assert structural.traced(bare, frozenset()) == {"req~r~2": "traced"}
+    assert structural.traced(bare, None) == {"req~r~2": "untraced"}
+
+
+def test_a_cover_of_a_type_the_route_does_not_produce_is_unwanted():
+    wants_itest = Item(REQ, "docs/r.md", 5, ("impl", "itest"))
+    itest = Link("Covers", "itest", REQ, "tests/it.py", 4)
+    index_ = Index((wants_itest,), (IMPL, itest), ())
+    (found,) = structural.check(index_, produces=frozenset({"req", "impl"}))
+    assert (found.rule, found.path, found.line) == ("earnest/unwanted", "tests/it.py", 4)
+    assert "the item needs `impl`:" in found.message
+    assert "earnest/unwanted" not in {each.rule for each in structural.check(index_)}  # with no route, itest is wanted
+
+
 def test_edges_naming_types_the_route_does_not_produce_are_dropped():
     index_ = Index((BARE_REQ,), (WRONG_PARENT,), ())
     assert ("earnest/orphaned", "docs/r.md", 7) in rules(structural.check(index_))
