@@ -2,13 +2,15 @@
 
 import posixpath
 import re
+from collections import deque
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
+from earnest import structural
 from earnest.index import TYPES, Index, Item, split_lines
-from earnest.reporter import Finding
+from earnest.reporter import Finding, Position
 
 
 STATE = "aidlc-state.md"
@@ -361,3 +363,359 @@ def _named(gates: Sequence[Event]) -> frozenset[str]:
         if event.name == "GATE_APPROVED" and ok and items and not voided:
             named.update(items)
     return frozenset(named)
+
+
+# What the artifacts of each stage slug hold, from the mapping table of Adopting AI-DLC. Code Generation holds the
+# code and test tags too, so a route that runs it keeps the default needs of `req`.
+PRODUCES: dict[str, frozenset[str]] = {
+    "intent-capture": frozenset({"tenet", "goal"}),
+    "scope-definition": frozenset({"feat"}),
+    "approval-and-handoff": frozenset({"dsn"}),
+    "requirements-analysis": frozenset({"req"}),
+    "domain-design": frozenset({"dsn"}),
+    "units-generation": frozenset({"unit"}),
+    "functional-design": frozenset({"dsn"}),
+    "nfr-requirements": frozenset({"req"}),
+    "nfr-design": frozenset({"dsn"}),
+    "code-generation": frozenset({"task", "impl", "utest", "itest", "stest"}),
+}
+_CODE_GENERATION = "code-generation"
+_BUILD_AND_TEST = "build-and-test"
+_SUBJECT = re.compile(r"([a-z]+)~([a-z0-9-]+)~[0-9]+")
+_Located = tuple[Plan, str]
+
+
+@dataclass(frozen=True)
+class StageStatus:
+    """A stage's computed status and the reasons for it: the errors against it, its open tasks, its approval."""
+
+    status: Literal["done", "not done"]
+    errors: int
+    open_tasks: int
+    approval: str
+
+
+def produces(intents: Sequence[Intent]) -> frozenset[str] | None:
+    """Return the item types that some route stage of a supported intent produces, or None when none is supported.
+
+    None is the route rule's off switch: `structural.check` then keeps every need and link, as it does with no plan.
+    """
+    supported = [current for current in intents if not current.unsupported]
+    types = frozenset().union(
+        *(PRODUCES.get(stage.partition("/")[2], frozenset()) for current in supported for stage in current.route)
+    )
+    return types or None  # no supported route, or one that produces nothing: keep every need and link
+
+
+def stage_of(intent: Intent, path: str) -> str | None:
+    """Return the route stage whose path holds the file at path, or None."""
+    return next(
+        (stage for stage in intent.route if path.startswith(posixpath.join(intent.directory, stage) + "/")), None
+    )
+
+
+def in_tree(intents: Sequence[Intent], path: str) -> bool:
+    """Return whether the file at path is in the evaluated tree: outside every record directory, or in a route stage.
+
+    The state file, the audit shards, `.aidlc-engine/` and the files of a stage off the route lie in a record
+    directory and in no route stage, so they are out.
+    """
+    holders = [current for current in intents if inside(current, path)]
+    return not holders or any(stage_of(current, path) is not None for current in holders)
+
+
+def task_done(task: Item, index: Index, levels: Mapping[str, str]) -> bool:
+    """Return whether a task is done: each thing it delivers resolves, a `req` is evidenced and a `dsn` has an `impl`."""
+    covers = structural.resolved_covers(index)
+    for link in index.links:
+        if link.key != "Delivers" or link.owner != task.id:
+            continue
+        resolution = index.resolutions[link.target]
+        delivered = resolution.item
+        if resolution.status != "resolved" or delivered is None:
+            return False
+        if delivered.id.type == "req" and levels.get(str(delivered.id)) != "evidenced":
+            return False
+        if delivered.id.type == "dsn" and ("impl", delivered) not in covers:
+            return False
+    return True
+
+
+def statuses(
+    plan: Plan, index: Index, findings: Sequence[Finding], levels: Mapping[str, str]
+) -> dict[str, StageStatus]:
+    """Return each stage's computed status from the graph: no error against it, its tasks done, a current approval."""
+    stest = len({str(link.target) for link in index.links if link.type == "stest"})
+    result: dict[str, StageStatus] = {}
+    for state in plan.stages:
+        # ponytail: an error placed ahead of the frontier is a note and not counted, so an approved stage after the
+        # frontier can read done despite one; count `ahead` errors here if a gate ever depends on that stage.
+        errors = sum(
+            1
+            for found in findings
+            if found.intent == plan.intent.directory and found.stage == state.stage and found.level == "error"
+        )
+        open_tasks = sum(1 for item in state.items if item.id.type == "task" and not task_done(item, index, levels))
+        if state.stage.partition("/")[2] == _BUILD_AND_TEST:
+            open_tasks += stest  # an `stest` passes only at evidence, which M2 has none of
+        done = errors == 0 and open_tasks == 0 and state.state == "current"
+        result[state.stage] = StageStatus("done" if done else "not done", errors, open_tasks, state.state)
+    return result
+
+
+def plan_findings(plan: Plan, index: Index) -> list[Finding]:
+    """Return the findings the plan itself raises: `unplanned`, `cycle` and `route-mismatch`."""
+    return [*_unplanned(plan, index), *_cycle_findings(plan, index), *route_findings(plan.intent)]
+
+
+def approval_findings(plan: Plan) -> list[Finding]:
+    """Return a note for each item that a stale approval names at an older revision, located at the item's id line.
+
+    They stay apart from `plan_findings` so that the assessment document can leave them out: a fresh approval removes
+    them, and recording an approval must not change the hash.
+    """
+    found: list[Finding] = []
+    for state in plan.stages:
+        if state.state != "outdated" or state.approval is None or state.approval.items is None:
+            continue
+        named = {tuple(entry.split("~")[:2]): entry for entry in state.approval.items}
+        for item in state.items:
+            old = named.get(item.id.key)
+            if old is not None and old != str(item.id):
+                message = (
+                    f"the approval of `{state.stage}` names `{old}`, and the item is at revision {item.id.revision}:"
+                    f" check the change, then approve `{state.stage}` again"
+                )
+                found.append(
+                    Finding(
+                        item.path,
+                        item.line,
+                        "earnest/outdated",
+                        str(item.id),
+                        message,
+                        stage=state.stage,
+                        intent=plan.intent.directory,
+                        note=True,
+                    )
+                )
+    return found
+
+
+def place(plans: Sequence[Plan], index: Index, findings: Sequence[Finding]) -> list[Finding]:
+    """Give each finding the stage it counts against, its intent and its position by that intent's frontier.
+
+    With no plan the findings return unchanged. A finding that reaches no stage keeps position current.
+    """
+    if not plans:
+        return list(findings)
+    delivering = _delivering(plans, index)
+    stest_lines = {(link.path, link.line) for link in index.links if link.type == "stest"}
+    placed: list[Finding] = []
+    for finding in findings:
+        found = _locate(finding, plans, delivering, stest_lines)
+        if found is None:
+            placed.append(finding)
+            continue
+        current, stage = found
+        placed.append(
+            replace(finding, stage=stage, intent=current.intent.directory, position=_position(current, stage))
+        )
+    return placed
+
+
+def properties(
+    plans: Sequence[Plan],
+    statuses_by_intent: Mapping[str, Mapping[str, StageStatus]],
+    index: Index,
+    levels: Mapping[str, str],
+) -> dict[str, object]:
+    """Return `properties.plan`: one entry per supported plan, in directory order, with its stages, frontier and tasks."""
+    entries: list[dict[str, object]] = []
+    for current in sorted(plans, key=lambda each: each.intent.directory):
+        if current.intent.unsupported:
+            continue
+        status = statuses_by_intent[current.intent.directory]
+        tasks = sorted(
+            (
+                {"id": str(item.id), "status": "done" if task_done(item, index, levels) else "not done"}
+                for state in current.stages
+                for item in state.items
+                if item.id.type == "task"
+            ),
+            key=lambda task: (task["id"], task["status"]),
+        )
+        stages = [
+            {
+                "stage": state.stage,
+                "status": status[state.stage].status,
+                "approval": state.state,
+                "approvedBy": state.approval.by if state.state == "current" and state.approval else None,
+            }
+            for state in current.stages
+        ]
+        entries.append(
+            {
+                "intent": current.intent.directory,
+                "stages": stages,
+                "frontier": current.frontier,
+                "tasks": tasks,
+                "units": [],
+            }
+        )
+    return {"intents": entries}
+
+
+def inside(intent: Intent, path: str) -> bool:
+    """Return whether the file at path lies in the intent's record directory."""
+    return intent.directory == "" or path.startswith(intent.directory + "/")
+
+
+def _unplanned(plan: Plan, index: Index) -> list[Finding]:
+    stage = next((each for each in plan.intent.route if each.partition("/")[2] == _CODE_GENERATION), None)
+    if stage is None:
+        return []
+    delivered = {
+        link.target.key
+        for link in index.links
+        if link.key == "Delivers" and link.owner is not None and link.owner.type == "task"
+    }
+    return [
+        Finding(
+            item.path,
+            item.line,
+            "earnest/unplanned",
+            str(item.id),
+            f"`{item.id}` is delivered by no task: add a `task` that delivers it, with a `Delivers:` line",
+            stage=stage,
+            intent=plan.intent.directory,
+        )
+        for item in index.defined.values()
+        if item.id.type == "req" and inside(plan.intent, item.path) and item.id.key not in delivered
+    ]
+
+
+def _depends(plan: Plan, index: Index) -> dict[str, list[str]]:
+    edges: dict[str, list[str]] = {}
+    for link in index.links:
+        owner = index.defined.get(link.owner.key) if link.owner is not None else None
+        target = index.defined.get(link.target.key)
+        if link.key == "Depends" and owner is not None and target is not None and inside(plan.intent, owner.path):
+            edges.setdefault(str(owner.id), []).append(str(target.id))
+    return edges
+
+
+def _cycle_through(edges: Mapping[str, Sequence[str]], start: str) -> list[str] | None:
+    """Return the shortest path from start back to itself, taking the lowest id first, or None.
+
+    ponytail: one cycle per start, the shortest, so a cycle that is never the shortest through any of its tasks is not
+    listed; it shows once the shorter ones are fixed. Enumerate elementary cycles if that ever matters.
+    """
+    queue = deque([[start]])
+    visited = {start}
+    while queue:
+        path = queue.popleft()
+        for follower in sorted(edges.get(path[-1], ())):
+            if follower == start:
+                return [*path, start]
+            if follower not in visited:
+                visited.add(follower)
+                queue.append([*path, follower])
+    return None
+
+
+def _cycle_findings(plan: Plan, index: Index) -> list[Finding]:
+    edges = _depends(plan, index)
+    by_id = {str(item.id): item for item in index.defined.values()}
+    found: list[Finding] = []
+    seen: set[tuple[str, ...]] = set()
+    for start in sorted(edges):
+        path = _cycle_through(edges, start)
+        if path is None:
+            continue
+        nodes = path[:-1]
+        turn = nodes.index(min(nodes))  # a cycle starts at its first id in id order, however it was found
+        cycle = tuple(nodes[turn:] + nodes[:turn])
+        if cycle in seen:
+            continue
+        seen.add(cycle)
+        item = by_id[cycle[0]]
+        stage = stage_of(plan.intent, item.path)
+        loop = " -> ".join([*cycle, cycle[0]])
+        message = f"the plan's dependencies form a cycle, {loop}: remove a `Depends:` line from it"
+        directory = plan.intent.directory if stage else None
+        found.append(Finding(item.path, item.line, "earnest/cycle", cycle[0], message, stage=stage, intent=directory))
+    return found
+
+
+def _owner(plans: Sequence[Plan], path: str) -> Plan | None:
+    holders = [current for current in plans if inside(current.intent, path)]
+    return max(holders, key=lambda current: len(current.intent.directory), default=None)
+
+
+def _delivering(plans: Sequence[Plan], index: Index) -> dict[tuple[str, str], _Located]:
+    """Map each delivered item's type and name to the plan and stage of the task that delivers it."""
+    found: dict[tuple[str, str], _Located] = {}
+    for link in index.links:
+        if link.key != "Delivers" or link.owner is None or link.owner.type != "task":
+            continue
+        owner = _owner(plans, link.path)
+        stage = stage_of(owner.intent, link.path) if owner is not None else None
+        if owner is not None and stage is not None:
+            found.setdefault(link.target.key, (owner, stage))
+    return found
+
+
+def _locate(
+    finding: Finding,
+    plans: Sequence[Plan],
+    delivering: Mapping[tuple[str, str], _Located],
+    stest_lines: set[tuple[str, int]],
+) -> _Located | None:
+    if finding.stage is not None:
+        preset = next((current for current in plans if current.intent.directory == finding.intent), None)
+        return None if preset is None else (preset, finding.stage)
+    owner = _owner(plans, finding.path)
+    return (
+        _gap_stage(finding, owner)
+        or (_stest_stage(plans) if (finding.path, finding.line) in stest_lines else None)
+        or _file_stage(finding, owner)
+        or _delivered_stage(finding, delivering)
+    )
+
+
+def _gap_stage(finding: Finding, owner: Plan | None) -> _Located | None:
+    if finding.rule != "earnest/gap" or owner is None:
+        return None
+    wanted = (stage for stage in owner.intent.route if finding.child in PRODUCES.get(stage.partition("/")[2], ()))
+    stage = next(wanted, None)
+    return None if stage is None else (owner, stage)
+
+
+def _stest_stage(plans: Sequence[Plan]) -> _Located | None:
+    return next(
+        (
+            (current, stage)
+            for current in plans
+            for stage in current.intent.route
+            if stage.endswith("/" + _BUILD_AND_TEST)
+        ),
+        None,
+    )
+
+
+def _file_stage(finding: Finding, owner: Plan | None) -> _Located | None:
+    stage = None if owner is None else stage_of(owner.intent, finding.path)
+    return None if owner is None or stage is None else (owner, stage)
+
+
+def _delivered_stage(finding: Finding, delivering: Mapping[tuple[str, str], _Located]) -> _Located | None:
+    named = _SUBJECT.fullmatch(finding.subject)
+    return delivering.get((named[1], named[2])) if named else None
+
+
+def _position(plan: Plan, stage: str) -> Position:
+    if plan.frontier is None:
+        return "behind"
+    order = [state.stage for state in plan.stages]
+    here, front = order.index(stage), order.index(plan.frontier)
+    return "behind" if here < front else "current" if here == front else "ahead"

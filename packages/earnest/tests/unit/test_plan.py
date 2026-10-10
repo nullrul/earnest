@@ -1,8 +1,9 @@
 """Tests for earnest.plan: the state file's Stage Progress, the audit shards, and loading both from a work tree."""
 
 from earnest import plan
-from earnest.index import Id, Index, Item
+from earnest.index import Id, Index, Item, Link
 from earnest.plan import Approval, Event, Record, Row
+from earnest.reporter import Finding
 
 
 DASH = "\u2014"
@@ -669,3 +670,428 @@ def test_rejected_stage_is_the_frontier_with_approval_none():
     rejected = gate("2026-09-26T11:00:00Z", "GATE_REJECTED", Feedback="Rework.")
     built = plan.build(intent_of(BASE, rejected), Index((item("req~a~1"), item("req~b~1")), (), ()))
     assert (built.stages[0].approval, built.stages[0].state, built.frontier) == (None, "none", REQUIREMENTS)
+
+
+CODE_GENERATION = STAGES[1]
+BUILD_AND_TEST = STAGES[2]
+PLAN_PATH = f"r/{CODE_GENERATION}/plan.md"
+
+
+def ident(text):
+    kind, name, revision = text.split("~")
+    return Id(kind, name, int(revision))
+
+
+def delivers(task_text, req_text, line=7):
+    return Link("Delivers", "task", ident(req_text), PLAN_PATH, line, owner=ident(task_text))
+
+
+def depends(task_text, other_text, line=8):
+    return Link("Depends", "task", ident(other_text), PLAN_PATH, line, owner=ident(task_text))
+
+
+def task(text, line=3):
+    return item(text, stage=CODE_GENERATION, line=line)
+
+
+def planned(*blocks, items=(), links=(), state=FULL_STATE):
+    """Return the plan and the index of an intent that the audit blocks describe, over the given items and links."""
+    index = Index(tuple(items), tuple(links), ())
+    return plan.build(intent_of(*blocks, state=state), index), index
+
+
+def found_in(stage, **fields):
+    return Finding("r/x.md", 1, "earnest/gap", "req~a~1", "m", stage=stage, intent="r", **fields)
+
+
+def test_stage_of_a_path_under_a_route_stage():
+    current = intent_of(BASE)
+    assert plan.stage_of(current, "r/inception/requirements-analysis/requirements.md") == REQUIREMENTS
+    assert plan.stage_of(current, f"r/{CODE_GENERATION}/deep/plan.md") == CODE_GENERATION
+
+
+def test_stage_of_a_path_outside_every_stage():
+    current = intent_of(BASE)
+    for path in ("r/aidlc-state.md", "src/a.py", "r/inception/reverse-engineering/a.md", "rr/inception/x.md"):
+        assert plan.stage_of(current, path) is None
+
+
+def test_in_tree_for_paths_outside_every_intent():
+    assert plan.in_tree([intent_of(BASE)], "src/a.py")
+    assert plan.in_tree([intent_of(BASE)], "docs/readme.md")
+    assert plan.in_tree([], "r/aidlc-state.md")
+
+
+def test_in_tree_for_a_route_stage_artifact():
+    assert plan.in_tree([intent_of(BASE)], "r/inception/requirements-analysis/requirements.md")
+    assert plan.in_tree([intent_of(BASE)], f"r/{CODE_GENERATION}/plan.md")
+
+
+def test_in_tree_is_false_for_state_audit_engine_and_off_route_stage_files():
+    current = intent_of(BASE)
+    for path in (
+        "r/aidlc-state.md",
+        "r/audit/a.md",
+        "r/.aidlc-engine/sensors/earnest/detail.md",
+        "r/inception/reverse-engineering/notes.md",
+        "r/loose.md",
+    ):
+        assert not plan.in_tree([current], path)
+
+
+def test_produces_is_the_union_of_the_route_stages_types():
+    assert plan.produces([intent_of(BASE)]) == {"req", "task", "impl", "utest", "itest", "stest"}
+
+
+def test_produces_pins_the_tag_types_of_code_generation():
+    assert {"impl", "utest", "itest", "stest", "task"} <= plan.PRODUCES["code-generation"]
+    assert plan.PRODUCES["requirements-analysis"] == {"req"}
+    assert plan.PRODUCES.get("build-and-test", frozenset()) == frozenset()
+
+
+def test_unknown_slug_produces_nothing():
+    state = FULL_STATE.replace("### OPERATION PHASE", f"### OPERATION PHASE\n- [x] mystery-stage {DASH} EXECUTE: x")
+    assert plan.produces([intent_of(BASE, state=state)]) == {"req", "task", "impl", "utest", "itest", "stest"}
+
+
+def test_produces_is_none_when_the_route_produces_nothing():
+    assert plan.produces([intent_of(BASE, state="## Stage Progress\n")]) is None  # an emptied route is no route rule
+    assert plan.produces([intent_of(BASE, state="")]) is None
+
+
+def test_produces_is_none_when_no_intent_is_supported():
+    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+    assert plan.produces([]) is None
+    assert plan.produces([intent_of(BASE, state=state)]) is None
+    assert plan.produces([intent_of(BASE, state=state), intent_of(BASE)]) == plan.produces([intent_of(BASE)])
+
+
+def test_in_tree_is_false_for_an_unsupported_intents_state_and_audit_files():
+    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+    unsupported = intent_of(BASE, state=state, directory="u")
+    assert unsupported.unsupported
+    assert not plan.in_tree([unsupported], "u/aidlc-state.md")
+    assert not plan.in_tree([unsupported], "u/audit/a.md")
+    assert plan.in_tree([unsupported], "u/inception/requirements-analysis/requirements.md")
+
+
+def test_stage_is_not_done_without_an_approval():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    assert plan.statuses(built, index, [], {})[BUILD_AND_TEST] == plan.StageStatus("not done", 0, 0, "none")
+
+
+def test_stage_is_done_with_an_approval_and_no_error():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    assert plan.statuses(built, index, [], {})[REQUIREMENTS] == plan.StageStatus("done", 0, 0, "current")
+
+
+def test_stage_is_not_done_with_an_error_counted_against_it():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    counted_ = [
+        found_in(REQUIREMENTS),  # an error, and the only one that counts
+        found_in(REQUIREMENTS, position="ahead"),  # a note
+        found_in(REQUIREMENTS, note=True),
+        found_in(CODE_GENERATION),  # another stage
+        Finding("r/x.md", 1, "earnest/unplanned", "req~a~1", "m", stage=REQUIREMENTS, intent="r"),  # a warning
+        Finding("r/x.md", 1, "earnest/gap", "req~a~1", "m", stage=REQUIREMENTS, intent="other"),
+    ]
+    assert plan.statuses(built, index, counted_, {})[REQUIREMENTS] == plan.StageStatus("not done", 1, 0, "current")
+
+
+def test_stage_is_not_done_with_an_open_task():
+    approved = gate("2026-09-26T10:30:00Z", stage="code-generation", Items="task~a~1, task~b~1")
+    items = [item("req~a~1"), item("req~b~1"), task("task~a~1"), task("task~b~1", 9)]
+    links = [delivers("task~a~1", "req~a~1"), delivers("task~b~1", "req~b~1", 13)]
+    built, index = planned(BASE, approved, items=items, links=links)
+    status = plan.statuses(built, index, [], {"req~a~1": "traced", "req~b~1": "traced"})[CODE_GENERATION]
+    assert status == plan.StageStatus("not done", 0, 2, "current")
+
+
+def test_task_delivering_a_req_is_never_done_before_evidence():
+    mine = task("task~a~1")
+    index = Index((item("req~a~1"), mine), (delivers("task~a~1", "req~a~1"),), ())
+    assert not plan.task_done(mine, index, {"req~a~1": "traced"})
+    assert not plan.task_done(mine, index, {})
+    assert plan.task_done(mine, index, {"req~a~1": "evidenced"})  # the rule, which no M2 requirement can meet
+    stale = Index((item("req~a~2"), mine), (delivers("task~a~1", "req~a~1"),), ())
+    assert not plan.task_done(mine, stale, {"req~a~2": "evidenced"})  # it delivers an older revision
+    gone = Index((mine,), (delivers("task~a~1", "req~zzz~1"),), ())
+    assert not plan.task_done(mine, gone, {})
+    decision = Index((item("dsn~d~1"), mine), (delivers("task~a~1", "dsn~d~1"),), ())
+    assert not plan.task_done(mine, decision, {})
+    cover = Link("Covers", "impl", ident("dsn~d~1"), "src/a.py", 3)
+    assert plan.task_done(mine, Index(decision.items, (*decision.links, cover), ()), {})
+
+
+def test_reasons_count_errors_open_tasks_and_approval():
+    stale, index = planned(BASE, items=[item("req~a~2"), item("req~b~1")])
+    errors = [found_in(REQUIREMENTS), found_in(REQUIREMENTS)]
+    assert plan.statuses(stale, index, errors, {})[REQUIREMENTS] == plan.StageStatus("not done", 2, 0, "outdated")
+    stest = Link("Covers", "stest", ident("feat~f~1"), "tests/a.feature", 3)
+    built, index = planned(BASE, gate("2026-09-26T10:30:00Z", stage="build-and-test"), links=[stest, stest])
+    assert plan.statuses(built, index, [], {})[BUILD_AND_TEST] == plan.StageStatus("not done", 0, 1, "current")
+
+
+def test_unplanned_counts_against_the_first_code_generation_stage():
+    items = [item("req~a~1", line=3), item("req~b~1", line=8)]
+    built, index = planned(BASE, items=items, links=[delivers("task~t~1", "req~a~1")])
+    (found,) = plan.plan_findings(built, index)
+    assert (found.rule, found.path, found.line, found.subject, found.level) == (
+        "earnest/unplanned",
+        "r/inception/requirements-analysis/doc.md",
+        8,
+        "req~b~1",
+        "warning",
+    )
+    assert (found.stage, found.intent) == (CODE_GENERATION, "r")
+    assert "`req~b~1` is delivered by no task" in found.message
+
+
+def test_unplanned_ignores_the_delivered_revision():
+    built, index = planned(BASE, items=[item("req~a~2")], links=[delivers("task~t~1", "req~a~1")])
+    assert plan.plan_findings(built, index) == []
+
+
+def test_route_without_code_generation_raises_no_unplanned():
+    state = FULL_STATE.replace(f"- [x] code-generation {DASH} EXECUTE", f"- [x] code-generation {DASH} SKIP")
+    built, index = planned(BASE, items=[item("req~a~1")], state=state)
+    assert CODE_GENERATION not in built.intent.route
+    assert plan.plan_findings(built, index) == []
+
+
+def test_cycle_is_located_at_the_first_item_in_id_order():
+    items = [task("task~b~1", 9), task("task~a~1", 3)]
+    built, index = planned(
+        BASE, items=items, links=[depends("task~b~1", "task~a~1"), depends("task~a~1", "task~b~1", 4)]
+    )
+    (found,) = plan.plan_findings(built, index)
+    assert (found.rule, found.path, found.line, found.subject, found.level) == (
+        "earnest/cycle",
+        f"r/{CODE_GENERATION}/doc.md",
+        3,
+        "task~a~1",
+        "error",
+    )
+    assert (found.stage, found.intent) == (CODE_GENERATION, "r")
+
+
+def test_cycle_message_lists_the_loop():
+    items = [task("task~a~1", 3), task("task~b~1", 9)]
+    built, index = planned(BASE, items=items, links=[depends("task~a~1", "task~b~1"), depends("task~b~1", "task~a~1")])
+    (found,) = plan.plan_findings(built, index)
+    assert "task~a~1 -> task~b~1 -> task~a~1" in found.message
+    alone, own = planned(BASE, items=[task("task~a~1")], links=[depends("task~a~1", "task~a~1")])
+    assert "task~a~1 -> task~a~1" in plan.plan_findings(alone, own)[0].message
+
+
+def test_overlapping_cycles_are_each_located_at_their_first_item_in_id_order():
+    items = [task("task~aa~1", 3), task("task~bb~1", 9), task("task~cc~1", 15)]
+    links = [
+        depends("task~aa~1", "task~bb~1"),
+        depends("task~bb~1", "task~aa~1"),
+        depends("task~aa~1", "task~cc~1"),
+        depends("task~cc~1", "task~aa~1"),
+    ]
+    built, index = planned(BASE, items=items, links=links)
+    found = plan.plan_findings(built, index)
+    assert [(f.line, f.subject) for f in found] == [(3, "task~aa~1"), (3, "task~aa~1")]
+    loops = ["task~aa~1 -> task~bb~1 -> task~aa~1", "task~aa~1 -> task~cc~1 -> task~aa~1"]
+    assert [any(loop in f.message for f in found) for loop in loops] == [True, True]
+    assert all(f.message.startswith("the plan's dependencies form a cycle, task~aa~1 -> ") for f in found)
+
+
+def test_acyclic_graph_has_no_cycle():
+    items = [task("task~a~1", 3), task("task~b~1", 9)]
+    built, index = planned(BASE, items=items, links=[depends("task~b~1", "task~a~1")])
+    assert plan.plan_findings(built, index) == []
+
+
+def test_finding_in_a_stage_artifact_takes_its_stage_and_intent():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    (found,) = plan.place(
+        [built], index, [Finding("r/inception/requirements-analysis/x.md", 4, "earnest/duplicate", "req~a~1", "m")]
+    )
+    assert (found.stage, found.intent, found.position, found.level) == (REQUIREMENTS, "r", "behind", "error")
+    assert found.text.startswith(f"regression in approved stage {REQUIREMENTS}: ")
+
+
+def test_place_keeps_a_preset_stage():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    preset = Finding(
+        "r/inception/requirements-analysis/x.md",
+        4,
+        "earnest/unplanned",
+        "req~a~1",
+        "m",
+        stage=CODE_GENERATION,
+        intent="r",
+    )
+    (found,) = plan.place([built], index, [preset])
+    assert (found.stage, found.position) == (CODE_GENERATION, "current")
+    alien = Finding("x", 1, "earnest/gap", "s", "m", stage="s/x", intent="elsewhere", position="ahead")
+    (foreign,) = plan.place([built], index, [alien])
+    assert (foreign.stage, foreign.intent, foreign.position) == ("s/x", "elsewhere", "ahead")  # no such plan: unchanged
+
+
+def test_tag_finding_reaches_the_stage_of_the_delivering_task():
+    items = [item("req~a~1"), item("req~b~1"), task("task~t~1")]
+    built, index = planned(BASE, items=items, links=[delivers("task~t~1", "req~a~1")])
+    tag = Finding("src/a.py", 4, "earnest/outdated", "req~a~1", "m")
+    (found,) = plan.place([built], index, [tag])
+    assert (found.stage, found.intent, found.position) == (CODE_GENERATION, "r", "current")
+
+
+def test_stest_reaches_the_build_and_test_stage():
+    stest = Link("Covers", "stest", ident("feat~f~1"), "tests/a.feature", 3)
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")], links=[stest])
+    (found,) = plan.place([built], index, [Finding("tests/a.feature", 3, "earnest/orphaned", "feat~f~1", "m")])
+    assert (found.stage, found.position, found.level) == (BUILD_AND_TEST, "ahead", "note")
+    (other,) = plan.place([built], index, [Finding("tests/a.feature", 9, "earnest/orphaned", "feat~f~1", "m")])
+    assert other.stage is None
+
+
+def test_gap_counts_against_the_stage_of_the_missing_childs_type():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    path = "r/inception/requirements-analysis/doc.md"
+    gaps = [Finding(path, 5, "earnest/gap", "req~a~1", "m", child=kind) for kind in ("impl", "utest", "req")]
+    stages = [found.stage for found in plan.place([built], index, gaps)]
+    assert stages == [CODE_GENERATION, CODE_GENERATION, REQUIREMENTS]  # a req gap falls back to its own file's stage
+
+
+def test_finding_reaching_no_stage_keeps_position_current():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    orphan = Finding("src/z.py", 2, "earnest/orphaned", "req~zzz~1", "m")
+    near = Finding("src/z.py", 3, "earnest/near-miss", "[impl-x]", "m")
+    for found in plan.place([built], index, [orphan, near]):
+        assert (found.stage, found.intent, found.position, found.level) == (None, None, "current", "error")
+
+
+def test_position_behind_current_and_ahead():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    paths = [f"r/{stage}/x.md" for stage in STAGES]
+    found = plan.place([built], index, [Finding(path, 1, "earnest/duplicate", "req~a~1", "m") for path in paths])
+    assert [(f.stage, f.position) for f in found] == list(zip(STAGES, ["behind", "current", "ahead"], strict=True))
+
+
+def test_place_takes_several_plans_and_uses_each_findings_own_frontier():
+    first, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    second = plan.build(intent_of(START, SKIPS, directory="s"), index)
+    mine = Finding(f"r/{CODE_GENERATION}/x.md", 1, "earnest/duplicate", "req~a~1", "m")
+    theirs = Finding(f"s/{CODE_GENERATION}/x.md", 1, "earnest/duplicate", "req~a~1", "m")
+    placed = plan.place([first, second], index, [mine, theirs])
+    assert [(f.intent, f.position) for f in placed] == [("r", "current"), ("s", "ahead")]
+
+
+def test_ahead_finding_is_a_note():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    (found,) = plan.place([built], index, [Finding(f"r/{BUILD_AND_TEST}/x.md", 1, "earnest/duplicate", "req~a~1", "m")])
+    assert (found.position, found.level) == ("ahead", "note")
+    assert found.text == f"expected at {BUILD_AND_TEST}: m"
+
+
+def test_finding_in_a_stage_off_the_route_is_stage_less_and_current():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    (found,) = plan.place(
+        [built], index, [Finding("r/inception/reverse-engineering/a.md", 1, "earnest/duplicate", "req~a~1", "m")]
+    )
+    assert (found.stage, found.intent, found.position) == (None, None, "current")
+
+
+def test_finding_under_an_intent_without_a_plan_is_left_alone():
+    built, index = planned(BASE, items=[item("req~a~1"), item("req~b~1")])
+    elsewhere = Finding("other/inception/requirements-analysis/x.md", 1, "earnest/duplicate", "req~a~1", "m")
+    assert plan.place([], index, [elsewhere])[0] is elsewhere
+    (found,) = plan.place([built], index, [elsewhere])
+    assert (found.stage, found.intent, found.position) == (None, None, "current")
+
+
+def stale_plan(*items_, extra=()):
+    """Return the plan of an intent whose requirements approval names req~a~1 and req~b~1, over the given items."""
+    return planned(BASE, *extra, items=list(items_))
+
+
+def test_stale_approval_is_a_note_at_the_position_of_its_stage():
+    built, index = stale_plan(item("req~a~2", line=3), item("req~b~1", line=8))
+    (found,) = plan.approval_findings(built)
+    assert (found.rule, found.path, found.line, found.subject, found.note) == (
+        "earnest/outdated",
+        "r/inception/requirements-analysis/doc.md",
+        3,
+        "req~a~2",
+        True,
+    )
+    (placed,) = plan.place([built], index, [found])
+    assert (placed.stage, placed.intent, placed.position, placed.level) == (REQUIREMENTS, "r", "current", "note")
+
+
+def test_stale_approval_in_a_stage_after_the_frontier_reads_ahead():
+    approved = gate("2026-09-26T10:30:00Z", stage="code-generation", Items="task~a~1")
+    built, index = planned(START, SKIPS, approved, items=[task("task~a~2")])
+    assert built.frontier == REQUIREMENTS  # nothing approves the requirements stage
+    (found,) = plan.approval_findings(built)
+    (placed,) = plan.place([built], index, [found])
+    assert (placed.stage, placed.position, placed.level) == (CODE_GENERATION, "ahead", "note")
+
+
+def test_stale_approval_is_located_at_each_moved_item():
+    built, _ = stale_plan(item("req~a~2", line=3), item("req~b~3", line=8))
+    assert [(f.line, f.subject) for f in plan.approval_findings(built)] == [(3, "req~a~2"), (8, "req~b~3")]
+
+
+def test_stale_approval_names_the_stage_and_the_current_revision():
+    built, _ = stale_plan(item("req~a~2"), item("req~b~1"))
+    (found,) = plan.approval_findings(built)
+    assert REQUIREMENTS in found.message
+    assert "approval" in found.message
+    assert "revision 2" in found.message
+    assert "`req~a~1`" in found.message
+
+
+def test_earlier_rows_raise_nothing_after_a_fresh_approval():
+    fresh = gate("2026-09-26T10:30:00Z", Items="req~a~2, req~b~1")
+    built, _ = stale_plan(item("req~a~2"), item("req~b~1"), extra=[fresh])
+    assert built.stages[0].state == "current"
+    assert plan.approval_findings(built) == []
+
+
+def test_stale_approval_with_a_removed_or_unnamed_item_reads_outdated_without_a_located_finding():
+    gone, _ = stale_plan(item("req~a~1"))
+    assert gone.stages[0].state == "outdated"
+    assert plan.approval_findings(gone) == []
+    extra, _ = stale_plan(item("req~a~1"), item("req~b~1"), item("req~c~1"))
+    assert extra.stages[0].state == "outdated"
+    assert plan.approval_findings(extra) == []
+
+
+def test_properties_list_stages_in_route_order_and_tasks_sorted():
+    items = [item("req~a~1"), item("req~b~1"), task("task~b~1"), task("task~a~1", 9)]
+    built, index = planned(BASE, items=items, links=[delivers("task~a~1", "req~a~1")])
+    statuses = {"r": plan.statuses(built, index, [], {})}
+    (entry,) = plan.properties([built], statuses, index, {})["intents"]
+    assert (entry["intent"], entry["frontier"], entry["units"]) == ("r", CODE_GENERATION, [])
+    assert entry["stages"] == [
+        {"stage": REQUIREMENTS, "status": "done", "approval": "current", "approvedBy": "human"},
+        {"stage": CODE_GENERATION, "status": "not done", "approval": "none", "approvedBy": None},
+        {"stage": BUILD_AND_TEST, "status": "not done", "approval": "none", "approvedBy": None},
+    ]
+    assert entry["tasks"] == [{"id": "task~a~1", "status": "not done"}, {"id": "task~b~1", "status": "done"}]
+
+
+def test_properties_hold_one_entry_per_supported_intent():
+    first, index = planned(BASE, items=[item("req~a~2"), item("req~b~1")])
+    second = plan.build(intent_of(START, SKIPS, directory="a"), index)
+    statuses = {p.intent.directory: plan.statuses(p, index, [], {}) for p in (first, second)}
+    props = plan.properties([first, second], statuses, index, {})
+    assert [entry["intent"] for entry in props["intents"]] == ["a", "r"]
+    stale = props["intents"][1]["stages"][0]
+    assert (stale["approval"], stale["approvedBy"]) == ("outdated", None)  # `approvedBy` is for a current approval
+
+
+def test_properties_leave_out_an_unsupported_intent():
+    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+    built, index = planned(BASE)
+    unsupported = plan.build(intent_of(BASE, state=state, directory="u"), index)
+    statuses = {p.intent.directory: plan.statuses(p, index, [], {}) for p in (built, unsupported)}
+    props = plan.properties([unsupported, built], statuses, index, {})
+    assert [entry["intent"] for entry in props["intents"]] == ["r"]
+    assert plan.properties([unsupported], statuses, index, {}) == {"intents": []}
