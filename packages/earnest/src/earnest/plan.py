@@ -8,9 +8,10 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
-from earnest import structural
-from earnest.index import TYPES, Index, Item, split_lines
-from earnest.reporter import Finding, Position
+from earnest import adapters, structural
+from earnest.index import TYPES, Index, Item, Source, split_lines
+from earnest.index import digest as digest_of
+from earnest.reporter import Finding, Position, Run, RunHeader, canonical, run_key, uri
 
 
 STATE = "aidlc-state.md"
@@ -719,3 +720,100 @@ def _position(plan: Plan, stage: str) -> Position:
     order = [state.stage for state in plan.stages]
     here, front = order.index(stage), order.index(plan.frontier)
     return "behind" if here < front else "current" if here == front else "ahead"
+
+
+def evaluated_tree(sources: Sequence[Source], intents: Sequence[Intent]) -> list[Source]:
+    """Return the sources in the evaluated tree: outside every record directory, or in a route stage."""
+    return [each for each in sources if in_tree(intents, each.path)]
+
+
+def tree_digest(tree: Sequence[Source]) -> str:
+    """Return the digest of the tree: the canonical JSON of each file's uri and digest, sorted by uri."""
+    return digest_of(canonical(sorted([uri(each.path), each.digest] for each in tree)).encode("ascii"))
+
+
+def scoped(findings: Sequence[Finding], plan: Plan, stage: str) -> list[Finding]:
+    """Return what a `--stage` run reports: the stage's findings, and the findings that reach no stage."""
+    return [
+        found
+        for found in findings
+        if found.stage is None or (found.intent == plan.intent.directory and found.stage == stage)
+    ]
+
+
+def assessment_document(
+    plan: Plan, stage: str, tree: Sequence[Source], findings: Sequence[Finding]
+) -> dict[str, object]:
+    """Return the assessment document that the assessment hash covers, version 1.
+
+    It holds the stage's items with their body hashes, the findings of the run that lie in the evaluated tree, as
+    their rule, uri, line, subject and message, and the tree's digest. It holds no position, commit, timestamp, route
+    or approval, and no approval note, which a fresh approval removes.
+    """
+    state = next(each for each in plan.stages if each.stage == stage)
+    inside = {each.path for each in tree}
+    counted = [found for found in scoped(findings, plan, stage) if not found.note and found.path in inside]
+    return {
+        "v": 1,
+        "stage": run_key(plan.intent.directory, stage),
+        "layers": ["trace"],
+        "model": None,
+        "prompt": None,
+        "items": sorted([str(item.id), item.body_hash] for item in state.items),
+        "findings": sorted(
+            [found.rule, uri(found.path), found.line, found.subject, found.message] for found in counted
+        ),
+        "tree": tree_digest(tree),
+    }
+
+
+def assessment_hash(document: Mapping[str, object]) -> str:
+    """Return the assessment hash: the digest of the document's compact canonical JSON."""
+    return digest_of(canonical(document).encode("ascii"))
+
+
+def next_bodies(held: Mapping[str, str], plan: Plan, stage: str) -> dict[str, str]:
+    """Return the body hashes the record holds after a stage check.
+
+    An item's hash is recorded when none is held, and replaced on each run until a counting approval row names the
+    item's id with its revision; from then on it stays, and any later difference raises `unbumped-change`.
+    """
+    # ponytail: an entry for a revision that no longer exists is never pruned; prune by the index if the record grows
+    bodies = dict(held)
+    for item in next(each for each in plan.stages if each.stage == stage).items:
+        key = str(item.id)
+        if key not in bodies or key not in plan.intent.named_items:
+            bodies[key] = item.body_hash
+    return bodies
+
+
+def frozen_bodies(held: Mapping[str, str], intents: Sequence[Intent]) -> dict[str, str]:
+    """Return the held hashes that a counting approval row froze, for `structural.check` to compare with."""
+    return {key: value for key, value in held.items() if any(key in current.named_items for current in intents)}
+
+
+def dirty(changes: Sequence[str], intents: Sequence[Intent]) -> bool:
+    """Return whether a changed path lies in the evaluated tree: a scanned suffix, outside AI-DLC's bookkeeping."""
+    directories = {current.directory for current in intents}
+    return any(
+        adapters.reads(path) and not adapters.skipped(path, directories) and in_tree(intents, path) for path in changes
+    )
+
+
+def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -> RunHeader:
+    """Return the run header of a stage check: the run's commit, `dirty` and time, the status, its reasons and the hash."""
+    state = next(each for each in plan.stages if each.stage == stage)
+    return RunHeader(
+        intent=plan.intent.directory,
+        stage=stage,
+        commit=run.commit,
+        dirty=run.dirty,
+        timestamp=run.timestamp,
+        layers=("trace",),
+        model=None,
+        prompt=None,
+        items=tuple(sorted(str(item.id) for item in state.items)),
+        status=status.status,
+        reasons={"errors": status.errors, "openTasks": status.open_tasks, "approval": status.approval},
+        digest=digest,
+    )

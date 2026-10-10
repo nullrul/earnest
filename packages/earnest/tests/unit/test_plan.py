@@ -1,9 +1,10 @@
 """Tests for earnest.plan: the state file's Stage Progress, the audit shards, and loading both from a work tree."""
 
 from earnest import plan
-from earnest.index import Id, Index, Item, Link
+from earnest.index import MARKDOWN, Id, Index, Item, Link, Source
+from earnest.index import digest as digest_of
 from earnest.plan import Approval, Event, Record, Row
-from earnest.reporter import Finding
+from earnest.reporter import Finding, Run
 
 
 DASH = "\u2014"
@@ -1095,3 +1096,259 @@ def test_properties_leave_out_an_unsupported_intent():
     props = plan.properties([unsupported, built], statuses, index, {})
     assert [entry["intent"] for entry in props["intents"]] == ["r"]
     assert plan.properties([unsupported], statuses, index, {}) == {"intents": []}
+
+
+def source(path, data="x"):
+    return Source(path, MARKDOWN, (), digest=digest_of(data.encode()))
+
+
+def hashed(text, body, stage=REQUIREMENTS, line=1):
+    return Item(ident(text), f"r/{stage}/doc.md", line, None, body)
+
+
+def document(built, stage, tree, findings):
+    return plan.assessment_document(built, stage, tree, findings)
+
+
+TREE = [source("src/a.py", "code")]
+
+
+def test_evaluated_tree_is_the_sources_in_tree():
+    paths = [
+        "src/a.py",
+        "r/aidlc-state.md",
+        "r/audit/a.md",
+        f"r/{REQUIREMENTS}/x.md",
+        "r/inception/reverse-engineering/y.md",
+    ]
+    tree = plan.evaluated_tree([source(path) for path in paths], [intent_of(BASE)])
+    assert [each.path for each in tree] == ["src/a.py", f"r/{REQUIREMENTS}/x.md"]
+
+
+def test_tree_digest_changes_when_an_evaluated_file_changes():
+    one, two = [source("a.py", "1")], [source("a.py", "2")]
+    assert plan.tree_digest(one) != plan.tree_digest(two)
+    assert plan.tree_digest(one) == plan.tree_digest([source("a.py", "1")])
+    pair = [source("b.py", "1"), source("a.py", "1")]
+    assert plan.tree_digest(pair) == plan.tree_digest(pair[::-1])  # sorted by uri
+    assert plan.tree_digest([source("a b.py", "1")]) != plan.tree_digest([source("a%20b.py", "2")])
+
+
+def test_tree_digest_ignores_a_state_or_audit_edit():
+    intents = [intent_of(BASE)]
+    base = [source("src/a.py"), source("r/aidlc-state.md", "one"), source("r/audit/a.md", "one")]
+    edited = [source("src/a.py"), source("r/aidlc-state.md", "two"), source("r/audit/a.md", "two")]
+    assert plan.tree_digest(plan.evaluated_tree(base, intents)) == plan.tree_digest(
+        plan.evaluated_tree(edited, intents)
+    )
+
+
+def test_document_holds_position_free_findings():
+    built, _ = planned(BASE, items=[hashed("req~b~1", "h2", line=8), hashed("req~a~1", "h1", line=3)])
+    tree = [source(f"r/{REQUIREMENTS}/doc.md"), source("src/a.py")]
+    found = Finding(f"r/{REQUIREMENTS}/doc.md", 8, "earnest/duplicate", "req~b~1", "m", stage=REQUIREMENTS, intent="r")
+    shifted = Finding("src/a.py", 4, "earnest/orphaned", "req~z~1", "z", position="current")
+    shown = document(built, REQUIREMENTS, tree, [found, shifted])
+    assert shown == {
+        "v": 1,
+        "stage": f"r/{REQUIREMENTS}",
+        "layers": ["trace"],
+        "model": None,
+        "prompt": None,
+        "items": [["req~a~1", "h1"], ["req~b~1", "h2"]],
+        "findings": [
+            ["earnest/duplicate", f"r/{REQUIREMENTS}/doc.md", 8, "req~b~1", "m"],
+            ["earnest/orphaned", "src/a.py", 4, "req~z~1", "z"],
+        ],
+        "tree": plan.tree_digest(tree),
+    }
+    moved = Finding(
+        found.path, 8, found.rule, found.subject, found.message, stage=REQUIREMENTS, intent="r", position="ahead"
+    )
+    assert document(built, REQUIREMENTS, tree, [moved, shifted]) == shown  # the position takes no part
+
+
+def test_findings_outside_the_tree_are_dropped_from_the_document():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1")])
+    inside = Finding("src/a.py", 1, "earnest/orphaned", "req~z~1", "m")
+    outside = Finding("r/aidlc-state.md", 17, "earnest/route-mismatch", "deployment-pipeline", "m")
+    elsewhere = Finding(
+        f"r/{CODE_GENERATION}/x.md", 1, "earnest/duplicate", "req~a~1", "m", stage=CODE_GENERATION, intent="r"
+    )
+    tree = [source("src/a.py"), source(f"r/{CODE_GENERATION}/x.md")]
+    assert [entry[1] for entry in document(built, REQUIREMENTS, tree, [inside, outside, elsewhere])["findings"]] == [
+        "src/a.py"
+    ]
+
+
+def test_document_leaves_out_approval_findings():
+    built, _ = planned(BASE, items=[hashed("req~a~2", "h1"), hashed("req~b~1", "h2")])
+    (note,) = plan.approval_findings(built)
+    path = f"r/{REQUIREMENTS}/doc.md"
+    tree = [source(path)]
+    assert document(built, REQUIREMENTS, tree, [note]) == document(built, REQUIREMENTS, tree, [])
+
+
+def test_recording_an_approval_leaves_the_hash_as_it_was():
+    items = [hashed("req~a~1", "h1"), hashed("req~b~1", "h2"), hashed("task~t~1", "h3", CODE_GENERATION)]
+    before, index = planned(BASE, items=items)
+    after, _ = planned(BASE, gate("2026-09-26T12:00:00Z", stage="code-generation", Items="task~t~1"), items=items)
+    assert (before.frontier, after.frontier) == (CODE_GENERATION, BUILD_AND_TEST)
+    tree = [source("src/a.py")]
+    one = plan.assessment_hash(
+        document(before, CODE_GENERATION, tree, plan.place([before], index, plan.plan_findings(before, index)))
+    )
+    two = plan.assessment_hash(
+        document(after, CODE_GENERATION, tree, plan.place([after], index, plan.plan_findings(after, index)))
+    )
+    assert one == two
+
+
+def test_hash_is_stable_across_two_runs():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1"), hashed("req~b~1", "h2")])
+    first = plan.assessment_hash(document(built, REQUIREMENTS, TREE, []))
+    assert first == plan.assessment_hash(document(built, REQUIREMENTS, TREE, []))
+    assert first.startswith("sha256:")
+    assert len(first) == len("sha256:") + 64
+    assert first != plan.assessment_hash(document(built, REQUIREMENTS, [source("src/a.py", "other")], []))
+
+
+def test_hash_excludes_commit_and_timestamp():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1")])
+    assert set(document(built, REQUIREMENTS, TREE, [])) == {
+        "v",
+        "stage",
+        "layers",
+        "model",
+        "prompt",
+        "items",
+        "findings",
+        "tree",
+    }
+
+
+def test_baseline_records_when_none_is_held():
+    built, _ = planned(START, SKIPS, items=[hashed("req~a~1", "h1"), hashed("req~b~1", "h2")])
+    assert plan.next_bodies({}, built, REQUIREMENTS) == {"req~a~1": "h1", "req~b~1": "h2"}
+
+
+def test_baseline_replaces_until_a_counting_row_names_the_revision():
+    built, _ = planned(START, SKIPS, items=[hashed("req~a~1", "new")])
+    held = {"req~a~1": "old", "req~other~1": "kept"}
+    assert plan.next_bodies(held, built, REQUIREMENTS) == {"req~a~1": "new", "req~other~1": "kept"}
+    assert held["req~a~1"] == "old"  # the argument is not changed
+
+
+def test_baseline_freezes_after_a_counting_row_names_it():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "new"), hashed("req~b~1", "new")])
+    assert plan.next_bodies({"req~a~1": "old", "req~b~1": "old"}, built, REQUIREMENTS) == {
+        "req~a~1": "old",
+        "req~b~1": "old",
+    }
+
+
+def test_baseline_for_a_bumped_revision_starts_free():
+    built, _ = planned(BASE, items=[hashed("req~a~2", "new"), hashed("req~b~1", "new")])
+    result = plan.next_bodies({"req~a~1": "old", "req~b~1": "old"}, built, REQUIREMENTS)
+    assert result == {"req~a~1": "old", "req~a~2": "new", "req~b~1": "old"}
+    again = plan.next_bodies({**result, "req~a~2": "newer"}, built, REQUIREMENTS)
+    assert again["req~a~2"] == "new"  # no row names revision 2 yet, so each run replaces it
+
+
+def test_baseline_replaces_again_after_a_rejection_voids_the_row():
+    rejected = gate("2026-09-26T11:00:00Z", "GATE_REJECTED", Feedback="Rework.")
+    built, _ = planned(BASE, rejected, items=[hashed("req~a~1", "new"), hashed("req~b~1", "new")])
+    assert plan.next_bodies({"req~a~1": "old", "req~b~1": "old"}, built, REQUIREMENTS) == {
+        "req~a~1": "new",
+        "req~b~1": "new",
+    }
+
+
+def test_baseline_records_when_a_named_revision_has_no_held_hash():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "new"), hashed("req~b~1", "new")])
+    assert plan.next_bodies({"req~b~1": "old"}, built, REQUIREMENTS) == {"req~a~1": "new", "req~b~1": "old"}
+
+
+def test_frozen_bodies_keeps_only_hashes_a_counting_row_names():
+    held = {"req~a~1": "x", "req~c~1": "y", "req~z~1": "z"}
+    other = intent_of(START, SKIPS, gate("2026-09-26T10:00:00Z", Items="req~z~1"), directory="s")
+    assert plan.frozen_bodies(held, [intent_of(BASE)]) == {"req~a~1": "x"}
+    assert plan.frozen_bodies(held, [intent_of(BASE), other]) == {"req~a~1": "x", "req~z~1": "z"}
+    assert plan.frozen_bodies(held, []) == {}
+
+
+def test_header_carries_the_fields_and_the_reasons_of_the_status():
+    built, _ = planned(BASE, items=[hashed("req~b~1", "h2"), hashed("req~a~1", "h1")])
+    status = plan.StageStatus("not done", 2, 1, "outdated")
+    run = Run(commit="a" * 40, dirty=True, timestamp="2026-09-26T12:00:00Z")
+    held = plan.header(built, REQUIREMENTS, status, run, "sha256:" + "1" * 64)
+    assert (held.intent, held.stage, held.commit, held.dirty, held.timestamp) == (
+        "r",
+        REQUIREMENTS,
+        "a" * 40,
+        True,
+        "2026-09-26T12:00:00Z",
+    )
+    assert (held.layers, held.model, held.prompt) == (("trace",), None, None)
+    assert held.items == ("req~a~1", "req~b~1")
+    assert (held.status, held.digest) == ("not done", "sha256:" + "1" * 64)
+    assert dict(held.reasons) == {"errors": 2, "openTasks": 1, "approval": "outdated"}
+
+
+def test_scoped_keeps_stage_and_stageless_findings():
+    built, _ = planned(BASE)
+    mine = found_in(REQUIREMENTS)
+    other_stage = found_in(CODE_GENERATION)
+    stageless = Finding("src/a.py", 1, "earnest/orphaned", "req~z~1", "m")
+    assert plan.scoped([mine, other_stage, stageless], built, REQUIREMENTS) == [mine, stageless]
+
+
+def test_scoped_separates_equal_stage_ids_of_two_intents():
+    built, _ = planned(BASE)
+    ours = found_in(REQUIREMENTS)
+    theirs = Finding("s/x.md", 1, "earnest/gap", "req~a~1", "m", stage=REQUIREMENTS, intent="s")
+    assert plan.scoped([ours, theirs], built, REQUIREMENTS) == [ours]
+    assert [found.intent for found in plan.scoped([ours, theirs], built, REQUIREMENTS)] == ["r"]
+
+
+def test_dirty_counts_an_edited_scanned_file():
+    assert plan.dirty(["src/a.py"], [intent_of(BASE)])
+    assert plan.dirty(["tests/a.feature"], [intent_of(BASE)])
+    assert not plan.dirty([], [intent_of(BASE)])
+
+
+def test_dirty_ignores_the_audit_log_and_state_file():
+    paths = ["r/aidlc-state.md", "r/audit/a.md", "r/audit/fixture-0000aaaa.md", "r/.aidlc-engine/sensors/x.md"]
+    assert not plan.dirty(paths, [intent_of(BASE)])
+
+
+def test_dirty_counts_a_deleted_stage_artifact():
+    assert plan.dirty([f"r/{REQUIREMENTS}/requirements.md"], [intent_of(BASE)])  # a missing file is a change too
+
+
+def test_dirty_ignores_an_unscanned_suffix():
+    paths = ["data.json", "notes.txt", "Makefile", f"r/{REQUIREMENTS}/diagram.png"]
+    assert not plan.dirty(paths, [intent_of(BASE)])
+
+
+def test_dirty_counts_a_scratch_markdown_file():
+    assert plan.dirty(["notes.md"], [intent_of(BASE)])
+    assert plan.dirty(["r/scratch.md"], [intent_of(BASE)]) is False  # inside the record directory, in no route stage
+
+
+def test_dirty_counts_a_deleted_tracked_markdown_file_outside_every_intent():
+    assert plan.dirty(["docs/old.md"], [])
+    assert plan.dirty(["docs/old.md"], [intent_of(BASE)])
+
+
+def test_dirty_ignores_a_stage_diary_memory_md():
+    memory = f"r/{REQUIREMENTS}/memory.md"
+    assert not plan.dirty([memory], [intent_of(BASE)])
+    assert plan.dirty([memory, f"r/{REQUIREMENTS}/requirements.md"], [intent_of(BASE)])
+
+
+def test_dirty_ignores_the_files_of_an_unsupported_intent_that_ai_dlc_writes():
+    state = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+    unsupported = intent_of(BASE, state=state, directory="u")
+    assert not plan.dirty(["u/aidlc-state.md", "u/audit/a.md", "u/.aidlc-engine/x.md"], [unsupported])
+    assert plan.dirty(["u/inception/requirements-analysis/r.md"], [unsupported])
