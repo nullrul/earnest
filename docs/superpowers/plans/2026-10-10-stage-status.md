@@ -112,6 +112,8 @@ Each is a ceiling that the milestone accepts, with the upgrade path; most have a
 - A stage's `errors` count leaves out findings placed ahead of the frontier, which are notes, so an approved stage after the frontier can read done despite one (Task 10).
 - One shortest cycle is reported per task, so a cycle that is never the shortest through any of its tasks shows once the shorter ones are fixed (Task 10).
 - One union `produces` serves every intent's items when a repository mixes supported and unsupported intents (Task 10).
+- A record directory at the repository root drops every source file from the evaluated tree, since each path lies inside it (Task 10, D14).
+- The index is built over all sources, so an edit outside the evaluated tree can move the body hash and the assessment hash while `dirty` stays false (Task 11, D15).
 
 ---
 
@@ -6521,7 +6523,7 @@ def test_dirty_ignores_the_files_of_an_unsupported_intent_that_ai_dlc_writes():
 
 Run: `uv run pytest tests/unit/test_plan.py --no-cov -q`
 
-Expected: `27 failed, 102 passed`: each new test fails with `AttributeError` (`module 'earnest.plan' has no attribute 'evaluated_tree'` and the like), and the 102 tests the file held pass.
+Expected: `27 failed, 111 passed`: each new test fails with `AttributeError` (`module 'earnest.plan' has no attribute 'evaluated_tree'` and the like), and the 111 tests the file held pass.
 
 - [ ] **Step 2: Add the assessment hash, the baseline and `dirty`**
 
@@ -6648,7 +6650,7 @@ def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -
 
 Run: `uv run pytest tests/unit/test_plan.py --no-cov -q`
 
-Expected: `129 passed`: the 102 tests the file held, plus the 27 new ones.
+Expected: `138 passed`: the 111 tests the file held, plus the 27 new ones.
 
 - [ ] **Step 4: Run the regression run and the linters**
 
@@ -6657,7 +6659,7 @@ uv run pytest --ignore=tests/steps/test_stage_status.py --no-cov -q 2>&1 | tail 
 make lint
 ```
 
-Expected: `367 passed`, then `make lint` exits 0.
+Expected: `376 passed`, then `make lint` exits 0.
 
 - [ ] **Step 5: Commit**
 
@@ -7595,6 +7597,8 @@ uv run pytest tests/steps/test_trace_check.py --no-cov -q 2>&1 | tail -2
 ```
 
 Expected: `28 passed`, then `5 passed`.
+
+The milestone pass (D17) added tests to this task's run: the suite total is now `481 passed`, with the exit commands unchanged at `28 passed` and `5 passed`.
 
 - [ ] **Step 2: Run the whole suite and the linters**
 

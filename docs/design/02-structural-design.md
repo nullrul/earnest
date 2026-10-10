@@ -335,11 +335,12 @@ its line says "Owns", and each such rule has exactly one owner.
   percentages, and the rendering of each requirement's trace level, which
   `structural.py` computes. Owns the assessment record, reader and writer, with
   its five contents, the canonical JSON form shared by the record, the SARIF log
-  and the assessment hash, and the plan and assessment properties of the SARIF
-  run. The Container section of `01` draws the Reporter as the record's only
-  writer, and one owner keeps the read and write sides in step. `reporter.py`
-  receives plain data from `structural.py` and `plan.py` and imports from
-  neither.
+  and the assessment hash, and the rendering of the plan and assessment
+  properties of the SARIF run, which `plan.py` builds as `properties.plan` and
+  `cli.py` as `properties.assessment`. The Container section of `01` draws the
+  Reporter as the record's only writer, and one owner keeps the read and write
+  sides in step. `reporter.py` receives plain data from `structural.py` and
+  `plan.py` and imports from neither.
 
 ### Tests
 
