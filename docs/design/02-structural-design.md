@@ -96,7 +96,10 @@ earnest/
 ```
 
 `03` and `04` follow this document. A name in angle brackets stands for one
-file per module, language, flow or milestone.
+file per module, language, flow or milestone. The units variant of
+`seeded-change` that M2b of `03` adds (a `units-generation` row on the route,
+Unit Progress, `Unit`-scoped approval rows) is a second history of the same
+directory, so the tree lists `seeded-change/` once.
 
 ## Fork delta
 
@@ -164,7 +167,9 @@ tests/
 - `core/sensors/aidlc-earnest.md`: the manifest that "The `earnest` sensor and
   the approval gate" in `01` specifies, beside `aidlc-traceability.md`.
 - `core/tools/aidlc-sensor-earnest.ts`: the sensor script, beside
-  `aidlc-sensor-traceability.ts`.
+  `aidlc-sensor-traceability.ts`. It maps the exit code of `earnest check` to
+  the sensor's `pass`: exit 0 is `pass: true`, and exit 1 or 2 is
+  `pass: false`. It derives `--intent` from `output_path`.
 - `core/tools/aidlc.ts` and `core/tools/aidlc-sensor.ts`: the registration
   behind "AI-DLC resolves to the script" in `01`. Upstream names each bundled
   sensor in the `TOOLS` map, `SENSOR_WORKERS`, the `__sensor-script` table of
@@ -172,12 +177,23 @@ tests/
   `BUNDLED_SENSOR_IDS` of `aidlc-sensor.ts`, which a compiled engine needs to
   run a sensor from inside its binary.
 - `core/tools/aidlc-state.ts`: `handleApprove`, the approve transition, writes
-  the three fields into its `GATE_APPROVED` row.
+  the three fields into its `GATE_APPROVED` row at the emit site of the approve
+  path, and reads the stage's run header, `runs[<intent dir>/<stage>]`, from
+  `.earnest/assessment.json` at the repository root. AI-DLC's audit validator in
+  `core/tools/aidlc-audit.ts` accepts the three field names, so that file needs
+  no change. The fork also holds a gate when an artifact changes during the
+  sensor run, and the approve transition confirms before approving that the
+  stage's artifacts are unchanged since the sensor ran; the Fork-delta path that
+  holds those two checks is an open question of `01`. The unit gate's emit site
+  (`core/tools/aidlc-unit.ts`) and the team gates of `aidlc-state.ts` join this
+  delta with M2b of `03`.
 - `core/tools/data/templates/<artifact>.md`: one template per artifact that the
   mapping table of `01` marks adapted, written in Earnest's item syntax.
   Upstream reserves this directory, holding only a `.gitkeep`, for
   framework-default templates that both the stage agent and the
-  `required-sections` sensor read.
+  `required-sections` sensor read. The unit-of-work template generates the
+  `depends_on` yaml of `unit-of-work-dependency.md` from the `Depends:` lines,
+  so the unit DAG has one source.
 - `tests/unit/t-sensor-earnest.test.ts` and
   `tests/unit/t-gate-approved-assessment.test.ts`: tests for the script and the
   approve transition, beside `t281-sensor-traceability.test.ts` and
@@ -231,7 +247,14 @@ its line says "Owns", and each such rule has exactly one owner.
 - `git.py`: reads through Git the commit, the current branch, the lines changed
   since a commit, and the files Git lists for the work tree: tracked files plus
   untracked files that are not ignored. Container input, shared by the scanner,
-  the out-of-task check, impact, override drift and the run header.
+  the out-of-task check, impact, override drift and the run header. Lists no
+  path under `.earnest/`, and reports the changed paths from one `git
+  --no-optional-locks status --porcelain=v1 -z --untracked-files=all
+  --no-renames` over the work tree as untracked, differing from HEAD or the
+  index, or missing, so `plan` and plain `check` leave `.git/index` alone.
+  `plan.py` decides `dirty` over the evaluated tree from those paths, as the
+  Assessment hash section of `01` defines it; a call that passes paths to Git
+  uses `--literal-pathspecs`.
 
 ### Scanner
 
@@ -239,7 +262,12 @@ its line says "Owns", and each such rule has exactly one owner.
   hold an item or a tag, with their line numbers, and the grammar decides what
   parses.
 - `adapters/__init__.py`: picks the adapter by file suffix for each file that
-  `git.py` lists.
+  `git.py` lists. Each `Source` carries the SHA-256 of the bytes read and, for
+  the comment adapters, the lines that hold code, which the Region rule needs.
+  In a record directory, the parent of a listed `aidlc-state.md`, it skips that
+  file, `audit/**`, `.aidlc-engine/**`, the sibling entries that begin
+  `.aidlc-`, and `memory.md` files under a stage directory; `plan.py` reads the
+  first two itself. The skipped files never enter the evaluated tree.
 - `adapters/markdown.py`: every line of a Markdown stage artifact, and the
   numbers of its fenced lines; `index.py` recognizes headings.
 - `adapters/python.py`: `#` comments, through `tokenize`.
@@ -255,6 +283,8 @@ its line says "Owns", and each such rule has exactly one owner.
   built from adapter output: items, edges, tags and their regions. Owns the
   Region rule, Reference resolution and the Near-miss table, so the check and
   the judge read one graph (G7). The Region rule arrives with M2 of `03`.
+  Computes each item's body hash from the item's body lines, as the Revision
+  lifecycle of `01` specifies, and the SHA-256 digest of each source's bytes.
   `index.py` is the seam D5 names: an editor language server reads the same
   index through it.
 
@@ -262,18 +292,31 @@ its line says "Owns", and each such rule has exactly one owner.
 
 - `structural.py`: Structural checks. `gap` from the Default Needs, `unwanted`
   covers, duplicate ids, and `outdated`, `predated` and `orphaned` from
-  Reference resolution. Owns the Revision lifecycle: `unbumped-change` from the
-  body hashes in the record, and staleness one edge down. The lifecycle's later
-  steps, expired overrides and outdated approvals, are computed under the
-  Override rule in `judge/` and under Frontier and position in `plan.py`.
+  Reference resolution. Owns the Revision lifecycle: `unbumped-change`, by
+  comparing each item's body hash with the hash the record froze, and staleness
+  one edge down. The lifecycle's later steps, expired overrides and outdated
+  approvals, are computed under the Override rule in `judge/` and under Frontier
+  and position in `plan.py`. Owns each requirement's trace level, and applies
+  the route rule of Stages to the Default Needs and to parentless items.
 - `ears.py`: EARS parser. Each `req` body becomes its clauses with text spans,
   the spans the judge asks about (D14), or a `req-not-ears` finding (D2).
-- `plan.py`: Plan and stage engine. The route from the profile's `Scope`, each
-  prose file's stage from its record path, approvals from `GATE_APPROVED` rows,
-  and the `unplanned` and `cycle` findings. Owns Stages, Computed status,
-  Frontier and position, and the Out-of-task rule. The out-of-task check lives
-  here because the current task, its `Delivers:` ids and the position of its
-  findings are all plan state.
+- `plan.py`: Plan and stage engine. The route from the state file's Stage
+  Progress less the audited skips, each prose file's stage from its record path,
+  approvals from the `GATE_APPROVED` rows of the audit shards, and the
+  `unplanned`, `cycle` and `route-mismatch` findings. Owns Stages, Computed
+  status, Frontier and position, and the Out-of-task rule. The out-of-task check
+  lives here because the current task, its `Delivers:` ids and the position of
+  its findings are all plan state. Positions each finding behind, at or ahead of
+  the frontier, including `unplanned` and `cycle` as Frontier and position
+  gives them and the stale-approval note. Reads each record directory's
+  `aidlc-state.md` and `audit/*.md` shards itself, by raw read, because the
+  scanner skips them; builds the route from Stage Progress and the counting
+  `STAGE_SKIPPED` rows; orders the audit rows by timestamp, shard name and
+  position; applies the attempt, jump and rejection rules of Frontier and
+  position to read each stage's approval; refuses a route that holds
+  `units-generation` (exit 2); and raises `earnest/route-mismatch`. Computes
+  each stage's status and reasons, `dirty`, and the assessment document of the
+  Assessment hash section of `01`.
 - `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule.
   It runs the repository's own coverage, test and mutation tools as
   subprocesses and reads their JSON reports.
@@ -288,11 +331,16 @@ its line says "Owns", and each such rule has exactly one owner.
 
 ### Reporter
 
-- `reporter.py`: Reporter. SARIF 2.1.0, each requirement's trace level, and the
-  summary that leads with three percentages. Owns the assessment record, reader
-  and writer, with its five contents. The Container section of `01` draws the
+- `reporter.py`: Reporter. SARIF 2.1.0, the summary that leads with three
+  percentages, and the rendering of each requirement's trace level, which
+  `structural.py` computes. Owns the assessment record, reader and writer, with
+  its five contents, the canonical JSON form shared by the record, the SARIF log
+  and the assessment hash, and the rendering of the plan and assessment
+  properties of the SARIF run, which `plan.py` builds as `properties.plan` and
+  `cli.py` as `properties.assessment`. The Container section of `01` draws the
   Reporter as the record's only writer, and one owner keeps the read and write
-  sides in step.
+  sides in step. `reporter.py` receives plain data from `structural.py` and
+  `plan.py` and imports from neither.
 
 ### Tests
 
@@ -300,9 +348,10 @@ its line says "Owns", and each such rule has exactly one owner.
   markers that ruff's `INP` rule asks for, which also keep test module names
   unique across tiers.
 - `conftest.py`: shared fixtures. It copies a fixture's files, less its
-  `change/` overlay, into `tmp_path` and commits them with `git`, then commits
-  the overlay on a `task/…` branch when there is one. Steps that two or more
-  features share live here too.
+  `change/` overlay, into `tmp_path` and commits them with `git` as a base
+  commit on `main`, and a separate step commits the overlay on a `task/…`
+  branch when there is one, because the record must be written between the two
+  commits. Steps that two or more features share live here too.
 - `sarif.py`: the SARIF helpers shared by the step module and the unit and
   integration tests.
 - `unit/test_<module>.py`: one test module per module of `src/earnest/`.
@@ -320,11 +369,19 @@ its line says "Owns", and each such rule has exactly one owner.
 - `fixtures/seeded-change/`: SC5, SC6, SC7, SC9, SC11 and SC1. An
   AI-DLC-shaped repository: stage artifacts in a record directory with its
   `Scope`, `GATE_APPROVED` rows, overrides, and Python code whose tests give
-  per-test coverage contexts, the known dependencies of SC7.
+  per-test coverage contexts, the known dependencies of SC7. In M2 its record
+  directory holds a state file, an audit log with one `GATE_APPROVED` row and the
+  artifacts of a three-stage route; the base commit's tags and edges give the
+  known dependencies the stage feature reads.
 - `fixtures/seeded-change/change/`: the second commit, on a `task/…` branch: a
   revision bump that leaves a tag, an edge and an approval at the old revision,
   a body edit without a bump, code changed inside and outside the task, and a
-  region changed under an override.
+  region changed under an override. The overlay's branch is named after a task
+  the base commit holds, `task/add-limiter-window` (`01` names the convention
+  `task/<name>-…`), so M3's out-of-task check finds a current task. M2's
+  overlay holds the bump and the body edit; M3 adds code changed inside and
+  outside the task to the overlay, and those findings enter plain `check`; how
+  they meet M2's exact findings tables is an open question of `04`.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
   by `earnest calibrate`; its format is an open question.
@@ -487,7 +544,39 @@ Each decision refers to the tree in the File and directory tree section.
   `broken-links` needs one commit. Revisions, out-of-task, impact, approvals
   and override drift all need a base commit and a change, so they share
   `seeded-change`. Plain files keep each seeded defect in view at review, where
-  a bundle holds it in binary and a generated fixture holds it in code.
+  a bundle holds it in binary and a generated fixture holds it in code. The
+  units variant of `seeded-change` is a second history of the same files, built
+  by `conftest.py` from the same files plus a `units/` overlay, so it adds no
+  fixture directory.
+
+### L7 Where the assessment record lives
+
+- Decision: the record is `.earnest/assessment.json` at the root of the work
+  tree, one JSON file written by the standard library (L4). The Reporter
+  replaces it whole, by writing a temporary file in `.earnest/` and renaming it
+  over the record. When Earnest creates `.earnest/` it writes
+  `.earnest/.gitignore` holding `*`, so Git ignores the record by default; a
+  repository that wants the record in its history deletes the marker and
+  commits the file. `git.py` lists nothing under `.earnest/`, so the scanner and
+  the assessment hash never read it, whether or not Git ignores it.
+- Alternatives considered: the record inside the intent's record directory,
+  beside the stage artifacts; the same path tracked from the start;
+  `<git-common-dir>/earnest/assessment.json`; a tracked `bodies` file plus an
+  ignored remainder; TOML or Markdown in place of JSON.
+- Rationale: the work-tree root lies outside the sensor's `matches`, so a
+  header write during a sensor run changes no artifact that AI-DLC watches. The
+  marker inside `.earnest/` keeps the repository's own `.gitignore` untouched,
+  keeps the tree clean after a gate and is reversible per repository. A fresh
+  clone runs `earnest plan` from files in the repository alone, and `earnest
+  check` prints `record: absent, body-hash baseline unavailable` where the
+  record is missing and the index holds items, so the absence is visible; a CI
+  job can restore `.earnest/`
+  from a cache or an artifact written at the gate, and a repository that wants
+  the baseline across clones tracks the record. JSON is the format the standard
+  library both reads and writes, SARIF is JSON already, and the fork's Bun reads
+  it natively; TOML has no standard-library writer, and a Markdown record would
+  be scanned as a stage artifact. Linked worktrees each hold their own
+  `.earnest/`.
 
 ## Scope (v1)
 
@@ -509,7 +598,6 @@ Each decision refers to the tree in the File and directory tree section.
 
 | Question | Owner | Resolved by |
 | --- | --- | --- |
-| Where the assessment record sits in a target repository, and its file format; the Runtime and permission model section of `01` places it beside the stage artifacts | maintainer | a revision of `01`, before the milestone that writes the record |
 | The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts | maintainer | a revision of `01`, before the calibration gate runs |
 | The fork repository's name and owner; this repository is `cajias/earnest` | maintainer | creating the fork |
 | How the fork's sensor script finds the `earnest` command: an installed tool on the path, or a pinned invocation | maintainer | the milestone of `03` that wires the sensor |
@@ -517,4 +605,5 @@ Each decision refers to the tree in the File and directory tree section.
 | Upstream artifacts the mapping table leaves unnamed: NFR Requirements' `scalability-requirements`, `reliability-requirements` and `tech-stack-decisions`, NFR Design's `scalability-design`, `reliability-design` and `logical-components`, and Build and Test's agent-written `cross-unit-traceability.md` | maintainer | a revision of `01` |
 | User Stories keeps AI-DLC's `traceability` sensor, which finds requirement ids in `requirements.md` by the pattern `FR\d+(?:\.\d+)?`, while the adapted file names them like `req~fr1-2~1`. Keep the AI-DLC id in each item's prose, or move User Stories to `earnest`? | maintainer | a revision of `01` |
 | Whether the fork holds the `earnest` sensor on through the per-intent `/aidlc --sensors off` and the `AIDLC_DISABLE_SENSORS=1` kill switch, which turn the sensors ceremony off under every scope | maintainer | a revision of `01` |
-| Which upstream tests pin the bundled sensor ids, the dispatcher routes or a stage's `sensors:` list, and so change with the Fork delta; a search names `t86-sensor-manifest-schema`, `t227-tool-entrypoint-exports`, `t230-dispatcher-routes` and `t349-gate-sensor-reachability` in `tests/unit/` | maintainer | the first run of upstream's suite on the fork |
+| Which upstream tests pin the bundled sensor ids, the dispatcher routes or a stage's `sensors:` list, and so change with the Fork delta; a search names `t86-sensor-manifest-schema`, `t227-tool-entrypoint-exports`, `t230-dispatcher-routes` and `t349-gate-sensor-reachability` in `tests/unit/`, and `t48` may pin the `audit-format.md` table | maintainer | the first run of upstream's suite on the fork |
+| Whether the units variant of `seeded-change` is a second history built from a `units/` overlay, as L6 states, or a fourth fixture directory | maintainer | the task plan of M2b of `03` |

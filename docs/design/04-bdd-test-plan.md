@@ -39,14 +39,15 @@ milestone in `03`.
 | Milestone | Feature | Step module | Fixture | Success criteria |
 | --- | --- | --- | --- | --- |
 | M1 `trace_check` | `trace_check.feature` | `test_trace_check.py` | `broken-links` | SC1, SC2, SC3 (untraced and traced), SC10 (message text) |
-| M2 `stage_status` | `stage_status.feature` | `test_stage_status.py` | `seeded-change` | SC1, SC5, SC8 (status), SC9 (run header) |
+| M2 `stage_status` | `stage_status.feature` | `test_stage_status.py` | `seeded-change` | SC1, SC5, SC8 (stage and task status), SC9 (run header) |
+| M2b `unit_status` | `unit_status.feature` | `test_unit_status.py` | `seeded-change` (units variant) | SC8 (unit status) |
 | M3 `task_change` | `task_change.feature` | `test_task_change.py` | `seeded-change` | SC6, SC7 |
 | M4 `judge_check` | `judge_check.feature` | `test_judge_check.py` | `seeded-change` | SC3 (judged), SC4 (warning), SC11 |
 | M5 `evidence_check` | `evidence_check.feature` | `test_evidence_check.py` | `seeded-change` | SC3 (in full), SC8 (done) |
 | M6 `calibration_gate` | `calibration_gate.feature` | `test_calibration_gate.py` | `calibration` | SC4 |
 | M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
 
-Each later milestone's scenarios are added here when that milestone's plan is written.
+The scenarios of M2b and M3 to M7 are added here when each milestone's plan is written.
 
 ## How scenarios are written
 
@@ -201,16 +202,414 @@ Feature: Trace check
     Then the check exits non-zero, with the SARIF log on stdout
 ```
 
+## M2 `stage_status`
+
+- Feature: `packages/earnest/tests/features/stage_status.feature`, bound by
+  `tests/steps/test_stage_status.py`.
+- Fixture: `tests/fixtures/seeded-change/`, an AI-DLC-shaped repository. Its base
+  commit holds an intent's record directory
+  (`aidlc/spaces/default/intents/260926-checkout/`) with a state file, a sharded
+  audit log, three requirements, two tasks, Python code and tests carrying tags,
+  and one approval for the requirements stage. Its `change/` overlay is the
+  second commit, on the branch `task/add-limiter-window`, named after an
+  existing task: one revision bump and one silent edit. M2 passes no `--task`
+  and reads no branch name; the split of `task/<name>-…` for a hyphenated name
+  is an open question of `01` that M3 closes.
+- Success criteria asserted: SC1, SC5, SC8 (stage and task status), SC9 (run
+  header).
+
+Every scenario reads a route, a state file and audit rows from the fixture. Their
+shapes follow upstream AI-DLC at commit `fe563195d827`; the `Assessment Hash`,
+`Items` and `Approved By` fields of the approval rows are the fork's additions
+(the Fork delta of `02`), and the fixture carries them.
+
+### What `seeded-change` seeds
+
+The profile is `bugfix`, a Greenfield record. The state file is abridged:
+upstream lists every compiled stage and the template's other sections, and only
+the Stage Progress rows are read. Its rows mark the three initialization stages
+EXECUTE (outside the route, as they hold no gate); `reverse-engineering`,
+`deployment-pipeline` and `deployment-execution` EXECUTE with the skipped mark
+`[S]` and an audited `STAGE_SKIPPED` row each (runtime skips); and
+`units-generation` SKIP (planned by scope). The route is the EXECUTE rows
+outside the initialization phase, less the audited skips:
+`inception/requirements-analysis`, `construction/code-generation`,
+`construction/build-and-test`. The profile has no Ideation and no Units
+Generation (Stages in `01`). The chain root is `req`, so no `Covers:` line is
+needed.
+
+Base commit, record directory `aidlc/spaces/default/intents/260926-checkout/`
+(inside the sensor's `matches`):
+
+| File | Line | Seeded text | Role |
+| --- | --- | --- | --- |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 6 | `- **Scope**: bugfix` | the profile; M2 parses it and does not display it |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 11-14 | `### INITIALIZATION PHASE`, then `- [x] workspace-scaffold — EXECUTE: always`, `workspace-detection`, `state-init`, in that order | auto-proceeding stages with no gate, outside the route |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 16-19 | `### INCEPTION PHASE`, then `- [S] reverse-engineering — EXECUTE: greenfield project`, `- [x] requirements-analysis — EXECUTE: always`, `- [S] units-generation — SKIP: not in bugfix scope` | a runtime skip, a route stage, a planned skip |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 21-23 | `### CONSTRUCTION PHASE`, then `- [x] code-generation — EXECUTE: always`, `- [x] build-and-test — EXECUTE: always` | agent-written marks that Earnest never reads as status |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 25-27 | `### OPERATION PHASE`, then `- [S] deployment-pipeline — EXECUTE: no pipeline change`, `- [S] deployment-execution — EXECUTE: no pipeline change` | runtime skips |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 1-6 | a `WORKFLOW_STARTED` block (Timestamp 2026-09-26T09:00:00Z, Scope bugfix, Request), closed by `---` on line 6 | the attempt boundary |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 7-13 | a `STAGE_SKIPPED` block (Timestamp 2026-09-26T09:10:00Z; Stage `reverse-engineering`; Reason; Skip Kind `conditional-runtime`), closed by `---` on line 13 | the audited skip |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 14-27 | two more `STAGE_SKIPPED` blocks, `deployment-pipeline` at 09:20:00Z (lines 14-20) and `deployment-execution` at 09:21:00Z (lines 21-27) | the audited skips; the order is synthetic and does not follow a real run |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 28-36 | a `GATE_APPROVED` block (Timestamp 2026-09-26T10:00:00Z; Stage `requirements-analysis`; User Input; Assessment Hash `sha256:` and 64 zeros; Items `req~audit-log~1, req~lockout-notice~1, req~rate-limit~1`; Approved By `human`), closed by `---` on line 36 | the requirements stage's approval. The hash is a placeholder because currentness reads the items alone; the last three fields are the fork's |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 3 | `` `req~rate-limit~1` ``, body on lines 5-6 | traced; bumped by the overlay |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 8 | `` `req~lockout-notice~1` ``, body on lines 10-11 (`...shall tell the member` / `when they may try again.`) | traced; edited without a bump by the overlay |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 13 | `` `req~audit-log~1` ``, body on line 15 | traced, delivered by no task: `unplanned` |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 3, 5 | `` `task~add-limiter~1` ``, body `Add a limiter that counts failed logins in a window.` | the plan |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 7 | `Delivers: req~rate-limit~1` | the edge the bump leaves at the old revision |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 9, 11 | `` `task~notify-lockout~1` ``, body `Tell the member when the lockout starts.` | the plan |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 13-14 | `Delivers: req~lockout-notice~1` and `Depends: task~add-limiter~1` | the plan; the dependency a scenario closes into a cycle |
+| `src/checkout/auth.py` | 4, 9, 14 | `# [impl->req~rate-limit~1]`, `# [impl->req~lockout-notice~1]`, `# [impl->req~audit-log~1]` | the `impl` covers; line 4 is the tag the bump leaves at the old revision |
+| `tests/test_auth.py` | 4, 9, 14 | `# [utest->req~rate-limit~1]`, `# [utest->req~lockout-notice~1]`, `# [utest->req~audit-log~1]` | the `utest` covers; line 4 is the tag the bump leaves at the old revision |
+
+At the base commit all three requirements are traced and one finding exists,
+`unplanned` on line 13 of `requirements.md`. The requirements stage has a
+current approval and no error, so it is done. The code-generation stage has no
+approval and its tasks are not done (no requirement is at level evidenced before
+M5), so it is the frontier. A requirement is unplanned when no task's
+`Delivers:` names it, and a tag reaches a stage through the task that delivers
+what it covers.
+
+The `change/` overlay, the second commit on the branch
+`task/add-limiter-window` (`01` names the convention `task/<name>-…`, and
+`add-limiter` is the task the base commit holds):
+
+| File | Line | Change | Finding |
+| --- | --- | --- | --- |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 3, 5-6 | `req~rate-limit~1` becomes `req~rate-limit~2`, and the body now says thirty minutes | the bump: leaves the approval, the `Delivers:` edge and both tags at revision 1 |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 11 | the line now reads `how long the lockout lasts.` and the id line stays `req~lockout-notice~1` | `unbumped-change`, given a record written before the change |
+
+After the change the approval no longer matches the stage's items, so the
+requirements stage is the frontier again. Findings in the code-generation stage
+then sit ahead of the frontier and read as notes that name where the work is
+expected. SC5 holds all the same: each place is flagged in the same run.
+
+### Readings the scenarios pin
+
+Each reading is a choice that the docs leave open or imply. A scenario that
+rests on one inherits it.
+
+| Reading | Basis |
+| --- | --- |
+| A task's `Delivers:` counts whatever the revision, so no `unplanned` fires for `req~rate-limit~2` after the bump | the Findings table of `01` says "delivered by no task" and does not mention revision; M1's `gap` lookup is revision-blind |
+| A tag or edge at an old revision reaches the code-generation stage through a task that delivers the same type and name | Stages in `01` |
+| `unbumped-change` is located at the item's id line | M1 locates item findings at the id line, and so do approval findings |
+| The `outdated` findings that a bump in an approved earlier stage causes are position `ahead` (level note) until that stage is re-approved | Frontier and position and Revision lifecycle in `01`, read together |
+| A stale stage approval is an `outdated` finding at level note, at its stage's position; the latest counting `GATE_APPROVED` row is the stage's approval | the Findings table and Frontier and position in `01` |
+| A hash is held per id and revision, replaced until a counting approval row names it, then frozen; `unbumped-change` fires only when a counting row names the id and revision, and a held hash that no counting row names is no baseline | Revision lifecycle in `01` |
+
+### Stage status feature
+
+```gherkin
+Feature: Stage status
+  The coding agent and the repo maintainer read where the work stands from the
+  command output alone: the route with each stage's computed status, its
+  approval and the frontier; the assessment hash that a stage check prints and
+  records; and, after a revision bump, every place left at the old revision
+  (UC4, UC7, UC9; SC1, SC5, SC8, SC9).
+
+  Background:
+    Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
+
+  Scenario: The plan prints the route, each stage's status, its approval and the frontier (SC8)
+    When the coding agent runs earnest plan
+    Then the plan lists these stages in route order:
+      | stage                           | status   | approval       |
+      | inception/requirements-analysis | done     | current, human |
+      | construction/code-generation    | not done | none           |
+      | construction/build-and-test     | not done | none           |
+    And the frontier is "construction/code-generation"
+    And the plan lists these tasks:
+      | task                  | status   |
+      | task~add-limiter~1    | not done |
+      | task~notify-lockout~1 | not done |
+    And the plan lists neither the initialization stages nor the stages skipped by scope or by an audited skip
+    And the summary names each stage with its status and approval, and the frontier
+
+  Scenario: A status someone typed is not read (SC8)
+    When the coding agent runs earnest plan
+    Then "construction/code-generation" is "not done" although the state file marks it complete
+
+  Scenario: The plan changes nothing in the repository (SC8)
+    When the coding agent runs earnest plan
+    Then the repository is unchanged
+    And no assessment record exists
+
+  Scenario: Two plans of an unchanged repository write the same SARIF log (SC1)
+    When the coding agent runs earnest plan twice
+    Then both runs write the same SARIF log
+
+  Scenario: A requirement that no task delivers is flagged in scope at the frontier (SC8)
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule              | file                                                                                         | line | level   | position | stage                        |
+      | earnest/unplanned | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 13   | warning | current  | construction/code-generation |
+    And the finding names "req~audit-log~1" and says that no task delivers it
+    And the check exits zero
+
+  Scenario: Tasks that wait on each other are a cycle in scope at the frontier (SC8)
+    Given the repo maintainer makes "task~add-limiter~1" wait on "task~notify-lockout~1", which already waits on it
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule              | file                                                                                              | line | level   | position | stage                        |
+      | earnest/cycle     | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 3    | error   | current  | construction/code-generation |
+      | earnest/unplanned | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | warning | current  | construction/code-generation |
+    And the cycle finding lists "task~add-limiter~1 -> task~notify-lockout~1 -> task~add-limiter~1"
+    And the check exits non-zero
+
+  Scenario: The stage check prints the assessment hash and writes the run header (SC9)
+    When the coding agent runs earnest check --stage "construction/code-generation"
+    Then the summary prints the assessment hash
+    And the SARIF log gives the same hash and the stage status "not done"
+    And the run header for "construction/code-generation" in the assessment record holds:
+      | field  | value                                     |
+      | commit | the repository's HEAD commit              |
+      | dirty  | false                                     |
+      | layers | trace                                     |
+      | items  | task~add-limiter~1, task~notify-lockout~1 |
+      | hash   | the hash the summary printed              |
+    And Git lists no new file
+    And the check exits zero
+
+  Scenario: Two stage checks of an unchanged repository print the same hash (SC1)
+    When the coding agent runs earnest check --stage "construction/code-generation" twice
+    Then both runs print the same assessment hash
+    And both runs write the same SARIF log
+
+  Scenario: An uncommitted edit gives a new hash and is recorded as dirty (SC9)
+    Given the coding agent has run earnest check --stage "construction/code-generation"
+    And the coding agent has an uncommitted edit to "src/checkout/auth.py"
+    When the coding agent runs earnest check --stage "construction/code-generation"
+    Then the assessment hash differs from the first run's
+    And the run header records the same commit as dirty
+
+  Scenario: What the maintainer's approval adds to the audit log leaves the hash as it was (SC9)
+    Given the coding agent has run earnest check --stage "construction/code-generation"
+    And the repo maintainer approves "construction/code-generation" at the gate
+    When the coding agent runs earnest check --stage "construction/code-generation"
+    Then the assessment hash equals the first run's
+    And the run header records the repository as not dirty
+
+  Scenario: After a revision bump every place left at the old revision is flagged (SC5)
+    Given the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer's change is committed on a task branch
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule                    | file                                                                                              | line | level | position | stage                           |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note  | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note  | ahead    | construction/code-generation    |
+      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note  | ahead    | construction/code-generation    |
+      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note  | ahead    | construction/code-generation    |
+      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note  | ahead    | construction/code-generation    |
+    And the finding at requirements.md line 3 names the approval of "inception/requirements-analysis" and the current revision 2
+    And the check exits non-zero
+
+  Scenario: After the bump the requirements stage waits for a fresh approval (SC5, SC8)
+    Given the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer's change is committed on a task branch
+    When the coding agent runs earnest plan
+    Then the plan lists these stages in route order:
+      | stage                           | status   | approval |
+      | inception/requirements-analysis | not done | outdated |
+      | construction/code-generation    | not done | none     |
+      | construction/build-and-test     | not done | none     |
+    And the frontier is "inception/requirements-analysis"
+
+  Scenario: The stage that awaits its fresh approval passes its own check (SC5, SC9)
+    Given the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer's change is committed on a task branch
+    And the repo maintainer restores the approved text of "req~lockout-notice~1"
+    When the coding agent runs earnest check --stage "inception/requirements-analysis"
+    Then the SARIF log holds exactly these findings:
+      | rule             | file                                                                                         | line | level | position | stage                           |
+      | earnest/outdated | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
+    And the SARIF log gives the stage status "not done" with its approval "outdated"
+    And the check exits zero
+
+  Scenario: A fresh approval replaces the old one and the work list moves into scope (SC5, SC8)
+    Given the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer's change is committed on a task branch
+    And the repo maintainer restores the approved text of "req~lockout-notice~1"
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    When the coding agent runs earnest plan
+    Then the plan lists these stages in route order:
+      | stage                           | status   | approval       |
+      | inception/requirements-analysis | done     | current, human |
+      | construction/code-generation    | not done | none           |
+      | construction/build-and-test     | not done | none           |
+    And the frontier is "construction/code-generation"
+
+  Scenario: After a fresh approval the findings left at the old revision are in scope at the next stage (SC5)
+    Given the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer's change is committed on a task branch
+    And the repo maintainer restores the approved text of "req~lockout-notice~1"
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule              | file                                                                                              | line | level   | position | stage                        |
+      | earnest/outdated  | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | error   | current  | construction/code-generation |
+      | earnest/outdated  | src/checkout/auth.py                                                                              | 4    | error   | current  | construction/code-generation |
+      | earnest/outdated  | tests/test_auth.py                                                                                | 4    | error   | current  | construction/code-generation |
+      | earnest/unplanned | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | warning | current  | construction/code-generation |
+    And the check exits non-zero
+
+  Scenario: A held hash that no approval names is no baseline (SC5)
+    Given the coding agent has run earnest check --stage "construction/code-generation"
+    And the coding agent has an uncommitted edit to the body of "task~notify-lockout~1"
+    When the coding agent runs earnest check
+    Then the SARIF log holds no earnest/unbumped-change finding
+
+  Scenario: A stage check before the approval replaces the held hash (SC5)
+    Given the coding agent has run earnest check --stage "construction/code-generation"
+    And the coding agent has an uncommitted edit to the body of "task~notify-lockout~1"
+    When the coding agent runs earnest check --stage "construction/code-generation"
+    Then the SARIF log holds no earnest/unbumped-change finding
+    And the record holds a different body hash for "task~notify-lockout~1" than the first run held
+
+  Scenario: A missing record is stated, not silent (SC5)
+    When the coding agent runs earnest check
+    Then the summary states that the record is absent and the body-hash baseline is unavailable
+
+  Scenario: A rejected gate after an approval reopens the stage (SC8)
+    Given the audit log gains a GATE_REJECTED row for "requirements-analysis" after its approval
+    When the coding agent runs earnest plan
+    Then "inception/requirements-analysis" has the approval "none"
+    And the frontier is "inception/requirements-analysis"
+
+  Scenario: An approval from before a workflow restart does not count (SC8)
+    Given the audit log gains a WORKFLOW_STARTED row after the approval
+    And the audit log gains a fresh STAGE_SKIPPED row after the restart for each stage the state file marks skipped
+    When the coding agent runs earnest plan
+    Then "inception/requirements-analysis" has the approval "none"
+    And the frontier is "inception/requirements-analysis"
+
+  Scenario: The audit shards of two clones are read as one log (SC8)
+    Given the requirements approval sits in a second shard "fixture-0000aaaa.md", which sorts before the first shard, written later than the first shard's WORKFLOW_STARTED row
+    When the coding agent runs earnest plan
+    Then "inception/requirements-analysis" has the approval "current, human"
+
+  Scenario: An approval row without the fork's fields counts and never goes stale (SC8)
+    Given the approval row names no Assessment Hash, Items or Approved By
+    And the repo maintainer's change is committed on a task branch
+    When the coding agent runs earnest plan
+    Then "inception/requirements-analysis" has the approval "current"
+    And the frontier is "construction/code-generation"
+
+  Scenario: A stage marked skipped with no audited skip stays on the route and is flagged (SC8)
+    Given the state file marks "deployment-pipeline" as skipped and the audit log holds no skip row for it
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly one earnest/route-mismatch finding, at the "deployment-pipeline" row of the state file, naming the audit row that is missing
+    And the plan lists "operation/deployment-pipeline" among the stages
+    And the check exits non-zero
+
+  Scenario: A backward jump resets the approval of its target stage (SC8)
+    Given the audit log gains a STAGE_JUMPED row with direction BACKWARD and target "requirements-analysis" after the approval
+    And the state file resets the marks of every later stage marked EXECUTE to pending
+    When the coding agent runs earnest plan
+    Then "inception/requirements-analysis" has the approval "none"
+    And the frontier is "inception/requirements-analysis"
+    And the plan lists "operation/deployment-pipeline" and "operation/deployment-execution" among the stages
+
+  Scenario: A forward jump leaves approvals standing (SC8)
+    Given the audit log gains a STAGE_JUMPED row with direction FORWARD and target "build-and-test" after the approval
+    And the audit log gains a STAGE_SKIPPED row of kind jump for "code-generation", which the state file marks skipped
+    When the coding agent runs earnest plan
+    Then "inception/requirements-analysis" has the approval "current, human"
+    And the plan does not list "construction/code-generation"
+    And the frontier is "construction/build-and-test"
+
+  Scenario: A rejected approval freezes no body hash (SC5)
+    Given the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the audit log gains a GATE_REJECTED row for "requirements-analysis" after its approval
+    And the coding agent has an uncommitted edit to the body of "req~lockout-notice~1"
+    When the coding agent runs earnest check
+    Then the SARIF log holds no earnest/unbumped-change finding
+
+  Scenario: A route with per-unit stages is refused by the plan (SC8)
+    Given the state file marks "units-generation" as EXECUTE and not skipped
+    When the coding agent runs earnest plan
+    Then the plan exits with code 2, with empty stdout
+    And stderr is one line that names the unsupported per-unit route
+
+  Scenario: A route with per-unit stages is refused by the stage check (SC9)
+    Given the state file marks "units-generation" as EXECUTE and not skipped
+    When the coding agent runs earnest check --stage "construction/code-generation"
+    Then the check exits with code 2, with empty stdout
+    And stderr is one line that names the unsupported per-unit route
+    And Git lists no new file
+```
+
+### Notes for the task plan
+
+- Shared steps: "the SARIF log holds exactly these findings:" compares only the
+  columns a table gives (M1 gives `rule`, `file`, `line`), and "both runs write
+  the same SARIF log" and "the check exits non-zero" move to `tests/conftest.py`
+  (`02` places steps that two features share there). The new `When` steps set
+  the fixture name `runs` or `run` as M1's do. "The repo maintainer approves …
+  at the gate" appends a `GATE_APPROVED` row whose `Items` are the header's.
+- Builder: `conftest.py` builds the base commit on `main`, and a separate step
+  commits the `change/` overlay on `task/add-limiter-window`, because scenarios
+  run `check --stage` between the two commits to write the baseline.
+- The summary prints `record: absent, body-hash baseline unavailable` whenever
+  the record is missing and the index holds items; scenario "A missing record is
+  stated, not silent" pins the line, and its wording is part of this section.
+- Jumps: upstream voids no audit row, so the rule that a row counts only after
+  the latest `WORKFLOW_STARTED` and every BACKWARD or REDO jump that resets its
+  stage is Earnest's. Scenario "A forward jump leaves approvals standing" has
+  `code-generation` off the route, so its task items belong to no route stage;
+  the unit tier pins the position of their findings (stage-less, position
+  current, as in a run with no plan for that stage).
+- Intents: `plan.py` reads `aidlc-state.md` and `audit/*.md` by raw read,
+  because the scanner skips them; `--stage` accepts the sensor's bare
+  `stage_slug` or `<phase>/<slug>`, and `--intent` names the record. A `--stage`
+  that names no stage on the route, or an ambiguous bare slug, exits 2 with one
+  line (a unit-tier test).
+- Unsupported intent: on a route with `units-generation`, plain `check` places
+  that intent's findings as in a run with no plan (position current, no stage)
+  and leaves it out of `properties.plan`; `plan` exits 2 only when the selected
+  or only intent is unsupported, and lists the other intents otherwise (a
+  unit-tier test).
+- M3 additions to the overlay (code changed inside and outside the task, a
+  region under an override) add out-of-task and `impact-degraded` rows to plain
+  `check` after the overlay, which changes the exact tables of the bump and
+  fresh-approval scenarios; the Open questions section below carries the
+  decision.
+- Messages carry the change to make (T6, SC10): the `outdated` note at
+  `requirements.md` line 3 names the stage to re-approve; `unbumped-change` names
+  "bump the revision to 2, or restore the text"; `unplanned` names "add a `task`
+  that delivers it". The wording is the plan's to fix; the scenarios assert the
+  places and the facts above.
+- Unit and integration tiers cover what the feature leaves out: the Region rule
+  over `Source.code_lines` (tag to next tag, stacked tags, repeated tags for one
+  id), `Approved By: automatic` rows, a repository with several record
+  directories, the record's `RecordError` for a corrupt or newer file with exit
+  2, the record's atomic write, and the import check that `reporter` imports
+  neither `structural` nor `plan`. Unit status and `Depends:` between units
+  belong to M2b with per-unit stages: the M2 route has no Units Generation, and a
+  route with one is refused.
+- Regression guard: `broken-links` has no record directory, and M1's scenarios
+  stay green only while every finding there keeps position `current` with no
+  stage.
+
 ## Scope (v1)
 
-- One behavior feature per milestone of `03`, seven in all, with the scenarios
-  of M1 in full.
+- One behavior feature per milestone of `03`, eight in all, with the scenarios
+  of M1 and M2 in full.
 - Three test tiers under one runner, pytest, with pytest-bdd for the features.
 - Three fixture repositories, `broken-links`, `seeded-change` and
   `calibration`, each plain files with its history built at test time.
 
 ## Future directions
 
-- The scenarios of M2 to M7, each written here when its milestone's plan is
-  written.
+- The scenarios of M2b and M3 to M7, each written here when its milestone's
+  plan is written.
 - A coverage threshold for the package, when the maintainer sets one.
+
+## Open questions
+
+| Question | Owner | Resolved by |
+| --- | --- | --- |
+| How M3's overlay changes (code changed inside and outside the task, a region under an override) meet the exact findings tables of M2's bump and fresh-approval scenarios: a ratified revision of those tables, or a second overlay for M3 | maintainer | before milestone `task_change` of `03-implementation-plan.md` |

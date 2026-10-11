@@ -122,9 +122,15 @@ an `input_schema` of `output_path` and `stage_slug`, and an `output_schema` of
 `pass` and `findings_count`. Its `command` is
 `{{INVOKE}} engine sensor-earnest`, which AI-DLC resolves to the script
 `core/tools/aidlc-sensor-earnest.ts`. The script receives
-`--stage <slug> --output-path <path>`, runs `earnest check --stage <slug>`, and
-prints `pass` and `findings_count` as JSON with exit code 0. Every stage in the
-mapping table whose artifacts carry items, and the Build and Test stage, lists
+`--stage <slug> --output-path <path>`, derives the intent's
+record directory from the path, runs
+`earnest check --stage <slug> --intent <record dir>`, and prints `pass` and
+`findings_count` as JSON with exit code 0. AI-DLC reads only the sensor's JSON,
+so the script sets `pass` to true when `earnest check` exits
+0 and to false when it exits 1 or 2. The script passes a bare slug and derives
+no unit; M2b of `03` widens it to derive the unit from `output_path` and pass
+`<phase>/<unit>/<slug>`, since a per-unit stage's bare slug is ambiguous. Every
+stage in the mapping table whose artifacts carry items, and the Build and Test stage, lists
 `earnest` in its `sensors:` frontmatter in place of `traceability` and
 `upstream-coverage`. The fork keeps the `sensors` ceremony on under every
 workflow profile, so every such gate shows the check.
@@ -134,29 +140,33 @@ of the stage's deliverables that `matches` selects, and records
 `SENSOR_FIRED`, then `SENSOR_PASSED` or `SENSOR_FAILED`, each naming the fire
 id, the sensor id, the stage slug and the output path. Every fire checks the
 whole stage, so every fire returns the same verdict. The gate shows the stage's
-trace, verdicts, evidence, computed status and assessment hash. The sensor
-passes exactly when `earnest check` exits 0 (see Command surface), and
-findings ahead of the frontier ride along as notes. On a failure AI-DLC
+trace, verdicts, evidence, computed status and assessment hash. The sensor's
+output carries the trace, verdicts and evidence; the gate reads the computed
+status and the assessment hash from the stage's run header in the assessment
+record. The sensor passes exactly when `earnest check` exits 0 (see Command
+surface), and findings ahead of the frontier ride along as notes. On a failure AI-DLC
 writes the sensor's JSON, which carries the
 findings summary, to the detail file
 `<record>/.aidlc-engine/sensors/<stage>/earnest-<fire id>.md` that the
 `SENSOR_FAILED` row names. A failing sensor holds the gate until the agent
 fixes the findings. AI-DLC holds a blocking gate the same way when the sensor
-times out, exceeds its budget, returns malformed output or sees an artifact
-change during the run, so a check that fails to run holds the gate like a
-failing one. The human's escape hatch is AI-DLC's audited override, the gate
+times out, exceeds its budget or returns malformed output, and the fork holds it
+too when an artifact changes during the run, so a check that fails to run holds
+the gate like a failing one. The human's escape hatch is AI-DLC's audited override, the gate
 choice `Override blocking sensors`.
 
 An approval is AI-DLC's own `GATE_APPROVED` audit row. Upstream the row
 carries `Stage`, the human's `User Input` and any review-finding
 dispositions, and only AI-DLC's approve transition in `aidlc-state.ts` writes
 it. The fork extends that transition with three fields: `Assessment Hash`, the
-hash of the stage's latest assessment; `Items`, the stage's item ids with
-their revisions, such as `req~login-rate-limit~2`; and `Approved By`, `human`
-or `automatic`. The transition reads the hash and the items from the run
-header that the sensor's `earnest check --stage` run wrote to the assessment
-record, and AI-DLC confirms before approving that the stage's artifacts are
-unchanged since the sensor ran. Request Changes records `GATE_REJECTED` as
+assessment hash in the stage's latest run header; `Items`, the stage's item ids
+with their revisions, such as `req~login-rate-limit~2`; and `Approved By`,
+`human` or `automatic`. The fork adds them at the `GATE_APPROVED` emit site of
+the approve path, and AI-DLC's audit validator accepts the three field names.
+The transition reads the hash and the items from
+the run header that the sensor's `earnest check --stage` run wrote to the
+assessment record, and the fork's approve transition confirms before approving
+that the stage's artifacts are unchanged since the sensor ran. Request Changes records `GATE_REJECTED` as
 AI-DLC does. Earnest reads these rows and writes none of them.
 
 AI-DLC's `autonomous` mode, the `Construction Autonomy Mode` field that an
@@ -422,13 +432,14 @@ the declared tier stays a gap until a cover of that tier exists.
 
 Every finding has a rule id, a level, a location and a position (see Frontier
 and position, which also places a finding that reaches no stage). The Level
-column is the SARIF level at position behind or current; at position ahead
+column is the SARIF level at position behind or current, except for a stage
+approval's `outdated`, which is a note at every position; at position ahead
 every finding is a note. The first five reuse OFT's link-status names; the
 rest are Earnest's.
 
 | Rule id | Level | Meaning |
 | --- | --- | --- |
-| `earnest/outdated` | error | a tag, edge or stage approval names an older revision of an existing item; the message names the current revision |
+| `earnest/outdated` | error; note for a stage approval | a tag or edge names an older revision of an existing item; the message names the current revision. A stage approval that names an older revision is the same finding at level note, at the position of the stage that awaits its fresh approval |
 | `earnest/predated` | error | a tag or edge names a revision above the item's current one |
 | `earnest/unwanted` | warning | a cover by a type the parent never needs, so it counts toward nothing |
 | `earnest/orphaned` | error | a tag or edge names an id absent from the index, or an item covers no parent; the message suggests the closest existing id |
@@ -438,10 +449,11 @@ rest are Earnest's.
 | `earnest/gap` | error | an item lacks a child its `Needs:` requires |
 | `earnest/unplanned` | warning | a `req` is delivered by no task |
 | `earnest/cycle` | error | the plan's dependency graph has a cycle |
+| `earnest/route-mismatch` | error | a stage row of the state file's Stage Progress that is marked EXECUTE carries the skipped mark with no counting `STAGE_SKIPPED` row, or a Stage Progress row, or the section itself, that Earnest cannot read; the message names the stage and the audit row that is missing, or the line Earnest cannot read. The finding reaches no stage |
 | `earnest/out-of-task` | warning | a changed region lies outside what the current task delivers; the message offers the three exits |
 | `earnest/override-expired` | warning | an `Override:` line names a revision other than the item's current one |
 | `earnest/override-drift` | warning | the region an override covers changed since the override's commit; the judge reruns and both verdicts show |
-| `earnest/unbumped-change` | error | an item body changed while its revision stayed the same |
+| `earnest/unbumped-change` | error | an item body changed while its revision stayed the same, after a counting approval named that revision (see Revision lifecycle) |
 | `earnest/impact-degraded` | note | a changed line has no coverage data, so impact selected a conservative set |
 | `earnest/judge-uncalibrated` | warning | the judge ran with no passing calibration for the current model and prompt |
 | `earnest/judge-not-satisfied` | warning | the judge answered a question with not-satisfied |
@@ -469,6 +481,13 @@ Status is recomputed from the graph on every run.
 A feature's `stest` going green is checked at the Build and Test stage, which
 runs once across the completed unit work.
 
+A stage's status is `done` or `not done`, by the three conditions under
+Frontier and position. Its reasons are the number of error-level findings
+that count against it, the number of its tasks that are not done, and its
+approval, `current`, `outdated` or `none`. Stage status is a fact about the
+graph, so a stage whose only open condition is its approval reads `not done`
+at its gate.
+
 ### Stages
 
 A stage is one AI-DLC stage run, named by its path in the intent's record
@@ -480,10 +499,23 @@ writes a stage item. A stage's items are the items in the artifact files under
 that path. Code and test tags reach a stage through the tasks that deliver
 what they cover, and every `stest` reaches the Build and Test stage.
 
-The workflow profile, stored as `Scope` in the intent's `aidlc-state.md`, fixes
-the route: the stages its row in AI-DLC's compiled scope grid marks EXECUTE, in
-AI-DLC's order, with Construction's per-unit stages once per unit. Earnest
-reads the route as configuration. The route rule: needs and edges that name an
+The workflow profile, stored as `Scope` in the intent's `aidlc-state.md`,
+selects the route, and the state file records it: its Stage Progress section
+lists every compiled stage under a heading for its phase, with the word EXECUTE
+or SKIP. The route is the rows marked EXECUTE outside the Initialization phase,
+in the order the rows stand, less each stage that a counting `STAGE_SKIPPED` row
+in the audit log skips (see Frontier and position). Initialization's stages hold
+no approval gate, so they are not on the route. A stage's id is its phase and
+slug, such as `inception/requirements-analysis`. A route that holds
+`units-generation` has per-unit stages, which M2b of `03` adds (see
+Open questions): `earnest plan` and `earnest check --stage` stop with a message
+that names the unsupported route when the selected or only intent has it, and
+plain `earnest check` places that intent's findings as in a run with no plan and
+leaves it out of `properties.plan`. Earnest reads the route as configuration. It
+never reads the checkbox marks as status; it compares a skipped mark on an
+EXECUTE row with the audit log, and such a row with no `STAGE_SKIPPED` row,
+like a Stage Progress row or section it cannot read, raises
+`earnest/route-mismatch`. The route rule: needs and edges that name an
 item type no stage on the route produces are dropped, and the chain root is the
 highest type reached by climbing from `req` through types the route produces.
 Enterprise, Feature and MVP run Intent Capture and Scope Definition, so they
@@ -500,9 +532,26 @@ Build and Test, so its route has no tasks.
 ### Frontier and position
 
 Earnest reads approvals from AI-DLC's `GATE_APPROVED` audit rows and never
-reads the stage checkboxes in `aidlc-state.md`, which the agent writes (T2). An
-approval is current when the item ids and revisions it names match the
-stage's current ones. The frontier is the first stage on the route without a
+reads the stage checkboxes in `aidlc-state.md`, which the agent writes (T2).
+An approval is read from the `GATE_APPROVED` rows of the intent's audit shards.
+The intent's record directory is `aidlc/spaces/<space>/intents/<dir>/`, and its
+audit log is every `audit/*.md` shard in it, read as blocks split on a `---`
+line, each field a `**Field**: value` line, with the block's first `Timestamp`
+as its time. The rows are ordered by timestamp, then by shard file name, then by position in
+the shard. A row for a stage counts only if it follows the latest
+`WORKFLOW_STARTED` row and every `STAGE_JUMPED` row whose reset span includes the
+stage: a BACKWARD jump resets its target and every later row of the state
+file's Stage Progress that is marked EXECUTE, skipped marks included, a REDO
+jump resets its target, and a FORWARD jump resets none. A stage's approval is
+the latest counting row for it, unless a counting `GATE_REJECTED` row for the
+stage follows it, which leaves the stage with none. A row that carries `Unit`,
+`Gate Scope` or `Gate Stages` belongs to a team's per-unit gate and is not read.
+An approval is current when the item ids and revisions its `Items` field names
+match the stage's current ones; a row without an `Items` field is current and
+never goes stale. Rows that do not count, and earlier rows, are history and
+raise nothing. A `STAGE_SKIPPED` row counts under the same rules as an approval
+row, so a skip row before the boundary, or inside a reset span, stops counting
+and its stage is on the route again. The frontier is the first stage on the route without a
 current approval.
 
 Every finding carries a position, taken from the stage it counts against; an
@@ -519,13 +568,24 @@ out-of-task finding counts against the current task:
   "expected at construction/u1/code-generation", and the agent takes no action
   on it.
 
+A plan finding counts against the stage whose artifacts hold the plan items it
+is about, as a `gap` counts against the stage whose artifacts hold the missing
+child's type. `earnest/unplanned` counts against the Code Generation stage
+whose unit delivers the requirement, or against the first Code Generation stage
+on the route when no unit does; a route without a Code Generation stage holds
+no tasks, so it raises no `earnest/unplanned` finding. The rule reads the route
+and needs no task to exist. `earnest/cycle` counts against the stage that holds
+the items in the cycle, is located at the id line of the first item of the cycle
+in id order, and its message lists the cycle as
+`task~a~1 -> task~b~1 -> task~a~1`.
+
 A finding that reaches no stage keeps its level and sits at position current
 in every run, `--stage` runs included, whatever the frontier, so an error
 there fails the check (see Command surface) and the `earnest` sensor at each
 gate until it is fixed. It names no stage. Such findings include an orphaned
 or near-miss tag, which covers nothing a task delivers; a malformed id, which
-resolves to no item; and every finding of a run with no plan, where no `Scope`
-gives a route and so no stage exists.
+resolves to no item; and every finding of a run with no plan, where no Stage
+Progress gives a route, or the route is unsupported, and so no stage exists.
 
 At the start of an intent the frontier is the first stage on the route, so
 only that stage's work reads as current and everything further along reads as
@@ -545,7 +605,8 @@ A stage is done when all three hold, recomputed on every run:
 
 A spec stage can therefore be done before any code exists, and a construction
 stage is done only when the evidence says so. An approval whose items have
-since moved to a new revision raises `outdated`, located at each such item;
+since moved to a new revision raises `outdated` at level note (see Findings),
+located at each such item;
 the approval stops being current, so the stage becomes the frontier again and
 waits for a fresh approval.
 
@@ -561,16 +622,19 @@ and it avoids "control", which implies a compliance catalogue.
 | observation | what one check saw about one edge for one question: method (`trace`, `inspection`, `test`), subject, result, reasoning, location |
 | finding | a located result with a rule id and level, rolled up from observations |
 | override | a human-authored observation that replaces the judge's for one item, revision and kind |
-| approval | AI-DLC's `GATE_APPROVED` audit row accepting one stage, carrying `Assessment Hash` (the hash of the assessment the gate showed), `Items` (the stage's item ids and revisions) and `Approved By` (`human` for the human's answer, `automatic` under AI-DLC's `autonomous` mode); like an override it is an act of record, and no item carries it as a typed status |
+| approval | AI-DLC's `GATE_APPROVED` audit row accepting one stage, carrying, once the fork writes them, `Assessment Hash` (the hash of the assessment the gate showed), `Items` (the stage's item ids and revisions) and `Approved By` (`human` for the human's answer, `automatic` under AI-DLC's `autonomous` mode); a row without them counts as current and freezes nothing (see Frontier and position); like an override it is an act of record, and no item carries it as a typed status |
 
 SARIF is the findings contract: every finding and the observations behind it
-travel in the SARIF output. The one thing Earnest writes is the assessment
-record, and it holds five things:
+travel in the SARIF output. Earnest writes one thing: the `.earnest/`
+directory, which holds the assessment record and its ignore marker. The record
+holds five things:
 
-1. the run header: commit, timestamp, layers run, model id and prompt hash,
-   and for a run with `--stage` the stage, its item ids and revisions, and the
-   assessment hash;
-2. the body hash of every item, keyed by id and revision;
+1. the run header of each stage that `earnest check --stage` ran: commit,
+   `dirty` (as the Assessment hash section defines it),
+   timestamp, layers run, model id and prompt hash, the stage, its item ids and
+   revisions, its computed status and the assessment hash;
+2. the body hash of every item of a stage that `earnest check --stage` ran,
+   keyed by id and revision;
 3. the commit the coverage map was taken at;
 4. the judge cache;
 5. the latest calibration result.
@@ -601,11 +665,25 @@ change (SC5).
 
 1. A spec item's body changes, and the maintainer bumps its revision in the
    same change. Edits to key lines alone need no bump.
-2. A body that changed at the same revision, detected because its hash differs
-   from the one in the assessment record, raises `unbumped-change`. The hash
-   covers the body's non-blank lines, with the body as the Grammar section
-   delimits it, so adding, moving or removing a key line and the blank lines
-   around it leaves the hash as it was.
+2. A body that changed at the same revision after a counting `GATE_APPROVED`
+   row named its id with that revision raises `unbumped-change`: its hash
+   differs from the one the assessment record holds for that id and revision.
+   `earnest check --stage` records an item's hash when none is held for its id
+   and revision, and replaces it on each later run until such a row exists.
+   From then on the held hash stays as it was, so the finding stands until the
+   revision is bumped or the text is restored. A row that is voided (rejected,
+   before the latest `WORKFLOW_STARTED`, or jumped over; see Frontier and
+   position) no longer counts, and the held hash is free again. A held hash
+   that no counting approval names is no baseline, and no finding rests on it.
+   The hash is the SHA-256 of the UTF-8 bytes of the body's non-blank lines
+   joined by line feeds, with no final line feed. The body is the item's lines
+   after its id line, up to the next id line or ATX heading, as the Grammar
+   section delimits it: key lines are left out and fenced lines count as body,
+   so adding, moving or removing a key line and the blank lines around it leaves
+   the hash as it was. The text is the decoded text the scanner reads, with a
+   carriage return before a line feed removed, trailing spaces and tabs removed
+   from each line, and a line blank when nothing is left of it. An item with no
+   held hash has no baseline, and the summary says so.
 3. Staleness propagates exactly one edge: bumping X makes every tag, `Covers:`
    and `Delivers:` that names X at the old revision `outdated`, located at that
    line.
@@ -667,7 +745,8 @@ failing tagged test, or a surviving mutant inside a tagged region, raises
   alike.
 - Overrides carry id, revision and commit.
 - Approvals are `GATE_APPROVED` rows carrying `Assessment Hash`, `Items` and
-  `Approved By`.
+  `Approved By` once the fork writes them; a row without them counts as
+  current and freezes nothing (see Frontier and position).
 - Structural findings are model-free.
 
 ## Grammar
@@ -860,8 +939,8 @@ place of `req`.
 
 - Decision: assessment, observation, finding, override and approval, as
   defined in the Domain model section. SARIF is the only findings contract, and
-  the assessment record is the only thing Earnest writes; approvals live in
-  AI-DLC's audit rows.
+  the `.earnest/` directory, which holds the assessment record, is the only
+  thing Earnest writes; approvals live in AI-DLC's audit rows.
 - Alternatives considered: SysML "verification case" and "verdict";
   compliance "control" and "evidence"; bespoke schemas for items, edges and
   observations beside SARIF.
@@ -965,9 +1044,12 @@ place of `req`.
 
 ### D15 Provenance through a body hash per revision
 
-- Decision: the assessment record keeps the body hash of each item at each
-  revision, and a body that changes at the same revision raises
-  `unbumped-change`.
+- Decision: the assessment record keeps the body hash of each item of a stage
+  that `earnest check --stage` ran, at each revision, and freezes it once a
+  counting approval names that revision, and frees it again when that approval
+  is voided; a body that changes at that revision after a counting approval
+  names it raises `unbumped-change`, and a held hash that no counting approval
+  names is no baseline.
 - Alternatives considered: git blame on the prose files; a separate accept
   step for agent-created spec and plan items.
 - Rationale: a hash catches the silent edit that would let code and item drift
@@ -1025,7 +1107,7 @@ flowchart LR
   maint -- "runs plan and calibrate; rules on verdicts" --> earnest
   maint -- "states the chain, overrides" --> repo
   agent -- "writes artifacts, code, tests, tags" --> repo
-  earnest -- "reads artifacts, Scope and audit rows; writes the assessment record" --> repo
+  earnest -- "reads artifacts, Stage Progress and the audit shards; writes the assessment record" --> repo
   earnest -- "judge questions" --> model
   earnest -- "tests, mutants" --> runner
   earnest -- "SARIF findings" --> surfaces
@@ -1048,7 +1130,7 @@ flowchart TB
   prose[("Stage artifacts<br/>spec and plan items")]
   code[("Code and tests<br/>Python, TypeScript, Gherkin")]
   record[("assessment record")]
-  audit[("AI-DLC state and audit<br/>Scope, GATE_APPROVED rows")]
+  audit[("AI-DLC state and audit<br/>Stage Progress, GATE_APPROVED rows")]
   model[/"Model API"/]
   runner[/"Test runner"/]
 
@@ -1090,9 +1172,9 @@ Host adapters know only how to find comments, code fences and Gherkin tags in
 their language; the grammar alone decides what parses. Everything downstream of
 the index is language-agnostic, so adding a language means adding one adapter.
 The plan and stage engine maps each prose file to its stage by its path in the
-intent's record directory, reads the route from the profile and the approvals
-from the audit rows, and places each finding behind, at or ahead of the
-frontier.
+intent's record directory, reads the route from the state file's Stage Progress
+and the approvals from the audit shards, and places each finding behind, at or
+ahead of the frontier.
 
 ## Runtime data flow
 
@@ -1104,7 +1186,7 @@ flowchart TB
   parse --> judge[Judge: override merge and cache]
   judge --> evid[Evidence: tests and mutants]
   evid --> pos[Position: behind, current, ahead]
-  audit[(Scope and GATE_APPROVED rows)] --> front[Route and frontier]
+  audit[(Stage Progress and GATE_APPROVED rows)] --> front[Route and frontier]
   front --> pos
   pos --> out[SARIF and summary with three percentages]
   diff[(Diff since task base)] --> side
@@ -1118,8 +1200,8 @@ flowchart TB
 Each layer runs only when requested and only over what the layers before it
 passed: the judge reads only items that reach traced, and the evidence layer
 reads only items that reach judged, so `--evidence` implies `--judge`. The
-route from the profile and the approvals from the audit rows fix the
-frontier, and every finding takes its position from it before output, as
+route from the state file's Stage Progress and the approvals from the audit
+shards fix the frontier, and every finding takes its position from it before output, as
 Frontier and position describes.
 Out-of-task, impact, plan and stage status are side reports computed from the
 index plus the diff and the record. The check and the judge read one index, so
@@ -1133,13 +1215,32 @@ the `GATE_APPROVED` row only on an approval.
 
 | Command | Output |
 | --- | --- |
-| `earnest check [--task <id>] [--stage <stage>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage (see Frontier and position), runs the layers its items need, prints the assessment hash in the summary and writes the stage's run header to the record; this is the command the `earnest` sensor's script runs at each gate. |
-| `earnest plan` | the route with each stage's computed status and approval, the frontier, and the unit and task graph with each item's computed status, plus plan findings; read-only |
+| `earnest check [--task <id>] [--stage <stage>] [--intent <record dir>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage (see Frontier and position), runs the layers its items need, prints the assessment hash and the stage's computed status in the summary, and writes the stage's run header to the record, with the status, its reasons and the hash; this is the command the `earnest` sensor's script runs at each gate. |
+| `earnest plan` | the SARIF 2.1.0 log on stdout, with the plan under the run's `properties.plan` and the plan findings as results, and on stderr the route with each stage's computed status and approval, the frontier, and the unit and task graph with each item's computed status; read-only |
 | `earnest calibrate <fixture>` | the judge's verdicts on the fixture beside the maintainer's, the match count and pass or fail against SC4; writes the result to the assessment record |
 
+`--intent` names the intent's record directory; without it `--stage` uses the
+one record directory that holds an `aidlc-state.md`, and exits 2 when there is
+none or more than one. `--stage` takes `<phase>/<slug>` or a bare slug that is
+unique on the route. `earnest plan` lists every intent. A route that holds a
+`units-generation` stage (any per-unit construction) is an unsupported intent:
+`earnest plan` and `earnest check --stage` print one stderr line,
+`earnest: unsupported route: units-generation is on the route, so per-unit stages`,
+and exit 2 when the selected or only intent is unsupported (M2b of `03` adds
+the support). On an unsupported intent plain `earnest check` places that
+intent's findings as in a run with no plan (position current, no stage) and
+omits that intent's `properties.plan` entry; a repository that also holds
+supported intents lists those in `earnest plan`.
+
 The exit code is 0 when no error-level finding sits at position behind or
-current, 1 when one does, and 2 when the check cannot run: Git cannot answer
-or a file cannot be read. Agents and maintainers run `earnest check` on
+current, 1 when one does, and 2 when the command cannot run (`earnest plan`
+and `earnest check` alike): Git cannot answer, a file or the record cannot be
+read or written, the record is corrupt or newer, `.earnest` or the record is a symlink, `--intent` names a record
+directory that does not exist, `--stage` is ambiguous (no intent given and
+no record or several records, or a bare slug that several route stages share) or names a
+stage that is not on the route, or the selected intent's route holds per-unit
+stages, or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
+and maintainers run `earnest check` on
 demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the
 agent, the human at the gate and a CI job can each act on the exit code. While
@@ -1165,17 +1266,90 @@ CI job reads it as it stands.
   `properties.stage`, and its message opens with `in scope`.
 - Each requirement's trace level and the three percentages travel under the
   run's `properties`, so the log alone carries what the summary leads with.
-- The commit, the model id, the prompt hash and the layers run travel under the
-  run's `invocations` and provenance properties.
+  When an intent's record directory exists, `properties.plan` is
+  `{"intents": [...]}`, one entry per record directory in directory order, so
+  a repository with several intents has one place for each. An entry carries
+  its `intent` (the record directory) and the route as `stages` in route
+  order, each with its `stage`, `status` (`done` or `not done`), `approval`
+  (`current`, `outdated` or `none`) and `approvedBy` (`human`, `automatic` or
+  null); the `frontier` (null when every stage has a current approval); and
+  `tasks` and `units`, each sorted by the pair id and status, with the
+  `status` of each. A run with `--stage` also carries `properties.assessment`:
+  `stage`, `hash`, `status` and `reasons`, where `reasons` counts the
+  error-level findings against the stage and its tasks that are not done, and
+  names its approval.
+- The commit, `dirty` (as the Assessment hash section defines it), the model
+  id, the prompt hash and the layers run travel under the run's `invocations`
+  and provenance properties.
 
 ### Assessment record
 
-The record holds the five things listed under Process vocabulary: the run
-header, the body hash per id and revision, the coverage-map commit, the judge
-cache and the calibration result. Approvals live in AI-DLC's `GATE_APPROVED`
-rows. The fork's approve transition copies `Assessment Hash` and `Items` into
-the row from the stage's latest run header, so each approval can be checked
-against the trace, verdicts and evidence it rests on.
+The assessment record is one JSON file, `.earnest/assessment.json`, at the
+root of the repository's work tree. It lies outside the stage artifacts, so a
+write to it changes no artifact that the `earnest` sensor's `matches` selects.
+It holds the five things listed under Process vocabulary, under these keys:
+
+| Key | Holds | Supplied by |
+| --- | --- | --- |
+| `version` | the schema version, the integer 1 | the Reporter, on every write |
+| `runs` | the latest run header of each stage, keyed by the intent's record directory and the stage's id | `earnest check --stage` |
+| `bodies` | the body hash of each item, keyed by the item's id with its revision | `earnest check --stage` |
+| `coverage` | the commit the coverage map was taken at, or null | the Impact rule |
+| `judge` | the judge cache | the judge layer |
+| `calibration` | the latest calibration result, or null | `earnest calibrate` |
+
+The Reporter is the only writer of the file. The column names the component
+whose result the Reporter stores under each key.
+
+A run header holds `intent` (the record directory) and `stage`, `commit` (the
+full sha HEAD names), `dirty` (true when a path that the evaluated tree holds or
+would hold is untracked, differs from HEAD or the index, or is missing from the
+work tree; see Assessment hash), `timestamp` (UTC, to the second), `layers`,
+`model` and `prompt` (null until the judge layer runs), `items` (the stage's
+item ids with their revisions, sorted), `status` (`done` or `not done`),
+`reasons` (see Computed status) and `hash` (see Assessment hash).
+
+The file is canonical JSON: keys sorted, two-space indent, ASCII only, integers
+for every number, one trailing newline. Earnest replaces it whole, by writing a
+temporary file beside it and renaming that over the record, and it preserves
+the keys it does not know in a file of its own `version`, so a key that another
+tool added survives the write. A missing file is an empty record, and a file
+that fails to parse, or carries a newer `version`, stops the run with exit code
+2 and a message that names the file. When Earnest creates `.earnest/` it writes
+`.earnest/.gitignore` holding `*`, so Git ignores the record; a repository that
+keeps the record in its history deletes that file and commits the record.
+Earnest lists nothing under `.earnest/` for the scanner or the assessment hash,
+whether or not Git ignores it.
+
+Approvals live in AI-DLC's `GATE_APPROVED` rows. The fork's approve transition
+copies `Assessment Hash` and `Items` into the row from
+`runs[<intent dir>/<stage id>]`, the stage's latest run header, so each approval
+can be checked against the trace, verdicts and evidence it rests on.
+
+### Assessment hash
+
+The assessment hash of a stage is `sha256:` and the lower-case hex SHA-256 of
+the compact canonical JSON of its assessment document: the document version,
+the stage's id under its intent's record directory, the layers run, the model
+id and prompt hash, the stage's items with the body hash of each, the findings
+that count against the stage together with those that reach no stage and lie in
+a file of the evaluated tree, and the digest of the evaluated tree. A finding
+enters the document as its rule id, uri, line, subject and message, without its
+position, and a finding that reports a stage approval stays out of it. The
+evaluated tree is every file the scanner read outside an intent's record
+directory, plus each file it read under a route stage's path inside one, each as
+its uri and the SHA-256 of its bytes. The assessment record lists nothing of its
+own.
+
+The hash covers what was assessed. The commit, the timestamp, the route and the
+approvals are inputs to a stage's status and position, so they stay outside it:
+recording an approval, committing the approval row, rebasing or amending leaves
+the hash as it was, and an edit to any evaluated file gives a new one. A work
+tree with uncommitted changes gets the hash of the bytes it holds, and the run
+header records `dirty`, true when a path that the evaluated tree holds or
+would hold is untracked, differs from HEAD or the index, or is missing from
+the work tree. An approval is current by its item ids and revisions alone (see
+Frontier and position).
 
 ### Prose item example
 
@@ -1209,18 +1383,22 @@ untracked files that are not ignored, so files an agent has written but not
 yet staged count before commit (UC2). Earnest reads them in path order,
 decodes each as UTF-8 with bytes that are not UTF-8 replaced, and skips a
 binary file, one with a NUL byte in its first 8000 bytes, as Git does.
-Earnest writes one thing: the assessment
-record, kept in the repository beside the stage artifacts. `earnest calibrate`
-also writes to it. Every fix to the prose files and the code is the agent's or
-the maintainer's to make.
+Earnest writes one thing: the `.earnest/`
+directory, which holds the assessment record `assessment.json`, its `.gitignore`
+marker and, during a write, a temporary file. The directory lies in the
+repository outside the stage artifacts. `earnest plan` is read-only. Until the
+judge, impact and evidence layers exist, `earnest check` writes only with
+`--stage`, and `earnest calibrate` writes the calibration result; each of those
+layers adds the write of its own slot to `earnest check` when it is built. Every
+fix to the prose files and the code is the agent's or the maintainer's to make.
 
 An approval is the human's act, recorded by AI-DLC's gate, which binds the
 answer to the human's reply in their session and marks the row
 `Approved By: human`. An automatic approval under AI-DLC's `autonomous` mode
 is marked `Approved By: automatic` and follows only a passing `earnest`
-sensor. Earnest reads the approval rows and the profile's `Scope`, and writes
-neither; the fork's approve transition reads the stage's run header from the
-assessment record.
+sensor. Earnest reads the approval rows and the state file's Stage Progress, and
+writes neither; the fork's approve transition reads the stage's run header from
+the assessment record.
 
 The evidence layer executes the repository's own tests, and executes them
 against mutated copies of the tagged code. Running `earnest check --evidence`
@@ -1238,9 +1416,12 @@ status, and the frontier run entirely on the local repository.
 | Whether the judge applies tenets to observations | maintainer | after the calibration gate reports |
 | Judge model choice and prompt | maintainer | the calibration gate |
 | SC4 calibration gate | maintainer | unrun; a precondition to the first AI-DLC unit the fork runs through Earnest |
-| What the assessment hash hashes, the value an approval's `Assessment Hash` carries | maintainer | before milestone `stage_status` of `03-implementation-plan.md` |
-| How a stage's computed status reaches the gate, given that the sensor reads only the exit code and the SARIF log | maintainer | before milestone `stage_status` of `03-implementation-plan.md` |
+| Whether the gate or the approve transition refuses a run header with `dirty` true | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
+| Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
+| Which Fork-delta path holds the hold on an artifact that changes during a sensor run, and the check in `approve` that artifacts are unchanged since the sensor ran | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
+| Per-unit support, milestone `unit_status`: per-unit stage ids `<phase>/<unit>/<slug>`, expansion from the state file's Unit Progress, a team's unit-scoped gate rows and their emit sites (the team gates of `aidlc-state.ts` and the gate of `aidlc-unit.ts`), unit status, the join from the unit-DAG name that `Unit` carries to the unit directory of Stages and to the unit tables of `unit-of-work.md`, and the route and approvals of a units intent without a Unit Progress table, whose approval rows carry no `Unit` | maintainer | before the task plan of milestone `unit_status` of `03-implementation-plan.md` |
 | The task's base commit, which the out-of-task check diffs against | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
+| How `task/<name>-…` splits a branch such as `task/add-limiter-window` when task names hold hyphens: the longest task name that is a prefix followed by `-`, or a fixed suffix form | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | When the coverage map of the Impact rule is taken, and where the map is stored; the record keeps only its commit | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | How a test plugs a stub model into `--judge` | maintainer | before milestone `judge_check` of `03-implementation-plan.md` |
 | Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |

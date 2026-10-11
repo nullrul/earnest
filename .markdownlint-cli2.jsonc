@@ -1,4 +1,4 @@
 {
   "config": { "MD013": false },
-  "ignores": [".claude/**", "node_modules/**", "**/.venv/**"]
+  "ignores": [".claude/**", "node_modules/**", "**/.venv/**", "packages/earnest/tests/fixtures/**"]
 }

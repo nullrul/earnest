@@ -28,7 +28,7 @@ clean:
 # Path comes in via the LINT_FILE env var (never a make var) and is always quoted.
 lint-file:
 	@case "$$LINT_FILE" in \
-		*.py) uv run --project packages/earnest --all-extras ruff format -- "$$LINT_FILE" && uv run --project packages/earnest --all-extras ruff check --fix -- "$$LINT_FILE" ;; \
+		*.py) uv run --project packages/earnest --all-extras ruff format --force-exclude -- "$$LINT_FILE" && uv run --project packages/earnest --all-extras ruff check --force-exclude --fix -- "$$LINT_FILE" ;; \
 		*.md) pnpm dlx markdownlint-cli2 --fix -- "$$LINT_FILE" ;; \
 		*.yml|*.yaml) yamllint -c .yamllint.yml -- "$$LINT_FILE" ;; \
 		*.sh) bash -n -- "$$LINT_FILE" ;; \

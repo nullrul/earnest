@@ -15,13 +15,16 @@ milestone names everything a fresh session loads.
 ```mermaid
 flowchart LR
   M1["M1 trace_check"] --> M2["M2 stage_status"]
+  M2 --> M2b["M2b unit_status"]
   M2 --> M3["M3 task_change"]
   M2 --> M4["M4 judge_check"]
-  M2 --> M7["M7 aidlc_fork"]
-  M3 --> M5["M5 evidence_check"]
+  M2b --> M5["M5 evidence_check"]
+  M2b --> M7["M7 aidlc_fork"]
+  M3 --> M5
   M4 --> M5
   M4 --> M6["M6 calibration_gate"]
   classDef done fill:#d4edda,stroke:#2e7d32
+  class M1,M2 done
 ```
 
 M1 and M2 are the foundation. M1 fixes the index and the SARIF output that
@@ -29,17 +32,19 @@ every later milestone reads, and M2 adds the assessment record, the contract
 that revision checks, the judge cache, the coverage-map commit, calibration and
 the run header share. M2 also adds the Region rule, which M3 reads for
 out-of-task and impact and M4 for the judge cache key and `override-drift`.
-M3, M4 and M7 then run in parallel. M5 joins M3 and M4:
+M3 and M4 then run in parallel, and M7 follows M2b. M2b adds per-unit stages,
+units and team gates on routes with Units Generation; M5 and M7 wait on it,
+because M5 shows a unit as done and M7 gates real intents of `classic`,
+`enterprise`, `feature`, `mvp` and `workshop`. M5 joins M2b, M3 and M4:
 evidence runs in `impact.py` beside impact, and `--evidence` implies `--judge`.
 M6 continues the judge branch. Evidence has its own milestone so that M6 waits
 on the judge alone, and the out-of-task check and impact have theirs so that M2
 carries only the record, the stage engine and the Region rule.
 
-M1 is the first runnable milestone, and no open question gates it. The
-record-location row of the Open questions section of `02` gates M2, and through
-M2 every milestone from M3 to M7, so it is the first open question to close.
-When a milestone's exit command runs green, its node gains the `done` class,
-and the graph doubles as the loop's progress board.
+M1 is the first runnable milestone, and no open question gates it or M2. The
+rows of the Open questions sections that gate later milestones are named in
+each milestone below. When a milestone's exit command runs green, its node
+gains the `done` class, and the graph doubles as the loop's progress board.
 
 ## How a milestone runs
 
@@ -53,8 +58,8 @@ and the graph doubles as the loop's progress board.
 - Task plans: task-level detail is written just in time, one plan per
   milestone, with the superpowers `writing-plans` skill when the milestone is
   next, at `docs/superpowers/plans/<date>-<slug-with-hyphens>.md`.
-- Gating open questions: the rows of the Open questions sections of `01` and
-  `02` that a milestone cannot exit without. Each closes by the resolution its
+- Gating open questions: the rows of the Open questions sections of `01`, `02`
+  and `04` that a milestone cannot exit without. Each closes by the resolution its
   row names.
 - Goals: a milestone's goal and exit behavior hold for the whole loop, and
   change only through a revision of this document that the maintainer ratifies
@@ -102,27 +107,63 @@ and the graph doubles as the loop's progress board.
   stage's computed status, its approval and the frontier. `check --stage`
   prints the assessment hash and writes the run header. After the change
   commit, a check flags the tag, edge and approval left at the old revision,
-  and a body edited without a bump.
+  and a body edited without a bump. A route with `units-generation` is refused
+  with exit 2.
 - Exit command: `uv run pytest tests/steps/test_stage_status.py`.
-- Deliverable: the Region rule in `index.py`; the per-language code-line scan
-  the Region rule needs in the comment adapters, and `Source.code_lines`;
-  `plan.py` with the route,
-  stages, approvals, frontier and position, and computed status; the record's
-  reader and writer in `reporter.py`; the Revision lifecycle in `structural.py`;
-  `earnest plan` and `--stage` in `cli.py`; `tests/fixtures/seeded-change/`
-  with its `change/` overlay; `stage_status.feature` and its step module.
-- Spec coverage: UC4, UC7, UC9 (engine); SC1, SC5, SC8 (status), SC9 (run
-  header); the Revision propagation, Plan and stage status, and Stage approval
-  capabilities.
-- Context to load: `01`: Adopting AI-DLC, Stages, Frontier and position,
-  Computed status, Process vocabulary, Revision lifecycle, Command surface,
-  Assessment record, Runtime and permission model, Region rule, D6, D9, D10,
-  D15. `02`: Scanner, Index, `plan.py`, `structural.py`, `reporter.py`,
-  `conftest.py` and `fixtures/seeded-change/` in Module boundaries.
-- Gating open questions: where the assessment record sits and its file format
-  (`02`); assessment hash contents, and how a stage's computed status reaches
-  the gate (`01`).
-- Task plan: `docs/superpowers/plans/<date>-stage-status.md`, written when M2
+- Deliverable: the Region rule in `index.py`, with each item's body hash; the
+  per-language code-line scan the Region rule needs in the comment adapters,
+  `Source.code_lines` and `Source.digest`; `git.py` listing no path under
+  `.earnest/` and reporting the changed paths; `plan.py` with the route,
+  stages, approvals, frontier and position, computed status, the stale-approval
+  note and the assessment document; the record's reader and writer in
+  `reporter.py`, with the rule ids `earnest/unbumped-change`,
+  `earnest/unplanned`, `earnest/cycle` and `earnest/route-mismatch` in `RULES`;
+  the Revision lifecycle in `structural.py`, which also applies the route rule
+  of Stages to the Default Needs and to parentless items; `earnest plan`,
+  `--stage` and `--intent` in `cli.py`; the record-directory skips in
+  `adapters/__init__.py`; `tests/fixtures/seeded-change/` with its `change/`
+  overlay; `stage_status.feature` and its step module.
+- Spec coverage: UC4, UC7, UC9 (engine); SC1, SC5, SC8 (stage and task
+  status), SC9 (run header); the Revision propagation, Plan and stage status,
+  and Stage approval capabilities.
+- Context to load: `01`: Adopting AI-DLC, Stages, Findings, Frontier and
+  position, Computed status, Process vocabulary, Revision lifecycle, Command surface,
+  SARIF 2.1.0, Assessment record, Assessment hash, Runtime and permission model, Region rule,
+  D6, D9, D10, D15. `02`: Scanner, Index, `git.py`, `plan.py`, `structural.py`,
+  `reporter.py`, `conftest.py` and `fixtures/seeded-change/` in Module
+  boundaries.
+- Gating open questions: none.
+- Task plan:
+  [2026-10-10-stage-status.md](../superpowers/plans/2026-10-10-stage-status.md).
+
+### M2b `unit_status`
+
+- Goal: report per-unit stages, units and team gates on routes with Units
+  Generation.
+- Depends on: M2.
+- Exit behavior: in a units variant of `seeded-change`, `earnest plan` prints
+  each per-unit stage as `<phase>/<unit>/<slug>` with its computed status and
+  approval, each unit's computed status, and the frontier; `check --stage` for a
+  per-unit stage prints the assessment hash and writes the run header; a team's
+  unit-scoped approval rows approve their unit's stage.
+- Exit command: `uv run pytest tests/steps/test_unit_status.py`.
+- Deliverable: per-unit stage ids and their expansion from the state file's Unit
+  Progress in `plan.py`; the route and per-unit approvals of a units intent
+  without a Unit Progress table (solo ownership); the reader of unit-scoped
+  `GATE_APPROVED` rows; unit status in Computed status;
+  `--stage <phase>/<unit>/<slug>` in `cli.py`; the units variant of
+  `seeded-change`; `unit_status.feature` and its step module; in the fork, the
+  sensor script deriving the unit from `output_path` and passing
+  `<phase>/<unit>/<slug>`, and the three approval fields at the team gates' emit
+  sites.
+- Spec coverage: UC7; SC8 (unit status); the Plan and stage status capability.
+- Context to load: `01`: Stages, Frontier and position, Computed status; `02`:
+  `plan.py`, `fixtures/seeded-change/`.
+- Gating open questions: the join from the unit-DAG name to the unit directory;
+  the route and per-unit approvals of a units intent without a Unit Progress
+  table (solo ownership, whose approval rows carry no `Unit`) (`01`); the units
+  variant of `seeded-change` (`02`).
+- Task plan: `docs/superpowers/plans/<date>-unit-status.md`, written when M2b
   is next.
 
 ### M3 `task_change`
@@ -142,7 +183,10 @@ and the graph doubles as the loop's progress board.
 - Context to load: `01`: Out-of-task rule, Impact rule, Region rule, D11, D12.
   `02`: `git.py`, `index.py`, `plan.py`, `impact.py` and
   `fixtures/seeded-change/change/` in Module boundaries.
-- Gating open questions: task base commit, and coverage map timing (`01`).
+- Gating open questions: task base commit, coverage map timing, and how
+  `task/<name>-…` splits a branch whose task name holds hyphens (`01`); how
+  M3's overlay changes meet M2's exact findings tables (the Open questions
+  section of `04`).
 - Task plan: `docs/superpowers/plans/<date>-task-change.md`, written when M3
   is next.
 
@@ -175,7 +219,7 @@ and the graph doubles as the loop's progress board.
 
 - Goal: run the tagged tests and mutmut, with results filtered to tagged
   regions.
-- Depends on: M3 and M4.
+- Depends on: M2b, M3 and M4.
 - Exit behavior: `check --evidence` raises `evidence-failed` for a surviving
   mutant in a tagged region, puts every requirement at exactly one of the four
   levels with three separate percentages, and shows the evidenced task and its
@@ -219,7 +263,7 @@ and the graph doubles as the loop's progress board.
 - Goal: gate the AI-DLC fork from this repository. The fork applies the Fork
   delta of `02` under its own plan, in its own repository; this milestone is
   the integration gate.
-- Depends on: M2.
+- Depends on: M2b.
 - Exit behavior: the feature runs against a local fork checkout with Bun on
   the PATH, and fails rather than skips if either is missing. The fork's
   sensor prints `{pass, findings_count}` with exit 0 for a `seeded-change`
@@ -232,8 +276,12 @@ and the graph doubles as the loop's progress board.
 - Context to load: `01`: Adopting AI-DLC, including "The `earnest` sensor and
   the approval gate"; Command surface; Runtime and permission model. `02`: Fork
   delta; L3. The fork's own plan.
-- Gating open questions, all from `02`: the fork repository's name and owner;
-  how the sensor script finds the `earnest` command; the upstream tools that
+- Gating open questions: from `01`, whether the gate or the approve transition
+  refuses a run header with `dirty` true; the Fork-delta path that holds the
+  gate presentation, and the path of the record the approve transition reads;
+  and the Fork-delta path that holds the check on an artifact that changes
+  during a sensor run. From `02`: the fork repository's name and owner; how the
+  sensor script finds the `earnest` command; the upstream tools that
   read `source-manifest.json`; the upstream artifacts the mapping table leaves
   unnamed; the User Stories requirement ids; holding the sensor on through the
   sensors-off switches; the upstream tests that pin sensor ids and routes.
