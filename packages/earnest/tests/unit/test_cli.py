@@ -129,6 +129,24 @@ def test_a_symlinked_earnest_directory_exits_two_and_writes_nothing_outside_the_
     assert list(outside.iterdir()) == []
 
 
+def test_a_symlinked_record_exits_two_and_leaves_the_symlink_and_its_target_alone(
+    fixture_repo, tmp_path, monkeypatch, capsys
+):
+    repo = fixture_repo("seeded-change")
+    target = tmp_path / "outside.bin"
+    target.write_bytes(b"\xff\xfe secret bytes")
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / "assessment.json").symlink_to(target)
+    for command in (["plan"], ["check"], ["check", "--stage", "construction/code-generation"]):
+        code, out, err = run(repo, monkeypatch, capsys, *command)
+        assert (code, out) == (2, "")
+        assert ".earnest/assessment.json is a symlink" in err
+        assert len(err.splitlines()) == 1
+        assert "secret" not in err
+    assert (repo / ".earnest" / "assessment.json").readlink() == target
+    assert target.read_bytes() == b"\xff\xfe secret bytes"
+
+
 def test_corrupt_record_exits_two_with_empty_stdout(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
     write(repo, ".earnest/assessment.json", "{not json")

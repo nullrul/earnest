@@ -16,7 +16,8 @@ _TOKEN = re.compile(
 )
 # Possessive: each alternative opens on a character of its own, so a literal that never closes costs one pass.
 # ponytail: that pass may run to the end of the line from each `/` that could open a regular expression, so a line of
-# unclosed ones such as `(/a[/a[/a[` scans in time quadratic in its length; the TypeScript parser above lifts it too.
+# unclosed ones such as `(/a[/a[/a[` scans in time quadratic in its length: minutes at 500 KB lines, hours at megabyte
+# lines. Capping regular-expression detection per line bounds it; the TypeScript parser above lifts it too.
 _REGEX = re.compile(r"/(?:\\.|\[(?:\\.|[^\]\\\n])*+\]|[^/\\\n\[])++/[A-Za-z]*+")
 _BEFORE_REGEX = frozenset(
     {"return", "typeof", "instanceof", "case", "in", "of", "new", "delete", "void", "throw", "yield", "await"}

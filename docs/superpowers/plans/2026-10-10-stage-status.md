@@ -102,7 +102,7 @@ Outside the package, Task 0 commits this plan, Task 9 edits one row of the Findi
 
 ## Known limits
 
-Each is a ceiling that the milestone accepts, with the upgrade path; most have a `ponytail:` comment in the code at the place it applies.
+Each is a ceiling that the milestone accepts, with the upgrade path; several have a `ponytail:` comment in the code at the place it applies, and the others live here alone.
 
 - Names: `properties.assessment.stage` and the summary's `assessment` line carry `<intent dir>/<stage id>`, while a result's `properties.stage` is the bare stage id. Settle the names in `01` when the gate display (M7) reads them.
 - The record's `coverage` slot is `{"commit": null}` until Milestone 3 says whether it holds an object or the bare commit (Task 6).
@@ -116,7 +116,7 @@ Each is a ceiling that the milestone accepts, with the upgrade path; most have a
 - One union `produces` serves every intent's items when a repository mixes supported and unsupported intents (Task 10).
 - A record directory at the repository root drops every source file from the evaluated tree, since each path lies inside it (Task 10, D14).
 - The index is built over all sources, so an edit outside the evaluated tree can move the body hash and the assessment hash while `dirty` stays false (Task 11, D15).
-- The symlink refusal covers `.earnest` only: a symlinked `assessment.json` is read through, the atomic replace swaps it for a regular file, and the write is not fsynced (Task 6, D10).
+- The record write is not fsynced (Task 6, D10). A symlinked `.earnest` or `assessment.json` is refused on read and write (pre-PR review, Task 13).
 - Stage Progress rows must start at column 0 with `- [`, so an indented or `* [` row is neither a row nor an unread line, as upstream's own setter requires; audit blocks end only at a line that is exactly `---`, so a separator with a trailing space merges two blocks; any `###` heading sets the phase (Task 8, D12).
 - A slug that appears in two phases collapses into one row, and a `STAGE_JUMPED` row that carries a `Unit` still voids the rows it follows (Task 9, D13).
 - With several intents, every `stest` finding goes to the first plan's Build and Test and each plan counts all `stest`s; `task_done` is quadratic in the tasks; "id order" is string order (Task 10, D14).
@@ -7611,7 +7611,7 @@ git commit -m "feat: run earnest plan and earnest check --stage"
 
 This subsection supersedes the historical snippets of Tasks 1, 6, 8, 9, 10, 11 and 12 wherever they differ; each of those tasks carries a pointer to it. Those snippets are the TDD record as the tasks ran; the code at HEAD is what bc7e5c1 left, and anyone replaying the plan applies the items below on top of them. Each item names the module and function in `packages/earnest/src/earnest/`.
 
-- **Symlinked record (MUST-FIX 2, Task 6).** `reporter._refuse_symlink(root)` runs first in `read_record` and `write_record` and raises `OSError(".earnest is a symlink; the record must lie in the repository")`. `cli.main` already catches `OSError`, so `plan` and `check --stage` exit 2 with one stderr line and write nothing outside the repository.
+- **Symlinked record (MUST-FIX 2, Task 6).** `reporter._refuse_symlink(root)` runs first in `read_record` and `write_record` and raises `OSError("<path> is a symlink; the record must lie in the repository")` for `.earnest` and, since the pre-PR review, for `.earnest/assessment.json`. `cli.main` already catches `OSError`, so `plan` and `check --stage` exit 2 with one stderr line and write nothing outside the repository.
 - **Looping `--intent` symlink (MUST-FIX 1, Task 12).** `cli._option` catches `(ValueError, RuntimeError)`; the `RuntimeError` is the symlink loop that `Path.resolve` raises before Python 3.13.
 - **ReDoS in the state reader (Task 8).** `plan._SCOPE` is `^- \*\*Scope\*\*:[ \t]*(.*)$` with no lazy group before the trailing blanks, and `parse_state` strips them with `.rstrip(" \t")`. `_PHASE_WORD` is gone: `plan._phase(heading)` strips a trailing separate word PHASE by string comparison, not by regex. Both are linear; 50 000 spaces took about 7 s before and 0.0 s after.
 - **S1 (Task 9).** `index._ID_ENTRY` is `index.ID_ENTRY`, and `plan._items` uses it. `plan._ITEM_ID` and the `TYPES` import are gone.
@@ -7624,6 +7624,10 @@ This subsection supersedes the historical snippets of Tasks 1, 6, 8, 9, 10, 11 a
 - **Tests.** The pass added 29: the D9, D11, D12, D14, D15 and D16 gap tests and the fix tests above. The suite at HEAD is 481 passed (453 plus the 28 scenarios).
 
 The commit that holds all of this is bc7e5c1; ee26b31 adds the two Known limits and the Reporter clause in `02`.
+
+#### Pre-PR review (2026-10-11)
+
+Four review lenses (code, ponytail, simplify, security) read `origin/main...f0734a7`. The fix refuses a symlinked `.earnest/assessment.json` on read and write, builds the "not an assessment record" error from the exception's type and text so file bytes stay out of stderr, names the hours-long ceiling of the TypeScript regular-expression scan in its `ponytail:` comment, and widens the exit-2 causes in `01` to every case where `plan` or `check` cannot run. It adds 3 tests: the suite is 484 passed, with `28 passed` and `5 passed` on the exit commands. The remaining findings are recorded as follow-ups in `.pi-herdsman/publish/prepr/dispositions.md`.
 
 #### Archival gap
 

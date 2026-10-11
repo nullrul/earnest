@@ -326,6 +326,28 @@ def test_a_symlinked_earnest_directory_is_neither_read_nor_written(tmp_path):
     assert list(outside.iterdir()) == []
 
 
+def test_a_symlinked_record_is_neither_read_nor_written_and_its_target_stays_unread(tmp_path):
+    target = tmp_path / "outside.bin"
+    target.write_bytes(b"\xff\xfe secret bytes")
+    repo = tmp_path / "repo"
+    (repo / ".earnest").mkdir(parents=True)
+    (repo / ".earnest" / "assessment.json").symlink_to(target)
+    for action in (lambda: reporter.read_record(repo), lambda: reporter.write_record(repo, Record())):
+        with pytest.raises(OSError, match=r"\.earnest/assessment\.json is a symlink") as error:
+            action()
+        assert "secret" not in str(error.value)
+    assert target.read_bytes() == b"\xff\xfe secret bytes"
+    assert (repo / ".earnest" / "assessment.json").is_symlink()
+
+
+def test_a_record_that_is_not_utf8_keeps_its_bytes_out_of_the_error(tmp_path):
+    (tmp_path / ".earnest").mkdir()
+    (tmp_path / ".earnest" / "assessment.json").write_bytes(b"\xff\xfe secret bytes")
+    with pytest.raises(RecordError, match=r"UnicodeDecodeError") as error:
+        reporter.read_record(tmp_path)
+    assert "secret" not in str(error.value)
+
+
 def test_corrupt_record_raises_and_names_the_file(tmp_path):
     (tmp_path / ".earnest").mkdir()
     slots = '"runs": {}, "bodies": {}, "coverage": {}, "judge": {}, "calibration": null'  # a whole record's slots

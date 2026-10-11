@@ -1233,12 +1233,13 @@ omits that intent's `properties.plan` entry; a repository that also holds
 supported intents lists those in `earnest plan`.
 
 The exit code is 0 when no error-level finding sits at position behind or
-current, 1 when one does, and 2 when the check cannot run: Git cannot answer, a
-file cannot be read, the record is corrupt or newer, `--intent` names a record
+current, 1 when one does, and 2 when the command cannot run (`earnest plan`
+and `earnest check` alike): Git cannot answer, a file or the record cannot be
+read or written, the record is corrupt or newer, `.earnest` or the record is a symlink, `--intent` names a record
 directory that does not exist, `--stage` is ambiguous (no intent given and
 no record or several records, or a bare slug that several route stages share) or names a
 stage that is not on the route, or the selected intent's route holds per-unit
-stages. A stage's computed status is information and sets no exit code. Agents
+stages, or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
 and maintainers run `earnest check` on
 demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the

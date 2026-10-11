@@ -265,10 +265,11 @@ def utc_timestamp(now: datetime | None = None) -> str:
 
 
 def _refuse_symlink(root: Path) -> None:
-    """Raise OSError when `.earnest` is a symlink, which would send the record out of the repository."""
-    if (root / ".earnest").is_symlink():
-        msg = ".earnest is a symlink; the record must lie in the repository"
-        raise OSError(msg)
+    """Raise OSError when `.earnest` or the record file is a symlink, which sends the record out of the repository."""
+    for link in (root / ".earnest", root / RECORD):
+        if link.is_symlink():
+            msg = f"{link.relative_to(root).as_posix()} is a symlink; the record must lie in the repository"
+            raise OSError(msg)
 
 
 def read_record(root: Path) -> Record:
@@ -276,7 +277,7 @@ def read_record(root: Path) -> Record:
 
     Raises:
         RecordError: the file does not parse, has the wrong shape, or has a newer `version` than this release reads.
-        OSError: the file cannot be read, or `.earnest` is a symlink.
+        OSError: the file cannot be read, or `.earnest` or the record file is a symlink.
     """
     _refuse_symlink(root)
     try:
@@ -284,7 +285,7 @@ def read_record(root: Path) -> Record:
     except FileNotFoundError:
         return Record()
     except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as error:  # UnicodeDecodeError: ValueError
-        msg = f"{RECORD} is not an assessment record: {error!r}"
+        msg = f"{RECORD} is not an assessment record: {type(error).__name__}: {error}"
         raise RecordError(msg) from error
     return record
 
@@ -296,8 +297,8 @@ def write_record(root: Path, record: Record) -> None:
     whole file. A new `.earnest/` gets a `.gitignore` holding `*`; an existing one is left as it is.
 
     Raises:
-        OSError: the directory or the file cannot be written, or `.earnest` is a symlink; the old record stays and no
-            temporary file does.
+        OSError: the directory or the file cannot be written, or `.earnest` or the record file is a symlink; the old
+            record stays and no temporary file does.
     """
     _refuse_symlink(root)
     directory = root / ".earnest"
