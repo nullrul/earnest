@@ -75,10 +75,14 @@ type Ledger = {
   lastTestedSha: string | null;
   writer: Identity | null;
   reviewer: Identity | null;
+  /** Reconciled CURRENT disposition per finding id. Only an independent reviewer report can move a blocker to fixed. */
   findings: Json[];
+  /** Append-only audit trail of every finding as reported (writer claims included), never edited. */
+  findingTrail: Json[];
+  repairContexts: unknown[];
   changedPaths: string[];
   untrackedDisclosed: string[];
-  evidence: { red: Json[]; commands: Json[]; gates: Json[] } | null;
+  evidence: { red: Json[]; commands: Json[]; gates: Json[]; ci: Json[] } | null;
   attestations: Json[];
   history: string[];
   rejections: string[];
@@ -115,9 +119,9 @@ const relPath = (v: unknown): v is string =>
 /** Rules every prompt and checkpoint repeats so the Manager and Leads cannot miss them. */
 const SAFEGUARDS = [
   "CLEAN means TRACKED content is unchanged versus testedSha: report trackedClean:true and trackedChanges:[]. Untracked user/evidence notes are PRESERVED and listed in untrackedDisclosed; report untrackedPreserved:true. NEVER delete, clean, stash or reset untracked files to become clean.",
-  "WRITER evidence needs (1) RED: red[] with behavior-test argv, an actual NONZERO integer exitCode, expectedFailure (the reason it failed before the change) and logRef, at least one entry matching a BDD gate argv; and (2) GREEN: every BDD gate and check run LOCALLY on the final testedSha with exact argv/cwd, exitCode 0, logRef. CI-only evidence never satisfies a gate.",
-  "REVIEWER must be a different identity (lead, session and branch) than the writer, is read-only (changedPaths:[]), and must pin the writer's final testedSha. Every non-blocking finding needs a disposition (fixed|accepted|deferred) and rationale.",
-  "PAUSE/CANCEL: neither stops the Lead. The Manager MUST halt run-owned active execution with staff_stop on the EXACT assignee.session from the dispatch receipt (not optional), keep the assignment, worktree and evidence, and never stop unrelated sessions. RESUME never re-dispatches automatically and never repeats side effects: first staff_list/staff_inspect the receipt's assignee to establish what already happened, then adopt it.",
+  "WRITER evidence needs (1) RED: red[] entries each with an actual NONZERO integer exitCode, failureKind:\"behavior\" (startup/import/collection/syntax failures are NOT red evidence), expectedFailure (why the intended behavior failed), logRef, a 40-hex redSha of an EARLIER commit that differs from the final testedSha, and a chronology sentence naming that redSha (7+ chars) and its relation to testedSha; at least one entry must match a BDD gate by exact id, argv and cwd. The harness cannot prove ancestry: the reviewer must run git merge-base --is-ancestor <redSha> <testedSha>; and (2) GREEN: every BDD gate and check run LOCALLY on the final testedSha with exact argv/cwd, exitCode 0, logRef. CI-only evidence never satisfies a gate.",
+  "REVIEWER must be a different identity (lead, session and branch) than the writer, is read-only (changedPaths:[] - a review claiming edits is rejected), and must pin the writer's final testedSha. Every finding carries reviewSha (= that testedSha). The reviewer MUST explicitly disposition EVERY prior blocking finding id (open|fixed) with rationale; a missing prior id is rejected, never silently cleared. Only a fresh independent reviewer report can clear a blocker; writer claims never do. Every non-blocking finding needs a disposition (fixed|accepted|deferred) and rationale.",
+  "PAUSE: does not stop the Lead. The Manager MUST halt run-owned active execution with staff_stop on the EXACT assignee.session from the dispatch receipt (not optional), keep the assignment, worktree and evidence, and never stop unrelated sessions. RESUME: never re-dispatches automatically and never repeats side effects; staff_list/staff_inspect the receipt's assignee first, then, if that Lead was stopped, staff_resume the EXACT owned assignee.branch (staff_resume takes a branch; staff_stop takes the session). Never staff_delegate a new Lead for a correlation that already has an assignment: adopt it (staff_list, receipt adopted:true). CANCEL: no automatic resume; the Manager staff_stops the exact session, then staff_list/staff_inspect any uncertain target before any retry, and preserves the worktree and reports.",
   "TRUST: schemas cannot prove anything. The Manager attests (managerAttestation) that the approval receipt and every resultRef/artifact were actually checked before relaying; the harness only records and echoes that claim.",
   "A material plan/scope/BDD change, or changedPaths outside scope.paths, ends the run needs_approval; approval is a SEPARATE required plan-approval run, then a NEW harness run. This harness never approves anything and goalCompletion is always false.",
 ];
@@ -132,10 +136,10 @@ const REPORT_SHAPE = `{
   "synthetic": true            // required in rehearsal, forbidden otherwise
   "testedSha": "40-hex", "trackedClean": true, "trackedChanges": [], "untrackedPreserved": true,
   "untrackedDisclosed": [], "changedPaths": [],
-  "red": [ { "id", "argv", "cwd", "exitCode": nonzero int, "expectedFailure", "logRef" } ],       // writer, done
+  "red": [ { "id": BDD gate id, "argv", "cwd", "exitCode": nonzero int, "failureKind": "behavior", "expectedFailure", "logRef", "redSha": "40-hex earlier commit != testedSha", "chronology": "names redSha and its relation to testedSha" } ],  // writer, done
   "commands": [ { "id", "argv", "cwd", "exitCode": int|null, "where": "local"|"ci", "logRef", "testedSha" } ],  // writer, done
   "gates": [ { "id", "exitCode", "result": "pass"|"fail" } ],                                   // writer, done: one per BDD gate
-  "findings": [ { "id", "severity": "blocking"|"non-blocking", "category", "location", "disposition": "open"|"fixed"|"accepted"|"deferred", "rationale" } ],
+  "findings": [ { "id": stable, "severity": "blocking"|"non-blocking", "category", "location", "disposition": "open"|"fixed"|"accepted"|"deferred", "rationale", "reviewSha": "reviewer only = testedSha" } ],   // reviewer: one entry per prior blocking id
   "limitations": [], "materialChange": { "kind": "plan"|"scope"|"bdd", "description" }?, "blocker": "required when blocked"
 }`;
 
@@ -157,7 +161,7 @@ function parseInput(value: unknown): Input {
   if (approval.provenance !== "human") errs.push('approvedPlan.approval.provenance must be "human"');
   if (!nonEmpty(approval.decisionRef)) errs.push("approvedPlan.approval.decisionRef required");
   if (!validDate(approval.approvedAt)) errs.push("approvedPlan.approval.approvedAt must be an ISO date");
-  if (!rehearsal && [plan.ref, approval.decisionRef].some((r) => typeof r === "string" && r.startsWith("synthetic:"))) {
+  if (!rehearsal && [plan.ref, approval.decisionRef].some((r) => typeof r === "string" && /^synthetic:/i.test(r.trim()))) {
     errs.push("synthetic approval references are only allowed with rehearsal:true");
   }
 
@@ -228,6 +232,8 @@ const initialLedger = (): Ledger => ({
   writer: null,
   reviewer: null,
   findings: [],
+  findingTrail: [],
+  repairContexts: [],
   changedPaths: [],
   untrackedDisclosed: [],
   evidence: null,
@@ -255,6 +261,7 @@ const receiptOf = (ctx: Json): { assignee?: Identity } | null => {
   const r = ((ctx.outputs ?? {}) as Json).dispatch;
   return isObj(r) ? (r as { assignee?: Identity }) : null;
 };
+const openBlockers = (ledger: Ledger) => ledger.findings.filter((f) => f.severity === "blocking" && f.disposition !== "fixed");
 const sameIdentity = (a: Identity, b: Identity) => a.lead === b.lead && a.session === b.session && a.branch === b.branch;
 
 function haltGuidance(ledger: Ledger, receipt?: { assignee?: Identity } | null) {
@@ -262,6 +269,7 @@ function haltGuidance(ledger: Ledger, receipt?: { assignee?: Identity } | null) 
   return {
     mustHaltOnPauseOrCancel: true,
     staffStopTarget: target ?? null,
+    staffResumeTarget: target ? { branch: target.branch } : null,
     instructions: SAFEGUARDS[3],
   };
 }
@@ -295,12 +303,28 @@ function dispatchPrompt(ctx: Json): string {
     `- BDD gates: ${json(input.gates.bdd)}`,
     `- Checks: ${json(input.gates.checks)}`,
     next.repairContext ? `- REPAIR context (fix these, do not redo accepted work): ${json(next.repairContext)}` : "",
-    review ? `- Review the writer's final testedSha ${ledger.lastTestedSha} only; report with phase "review", cycle ${next.cycle}.` : `- Report with phase "write", cycle ${next.cycle}.`,
+    ...(review ? reviewContextLines(input, ledger, next) : [`- Report with phase "write", cycle ${next.cycle}.`]),
     "",
     "The Lead's report must follow this shape (you relay it only after verifying its resultRefs and artifacts):",
     REPORT_SHAPE,
   ];
   return lines.filter((l) => l !== "").join("\n");
+}
+
+/** Everything the reviewer needs; a blind review is how a prior blocker would silently vanish. */
+function reviewContextLines(input: Input, ledger: Ledger, next: Next): string[] {
+  const prior = openBlockers(ledger).map((f) => String(f.id));
+  return [
+    `- Review ONLY the writer's final testedSha ${ledger.lastTestedSha}; report with phase "review", cycle ${next.cycle}, reporter.role "reviewer", changedPaths [] and reviewSha ${ledger.lastTestedSha} on every finding.`,
+    `- Writer evidence to inspect (open every logRef; do not trust the summary): ${json(ledger.evidence)}`,
+    `- Writer-reported changedPaths: ${json(ledger.changedPaths)}; allowed scope ${json(input.scope.paths)}. VERIFY the actual scope yourself: git diff --name-only ${input.baseSha}..${ledger.lastTestedSha} and git diff ${input.baseSha}..${ledger.lastTestedSha} must match changedPaths and stay inside scope; also git merge-base --is-ancestor <each red.redSha> ${ledger.lastTestedSha}.`,
+    `- Repair contexts so far (what earlier cycles had to fix): ${json(ledger.repairContexts)}`,
+    `- Current findings by id (reconciled): ${json(ledger.findings)}`,
+    `- Full finding audit trail: ${json(ledger.findingTrail)}`,
+    prior.length
+      ? `- You MUST explicitly disposition EVERY prior blocking finding id ${json(prior)} as "open" (still broken) or "fixed" with rationale and reviewSha. A missing id is REJECTED and never counts as cleared; writer claims never clear a blocker; only your independent verification does.`
+      : "- There are no prior blocking findings; report any new findings with stable ids.",
+  ];
 }
 
 function validateReceipt(output: unknown, ctx: Json): Json {
@@ -329,6 +353,10 @@ function validateReceipt(output: unknown, ctx: Json): Json {
     }
   }
   if (o.adopted !== undefined && typeof o.adopted !== "boolean") errs.push("adopted must be boolean");
+  // The Lead for a repair/second review is already bound: reusing it is adoption (staff_list + staff_resume by branch), never a new delegation.
+  if ((next.mode === "repair" ? ledger.writer : next.mode === "review" ? ledger.reviewer : null) && o.adopted !== true) {
+    errs.push("this mode must adopt the existing bound assignment (adopted:true via staff_list/staff_resume by branch), not delegate a duplicate");
+  }
   if (errs.length) throw new Error(`Dispatch receipt rejected: ${errs.join("; ")}`);
   return clone({ schema: SCHEMAS.receipt, correlation: want, mode: next.mode, assignee: { lead: a.lead, session: a.session, branch: a.branch }, adopted: o.adopted === true });
 }
@@ -350,6 +378,8 @@ function awaitContent(ctx: Json) {
     rehearsal: inputOf(ctx).rehearsal,
     lastRejection: next.action === "rewait" ? ledger.rejections.slice(-5) : [],
     rejectionsRemaining: Math.max(0, inputOf(ctx).limits.maxInvalidReports - ledger.invalidReports),
+    priorBlockingFindingIds: next.phase === "review" ? openBlockers(ledger).map((f) => f.id) : [],
+    reviewContext: next.phase === "review" ? { testedSha: ledger.lastTestedSha, writerChangedPaths: ledger.changedPaths, writerEvidence: ledger.evidence, repairContexts: ledger.repairContexts, findings: ledger.findings } : null,
     howToAnswer: 'Call workflow {action:"answer", requestId:<this request>, input:<report object>} only AFTER verifying every resultRef/artifact. A Lead death or timeout is reported with a Manager-authored role:"manager", status:"blocked" report plus a Herdsman evidence ref.',
     halt: haltGuidance(ledger, receipt),
     safeguards: SAFEGUARDS,
@@ -366,7 +396,19 @@ type Evaluation =
   | { kind: "repair"; context: unknown; accept: Accept }
   | { kind: "review"; accept: Accept }
   | { kind: "pass"; accept: Accept };
-type Accept = { ref: string; attestation: Json; testedSha?: string; changedPaths?: string[]; untracked?: string[]; findings?: Json[]; evidence?: Ledger["evidence"] };
+type Accept = {
+  ref: string;
+  attestation: Json;
+  testedSha?: string;
+  changedPaths?: string[];
+  untracked?: string[];
+  findings?: Json[];
+  evidence?: Ledger["evidence"];
+  role?: string;
+  phase?: Phase;
+  cycle?: number;
+  findingSha?: string;
+};
 
 const invalid = (...reasons: string[]): Evaluation => ({ kind: "invalid", reasons });
 
@@ -404,6 +446,22 @@ function parseFindings(raw: unknown, errs: string[]): Json[] {
   return errs.length ? [] : clone<Json[]>(raw);
 }
 
+/** A review must re-disposition every prior open blocker at the reviewed sha; omission can never clear one. */
+function reviewFindingErrors(findings: Json[], sha: string, ledger: Ledger): string[] {
+  const errs: string[] = [];
+  findings.forEach((f, i) => {
+    if (f.reviewSha !== sha) errs.push(`findings[${i}].reviewSha must equal the reviewed testedSha ${sha}`);
+  });
+  const byId = new Map(findings.map((f) => [String(f.id), f]));
+  for (const prior of openBlockers(ledger)) {
+    const now = byId.get(String(prior.id));
+    if (!now) errs.push(`prior blocking finding ${String(prior.id)} is not dispositioned: every prior blocking id needs an explicit open|fixed with rationale and reviewSha (omission never clears it)`);
+    else if (now.severity !== "blocking") errs.push(`finding ${String(prior.id)} was blocking; its severity cannot be downgraded`);
+    else if (now.disposition !== "open" && now.disposition !== "fixed") errs.push(`prior blocking finding ${String(prior.id)} must be dispositioned open or fixed, not ${String(now.disposition)}`);
+  }
+  return errs;
+}
+
 const insideScope = (p: string, scope: string[]) => scope.some((s) => p === s || p.startsWith(`${s}/`));
 
 function writerEvidence(r: Json, input: Input, errs: string[]): { failures: Json[]; evidence: NonNullable<Ledger["evidence"]> } {
@@ -417,9 +475,18 @@ function writerEvidence(r: Json, input: Input, errs: string[]): { failures: Json
     if (typeof o.exitCode !== "number" || !Number.isInteger(o.exitCode) || o.exitCode === 0) errs.push(`red[${i}].exitCode must be an actual NONZERO integer (zero/null is not red evidence)`);
     if (!nonEmpty(o.expectedFailure) || o.expectedFailure.trim().length < 10) errs.push(`red[${i}].expectedFailure must explain why it failed (>=10 chars)`);
     if (!nonEmpty(o.logRef)) errs.push(`red[${i}].logRef required`);
+    if (o.failureKind !== "behavior") errs.push(`red[${i}].failureKind must be "behavior"; startup/import/collection/syntax failures are not behavior-test evidence (got ${json(o.failureKind)})`);
+    if (typeof o.redSha !== "string" || !SHA.test(o.redSha)) errs.push(`red[${i}].redSha must be a 40-hex sha of an EARLIER commit`);
+    else {
+      if (o.redSha === r.testedSha) errs.push(`red[${i}].redSha must differ from the final testedSha (red and green on one commit shows no chronology)`);
+      if (!nonEmpty(o.chronology) || o.chronology.trim().length < 20 || !o.chronology.includes(o.redSha.slice(0, 7))) {
+        errs.push(`red[${i}].chronology must (>=20 chars) name redSha ${o.redSha.slice(0, 7)} and its earlier-commit relation to testedSha`);
+      }
+    }
   });
-  if (red.length > 0 && !red.some((e) => isObj(e) && input.gates.bdd.some((g) => json(g.argv) === json(e.argv)))) {
-    errs.push("red[] must include at least one run whose argv equals a BDD gate argv (the behavior test that went red)");
+  const matchesGate = (e: unknown) => isObj(e) && input.gates.bdd.some((g) => e.id === g.id && json(g.argv) === json(e.argv) && e.cwd === g.cwd);
+  if (red.length > 0 && !red.some(matchesGate)) {
+    errs.push("red[] must include at least one run matching a BDD gate by exact id, argv and cwd (the behavior test that went red)");
   }
   // GREEN: exact gates and checks, local, on the final testedSha.
   const cmds = Array.isArray(r.commands) ? r.commands : [];
@@ -460,7 +527,9 @@ function writerEvidence(r: Json, input: Input, errs: string[]): { failures: Json
       else if (g.exitCode !== local.exitCode || g.result !== (local.exitCode === 0 ? "pass" : "fail")) errs.push(`gates[] entry for ${req.id} disagrees with its command`);
     }
   }
-  return { failures, evidence: { red: clone<Json[]>(red), commands: clone<Json[]>(commands), gates: clone<Json[]>(gatesReport) } };
+  // CI-reported runs are retained for the audit trail only; they never satisfy a gate above.
+  const ci = cmds.filter((c) => isObj(c) && c.where === "ci");
+  return { failures, evidence: { red: clone<Json[]>(red), commands: clone<Json[]>(commands), gates: clone<Json[]>(gatesReport), ci: clone<Json[]>(ci) } };
 }
 
 function evaluate(raw: unknown, ctx: Json, ledger: Ledger, next: Next): Evaluation {
@@ -478,7 +547,7 @@ function evaluate(raw: unknown, ctx: Json, ledger: Ledger, next: Next): Evaluati
   const ref = nonEmpty(r.resultRef) ? r.resultRef : "";
   if (!ref) errs.push("resultRef required");
   else if (ledger.acceptedRefs.includes(ref)) errs.push(`duplicate resultRef ${ref}`);
-  if (!input.rehearsal && ref.startsWith("synthetic:")) errs.push("synthetic resultRef is not allowed outside rehearsal");
+  if (!input.rehearsal && /^synthetic:/i.test(ref.trim())) errs.push("synthetic resultRef is not allowed outside rehearsal");
   if (input.rehearsal && r.synthetic !== true) errs.push("rehearsal reports must be marked synthetic:true");
   if (!input.rehearsal && r.synthetic !== undefined && r.synthetic !== false) errs.push("synthetic reports are only allowed in rehearsal");
   const att = isObj(r.managerAttestation) ? r.managerAttestation : {};
@@ -496,6 +565,10 @@ function evaluate(raw: unknown, ctx: Json, ledger: Ledger, next: Next): Evaluati
     if (role !== phaseRole) errs.push(`this phase expects a ${phaseRole} report`);
     else if (!assignee || rep.branch !== assignee.branch) errs.push(`reporter.branch must be the dispatched assignee branch ${assignee?.branch}`);
     if (role === "reviewer" && ledger.writer && rep.branch === ledger.writer.branch) errs.push("a review from the writer's own branch is not independent");
+  }
+  // A reviewer is read-only: reject any claimed edit BEFORE material/scope handling so a bad review never blames the writer.
+  if (role === "reviewer" && (!Array.isArray(r.changedPaths) || r.changedPaths.length > 0)) {
+    errs.push("a reviewer is read-only: changedPaths must be [] (claimed edits are rejected, not treated as a scope change)");
   }
   const material = r.materialChange;
   if (material !== undefined && !(isObj(material) && ["plan", "scope", "bdd"].includes(String(material.kind)) && nonEmpty(material.description))) {
@@ -519,6 +592,7 @@ function evaluate(raw: unknown, ctx: Json, ledger: Ledger, next: Next): Evaluati
   const changed = strings(r.changedPaths) && r.changedPaths.every(relPath) ? (r.changedPaths as string[]) : null;
   if (!changed) errs.push("changedPaths must be an array of relative paths");
   if (errs.length) return { kind: "invalid", reasons: errs };
+  if (next.phase === "write" && r.testedSha === input.baseSha) return invalid("testedSha equals baseSha: the writer produced no commit");
   const outside = (changed as string[]).filter((p) => !insideScope(p, input.scope.paths));
   accept.testedSha = r.testedSha as string;
   accept.changedPaths = changed as string[];
@@ -528,11 +602,18 @@ function evaluate(raw: unknown, ctx: Json, ledger: Ledger, next: Next): Evaluati
   const findings = parseFindings(r.findings, errs);
   if (errs.length) return { kind: "invalid", reasons: errs };
   accept.findings = findings;
-  const openBlocking = findings.filter((f) => f.severity === "blocking" && f.disposition !== "fixed");
+  accept.role = String(role);
+  accept.phase = next.phase;
+  accept.cycle = next.cycle;
+  accept.findingSha = r.testedSha as string;
+  // Writer findings are claims: a prior id never changes through them, so only NEW writer blockers count.
+  const known = new Set(ledger.findings.map((f) => f.id));
+  const openBlocking = findings.filter((f) => f.severity === "blocking" && f.disposition !== "fixed" && (role === "reviewer" || !known.has(f.id)));
 
   if (next.phase === "review") {
     if (r.testedSha !== ledger.lastTestedSha) return invalid(`review must pin the writer's final testedSha ${ledger.lastTestedSha}, got ${r.testedSha}`);
-    if ((changed as string[]).length > 0) return invalid("a reviewer is read-only: changedPaths must be []");
+    const bad = reviewFindingErrors(findings, r.testedSha as string, ledger);
+    if (bad.length) return { kind: "invalid", reasons: bad };
     return openBlocking.length ? { kind: "repair", context: { reviewFindings: openBlocking }, accept } : { kind: "pass", accept };
   }
   const { failures, evidence } = writerEvidence(r, input, errs);
@@ -556,6 +637,18 @@ function assessRun(ctx: Json) {
   }
 }
 
+/** Trail is append-only. Current dispositions change only through a reviewer; a writer can only ADD a new id. */
+function reconcileFindings(ledger: Ledger, a: Accept) {
+  for (const f of a.findings ?? []) {
+    ledger.findingTrail.push({ ...f, by: a.role, resultRef: a.ref, phase: a.phase, cycle: a.cycle, testedSha: a.findingSha });
+    const at = ledger.findings.findIndex((p) => p.id === f.id);
+    if (a.role === "reviewer") {
+      if (at >= 0) ledger.findings[at] = f;
+      else ledger.findings.push(f);
+    } else if (at < 0) ledger.findings.push(f);
+  }
+}
+
 function assessInner(ctx: Json, ledger: Ledger, prev: Next) {
   const input = inputOf(ctx);
   const raw = ((ctx.outputs ?? {}) as Json).awaitReport;
@@ -576,7 +669,7 @@ function assessInner(ctx: Json, ledger: Ledger, prev: Next) {
   ledger.attestations.push(a.attestation);
   if (a.changedPaths) ledger.changedPaths = [...new Set([...ledger.changedPaths, ...a.changedPaths])];
   if (a.untracked) ledger.untrackedDisclosed = [...new Set([...ledger.untrackedDisclosed, ...a.untracked])];
-  if (a.findings) ledger.findings = a.findings;
+  if (a.findings) reconcileFindings(ledger, a);
   if (a.evidence) ledger.evidence = a.evidence;
   const role = (a.attestation as Json).role;
   if (receipt?.assignee && role !== "manager") {
@@ -604,6 +697,7 @@ function assessInner(ctx: Json, ledger: Ledger, prev: Next) {
       }
       ledger.repairs += 1;
       ledger.writeCycle += 1;
+      ledger.repairContexts.push(ev.context);
       return out("dispatch", { action: "dispatch", phase: "write", cycle: ledger.writeCycle, mode: "repair", repairContext: ev.context }, ledger, ["repair required"]);
     }
     case "pass":
@@ -649,7 +743,9 @@ function finalizeRun(ctx: Json) {
     untrackedDisclosed: ledger.untrackedDisclosed,
     gates: ev?.gates ?? [],
     findings: ledger.findings,
-    evidence: { local: { red: ev?.red ?? [], commands: ev?.commands ?? [] }, ci: [] },
+    findingTrail: ledger.findingTrail,
+    repairContexts: ledger.repairContexts,
+    evidence: { local: { red: ev?.red ?? [], commands: ev?.commands ?? [] }, ci: ev?.ci ?? [] },
     evidenceRefs: ledger.acceptedRefs,
     assignees: { writer: ledger.writer, reviewer: ledger.reviewer, lastDispatched: lastReceipt?.assignee ?? null },
     attestations: { input: input.managerAttestation, approval: input.approvedPlan.approval, reports: ledger.attestations },
@@ -659,14 +755,15 @@ function finalizeRun(ctx: Json) {
     repairContext: next.repairContext ?? null,
     halt: haltGuidance(ledger, lastReceipt),
     managerActions: [
-      "If any Lead for this run may still be active, staff_inspect it, then staff_stop that EXACT session from the assignees above (not optional); keep its assignment, worktree and evidence; never stop unrelated sessions.",
+      "If any Lead for this run may still be active, staff_inspect it, then staff_stop that EXACT session from the assignees above (not optional); keep its assignment, worktree and evidence; never stop unrelated sessions. Never auto-resume after cancel; a deliberate resume uses staff_resume on the exact owned branch, never a new staff_delegate.",
       status === "needs_approval" ? "Run the built-in plan-approval workflow with {mode:\"required\"} as a SEPARATE run; after human approval start a NEW harness run with the amended input." : "",
       status === "verified_candidate" ? "Hand the candidate to independent review/auditing and merge approval; this is not goal completion." : "",
       status === "rehearsal" ? "Synthetic rehearsal only: no candidate exists and nothing may be merged or reported as complete." : "",
     ].filter(Boolean),
     limitations: [
       "Schemas cannot prove approvals, command runs or resultRefs; the Manager attestations are the only link to real evidence.",
-      "RED-before-GREEN ordering cannot be checked from reported evidence; the reviewer and auditor must inspect the logRefs.",
+      "RED-before-GREEN ordering and redSha ancestry cannot be proven from reported evidence; the reviewer and auditor must inspect the logRefs and run git merge-base --is-ancestor.",
+      "CI-reported evidence is retained under evidence.ci and never counts as a local gate pass.",
       "Cancellation ends the run without running finalize; use the dispatch receipt in run state to halt the Lead.",
       ...(input.rehearsal ? ["REHEARSAL: all evidence is synthetic."] : []),
     ],

@@ -69,8 +69,13 @@ class Sim {
   get corr() {
     return { runId: this.runId, milestoneId: this.input.milestoneId, phase: this.next.phase, cycle: this.next.cycle };
   }
+  /** A repair or second review reuses the bound Lead, so the receipt must say it adopted it. */
+  get bound() {
+    const l = this.outputs.assess?.ledger;
+    return this.next.mode === "repair" ? Boolean(l?.writer) : this.next.mode === "review" ? Boolean(l?.reviewer) : false;
+  }
   receipt(assignee, over = {}) {
-    return { schema: "earnest.milestone-dispatch.v1", correlation: this.corr, mode: this.next.mode, assignee, adopted: false, ...over };
+    return { schema: "earnest.milestone-dispatch.v1", correlation: this.corr, mode: this.next.mode, assignee, adopted: this.bound, ...over };
   }
   dispatch(assignee, over = {}) {
     const v = def.nodes.dispatch.validate(this.receipt(assignee, over), this.ctx());
@@ -105,19 +110,37 @@ const baseReport = (sim, role, over = {}) => ({
   ...over,
 });
 const cmd = (g, over = {}) => ({ id: g.id, argv: g.argv, cwd: g.cwd, exitCode: 0, where: "local", logRef: `fixture:log/${g.id}`, testedSha: W1, ...over });
+const RED_SHA = sha("d");
+const redEntry = (o = {}) => ({
+  id: BDD.id,
+  argv: BDD.argv,
+  cwd: WT,
+  exitCode: 1,
+  failureKind: "behavior",
+  expectedFailure: "AssertionError: feature missing before the change",
+  logRef: "fixture:log/red",
+  redSha: RED_SHA,
+  chronology: `redSha ${RED_SHA.slice(0, 7)} is the earlier test-only commit; testedSha is its descendant with the implementation`,
+  ...o,
+});
 const writerReport = (sim, over = {}) => {
   const testedSha = over.testedSha ?? W1;
   return baseReport(sim, "writer", {
     testedSha,
     changedPaths: ["packages/earnest/src/x.py"],
-    red: [{ id: "red-bdd", argv: BDD.argv, cwd: WT, exitCode: 1, expectedFailure: "AssertionError: feature missing before the change", logRef: "fixture:log/red" }],
+    red: [redEntry()],
     commands: [BDD, LINT, REG].map((g) => cmd(g, { testedSha })),
     gates: [{ id: BDD.id, exitCode: 0, result: "pass" }],
     findings: [],
     ...over,
   });
 };
-const reviewReport = (sim, over = {}) => baseReport(sim, "reviewer", { testedSha: W1, changedPaths: [], findings: [], ...over });
+/** Findings default to the reviewed sha, as a real reviewer must report them. */
+const reviewReport = (sim, over = {}) => {
+  const testedSha = over.testedSha ?? W1;
+  const findings = (over.findings ?? []).map((f) => ({ reviewSha: testedSha, ...f }));
+  return baseReport(sim, "reviewer", { testedSha, changedPaths: [], ...over, findings });
+};
 
 /** Sim already past a first good writer report and dispatched to the reviewer. */
 function atReview(input = rawInput(), runId) {
@@ -316,24 +339,44 @@ test("clean: disclosed untracked files are preserved, not rejected, and reach th
 });
 
 // ------------------------------------------------------------------ safeguard 2: red / green
-test("red evidence: missing, zero, null, vague, unlogged, or not tied to a BDD gate is rejected", () => {
-  const red = (o) => [{ id: "r", argv: BDD.argv, cwd: WT, exitCode: 1, expectedFailure: "AssertionError: feature missing", logRef: "fixture:log/red", ...o }];
+test("red evidence: missing, zero, null, non-behavior, same/malformed sha, bad chronology or wrong gate is rejected", () => {
   const cases = {
-    "no red": { red: [] },
-    "red absent": { red: undefined },
-    "zero exit": { red: red({ exitCode: 0 }) },
-    "null exit": { red: red({ exitCode: null }) },
-    "string exit": { red: red({ exitCode: "1" }) },
-    "vague reason": { red: red({ expectedFailure: "failed" }) },
-    "no logRef": { red: red({ logRef: "" }) },
-    "not a BDD argv": { red: red({ argv: ["echo", "hi"] }) },
+    "no red": [{ red: [] }, /red/i],
+    "red absent": [{ red: undefined }, /red/i],
+    "zero exit": [{ red: [redEntry({ exitCode: 0 })] }, /NONZERO/],
+    "null exit": [{ red: [redEntry({ exitCode: null })] }, /NONZERO/],
+    "string exit": [{ red: [redEntry({ exitCode: "1" })] }, /NONZERO/],
+    "vague reason": [{ red: [redEntry({ expectedFailure: "failed" })] }, /expectedFailure/],
+    "no logRef": [{ red: [redEntry({ logRef: "" })] }, /logRef/],
+    "not a BDD argv": [{ red: [redEntry({ argv: ["echo", "hi"] })] }, /exact id, argv and cwd/],
+    "wrong cwd": [{ red: [redEntry({ cwd: "/elsewhere" })] }, /exact id, argv and cwd/],
+    "wrong gate id": [{ red: [redEntry({ id: "other-gate" })] }, /exact id, argv and cwd/],
+    "malformed redSha": [{ red: [redEntry({ redSha: "abc123" })] }, /40-hex sha of an EARLIER commit/],
+    "missing redSha": [{ red: [redEntry({ redSha: undefined })] }, /40-hex sha of an EARLIER commit/],
+    "identical sha": [{ red: [redEntry({ redSha: W1, chronology: `redSha ${W1.slice(0, 7)} equals the tested commit here` })] }, /must differ from the final testedSha/],
+    "no chronology": [{ red: [redEntry({ chronology: undefined })] }, /chronology/],
+    "chronology omits the sha": [{ red: [redEntry({ chronology: "ran before the implementation was written, honest" })] }, /chronology/],
+    "startup failure": [{ red: [redEntry({ failureKind: "startup" })] }, /failureKind/],
+    "import failure": [{ red: [redEntry({ failureKind: "import" })] }, /failureKind/],
+    "collection failure": [{ red: [redEntry({ failureKind: "collection" })] }, /failureKind/],
+    "no failureKind": [{ red: [redEntry({ failureKind: undefined })] }, /failureKind/],
   };
-  for (const [name, over] of Object.entries(cases)) {
+  for (const [name, [over, re]] of Object.entries(cases)) {
     const sim = atWrite();
     const a = sim.answer(writerReport(sim, over));
     assert.equal(a.route, "rewait", name);
-    assert.match(reasonsOf(a), /red/i, name);
+    assert.match(reasonsOf(a), re, name);
   }
+  // one valid behavior run is enough even next to a second red entry for another file's gate-less run
+  const ok = atWrite();
+  assert.equal(ok.answer(writerReport(ok, { red: [redEntry(), redEntry({ id: "extra", argv: ["x"], redSha: sha("e"), chronology: `redSha ${sha("e").slice(0, 7)} also came before the final commit` })] })).route, "dispatch");
+  // a red run at the base commit is a legitimate earlier commit
+  const atBase = atWrite();
+  assert.equal(atBase.answer(writerReport(atBase, { red: [redEntry({ redSha: BASE, chronology: `redSha ${BASE.slice(0, 7)} is baseSha, before the change` })] })).route, "dispatch");
+  // a writer that produced no commit is rejected
+  const noCommit = atWrite();
+  const n = noCommit.answer(writerReport(noCommit, { testedSha: BASE, commands: [BDD, LINT, REG].map((g) => cmd(g, { testedSha: BASE })) }));
+  assert.match(reasonsOf(n), /equals baseSha/);
 });
 
 test("green evidence: missing, CI-only, argv/cwd mismatch, other sha, bad gates[] -> rewait", () => {
@@ -476,11 +519,177 @@ test("repair cap counts review-driven repairs too; review rounds stay <= repairs
   sim.dispatch(WRITER);
   sim.answer(writerReport(sim, { testedSha: W2 }));
   sim.dispatch(REVIEWER);
-  const end = sim.answer(reviewReport(sim, { testedSha: W2, findings: blocking("b2") }));
+  const end = sim.answer(reviewReport(sim, { testedSha: W2, findings: [...blocking("b1"), ...blocking("b2")] }));
   assert.equal(end.next.status, "exhausted");
   const c = sim.finalize().counters;
   assert.equal(c.repairs, 1);
   assert.ok(c.reviewCycle <= c.repairs + 1);
+});
+
+// ------------------------------------------------------------------ MUST1: review context + findings reconciliation
+const B1 = { id: "b1", severity: "blocking", category: "logic", location: "x.py:9", disposition: "open", rationale: "off by one" };
+/** Review 1 finds blocker b1; the writer repairs on W2; the sim is now dispatched to the SAME reviewer for review 2. */
+function atSecondReview() {
+  const sim = atReview();
+  assert.equal(sim.answer(reviewReport(sim, { findings: [B1] })).next.mode, "repair");
+  sim.dispatch(WRITER);
+  // the writer claims b1 fixed; that claim must not clear it
+  assert.equal(sim.answer(writerReport(sim, { testedSha: W2, findings: [{ ...B1, disposition: "fixed", rationale: "writer says fixed" }] })).next.mode, "review");
+  sim.dispatch(REVIEWER);
+  return sim;
+}
+
+test("review context: prompt carries evidence, logRefs, changedPaths, findings, repair context and the verification commands", () => {
+  const sim = atSecondReview();
+  const prompt = def.nodes.dispatch.prompt(sim.ctx());
+  for (const needle of [
+    "fixture:log/red", "fixture:log/lint", "packages/earnest/src/x.py", '"b1"', "off by one", "reviewFindings",
+    `git diff --name-only ${BASE}..${W2}`, `git diff ${BASE}..${W2}`, "git merge-base --is-ancestor",
+    "MUST explicitly disposition EVERY prior blocking finding", "audit trail",
+  ]) assert.ok(prompt.includes(needle), `review prompt missing ${needle}`);
+  const c = def.nodes.awaitReport.run(sim.ctx());
+  assert.deepEqual(c.priorBlockingFindingIds, ["b1"]);
+  assert.equal(c.reviewContext.testedSha, W2);
+  assert.deepEqual(c.reviewContext.writerChangedPaths, ["packages/earnest/src/x.py"]);
+  assert.ok(c.reviewContext.writerEvidence.red.length > 0 && c.reviewContext.repairContexts.length === 1);
+  // write-phase checkpoint carries no review context
+  assert.equal(def.nodes.awaitReport.run(atWrite().ctx()).reviewContext, null);
+});
+
+test("findings: a writer 'fixed' claim never clears a blocker; the trail keeps both reports", () => {
+  const sim = atSecondReview();
+  const l = sim.outputs.assess.ledger;
+  assert.equal(l.findings.find((f) => f.id === "b1").disposition, "open");
+  assert.deepEqual(l.findingTrail.map((f) => [f.id, f.by, f.disposition]), [["b1", "reviewer", "open"], ["b1", "writer", "fixed"]]);
+});
+
+test("findings: an empty second review is rejected while a prior blocker exists", () => {
+  const sim = atSecondReview();
+  const a = sim.answer(reviewReport(sim, { testedSha: W2, findings: [] }));
+  assert.equal(a.route, "rewait");
+  assert.match(reasonsOf(a), /prior blocking finding b1 is not dispositioned/);
+  assert.equal(a.ledger.findings.find((f) => f.id === "b1").disposition, "open");
+});
+
+test("findings: an unknown or wrong id does not stand in for the prior id", () => {
+  const sim = atSecondReview();
+  const a = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...B1, id: "b9", disposition: "fixed" }] }));
+  assert.equal(a.route, "rewait");
+  assert.match(reasonsOf(a), /prior blocking finding b1 is not dispositioned/);
+  const ok = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...B1, id: "b9", disposition: "fixed" }, { ...B1, disposition: "fixed" }] }));
+  assert.equal(ok.next.status, "verified_candidate");
+});
+
+test("findings: a downgraded, deferred or reviewSha-less prior blocker is rejected", () => {
+  for (const [name, f, re] of [
+    ["downgraded", { ...B1, severity: "non-blocking", disposition: "fixed" }, /cannot be downgraded/],
+    ["accepted", { ...B1, disposition: "accepted" }, /open or fixed/],
+    ["wrong reviewSha", { ...B1, disposition: "fixed", reviewSha: W1 }, /reviewSha must equal/],
+    ["no reviewSha", { ...B1, disposition: "fixed", reviewSha: undefined }, /reviewSha must equal/],
+  ]) {
+    const sim = atSecondReview();
+    const rep = reviewReport(sim, { testedSha: W2, findings: [f] });
+    rep.findings = rep.findings.map((x) => (f.reviewSha === undefined ? { ...x, reviewSha: undefined } : { ...x, reviewSha: f.reviewSha ?? x.reviewSha }));
+    const a = sim.answer(rep);
+    assert.equal(a.route, "rewait", name);
+    assert.match(reasonsOf(a), re, name);
+  }
+});
+
+test("findings: explicitly resolved blocker clears via a fresh review; still-open one repairs again; trail is append-only", () => {
+  const sim = atSecondReview();
+  const done = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...B1, disposition: "fixed", rationale: "verified fixed at W2 in diff" }] }));
+  assert.equal(done.next.status, "verified_candidate");
+  const out = sim.finalize();
+  assert.equal(out.findings.find((f) => f.id === "b1").disposition, "fixed");
+  assert.equal(out.findings.find((f) => f.id === "b1").reviewSha, W2);
+  assert.deepEqual(out.findingTrail.map((f) => f.disposition), ["open", "fixed", "fixed"]);
+  assert.deepEqual(out.findingTrail.map((f) => f.by), ["reviewer", "writer", "reviewer"]);
+  assert.equal(out.repairContexts.length, 1);
+
+  const still = atSecondReview();
+  const r = still.answer(reviewReport(still, { testedSha: W2, findings: [{ ...B1, disposition: "open", rationale: "still wrong" }] }));
+  assert.equal(r.next.mode, "repair");
+  assert.deepEqual(r.next.repairContext.reviewFindings.map((f) => f.id), ["b1"]);
+});
+
+// ------------------------------------------------------------------ SHOULD1: reviewer edits never blame the writer
+test("review: claimed edits are rejected before scope handling and leave the writer ledger untouched", () => {
+  for (const changedPaths of [["Makefile"], ["packages/earnest/src/y.py"], ["Makefile", "packages/earnest/src/x.py"]]) {
+    const sim = atReview();
+    const before = JSON.stringify(sim.outputs.assess.ledger);
+    const a = sim.answer(reviewReport(sim, { changedPaths }));
+    assert.equal(a.route, "rewait", JSON.stringify(changedPaths));
+    assert.notEqual(a.next.status, "needs_approval");
+    assert.equal(a.next.outsidePaths, undefined);
+    assert.match(reasonsOf(a), /reviewer is read-only/);
+    assert.deepEqual(a.ledger.changedPaths, ["packages/earnest/src/x.py"], "writer path ledger untouched");
+    assert.deepEqual(a.ledger.writer, WRITER);
+    assert.equal(JSON.stringify({ ...a.ledger, invalidReports: 0, rejections: [], history: [] }), JSON.stringify({ ...JSON.parse(before), invalidReports: 0, rejections: [], history: [] }));
+  }
+  // even with a materialChange attached, a reviewer edit claim is not accepted as a material change
+  const sim = atReview();
+  assert.equal(sim.answer(reviewReport(sim, { changedPaths: ["Makefile"], materialChange: { kind: "scope", description: "also edited Makefile" } })).route, "rewait");
+  // a missing changedPaths is rejected too
+  const m = atReview();
+  assert.equal(m.answer(reviewReport(m, { changedPaths: undefined })).route, "rewait");
+});
+
+// ------------------------------------------------------------------ SHOULD3: pause / resume / adoption
+test("pause/resume: halt and prompts name staff_stop (session) and staff_resume (branch); no duplicate delegation", () => {
+  const sim = atWrite();
+  const c = def.nodes.awaitReport.run(sim.ctx());
+  assert.deepEqual(c.halt.staffStopTarget, WRITER);
+  assert.deepEqual(c.halt.staffResumeTarget, { branch: WRITER.branch });
+  const text = c.safeguards.join("\n");
+  for (const needle of ["staff_stop on the EXACT assignee.session", "staff_resume the EXACT owned assignee.branch", "Never staff_delegate a new Lead for a correlation that already has an assignment", "CANCEL: no automatic resume", "staff_list/staff_inspect", "preserves the worktree and reports"]) {
+    assert.ok(text.includes(needle), `safeguards missing ${needle}`);
+  }
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Call staff_list FIRST"));
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("ADOPT it"));
+  const out = sim.finalize();
+  assert.deepEqual(out.halt.staffResumeTarget, { branch: WRITER.branch });
+  assert.ok(out.managerActions[0].includes("Never auto-resume after cancel"));
+});
+
+test("adoption: a repair or second review that delegates a duplicate Lead (adopted:false) is rejected; adopt is accepted", () => {
+  const rep = new Sim(rawInput());
+  rep.dispatch(WRITER);
+  rep.answer(writerReport(rep, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.equal(rep.next.mode, "repair");
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt(WRITER, { adopted: false }), rep.ctx()), /must adopt the existing bound assignment/);
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt(WRITER, { adopted: undefined }), rep.ctx()), /must adopt/);
+  assert.equal(rep.dispatch(WRITER, { adopted: true }).adopted, true);
+  // first-time dispatches may be fresh delegations
+  assert.equal(new Sim(rawInput()).dispatch(WRITER, { adopted: false }).adopted, false);
+  const rv = atSecondReview();
+  assert.equal(rv.outputs.dispatch.adopted, true);
+  const sim = atReview();
+  sim.answer(reviewReport(sim, { findings: [B1] }));
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  assert.throws(() => def.nodes.dispatch.validate(sim.receipt(REVIEWER, { adopted: false }), sim.ctx()), /must adopt the existing bound assignment/);
+});
+
+// ------------------------------------------------------------------ COULD
+test("could: synthetic prefix is case-insensitive; CI evidence is retained separately and never a local pass", () => {
+  const real = atWrite();
+  assert.match(reasonsOf(real.answer(writerReport(real, { resultRef: "SYNTHETIC:r1" }))), /synthetic resultRef/);
+  assert.match(reasonsOf(real.answer(writerReport(real, { resultRef: " Synthetic:r2" }))), /synthetic resultRef/);
+  const approved = rawInput().approvedPlan;
+  assert.throws(() => def.input(rawInput({ approvedPlan: { ...approved, ref: "Synthetic:plan" } })), /synthetic approval references/);
+
+  const sim = atWrite();
+  const ciRun = cmd(REG, { where: "ci", logRef: "fixture:ci/regression" });
+  assert.equal(sim.answer(writerReport(sim, { commands: [BDD, LINT, REG].map((g) => cmd(g)).concat([ciRun]) })).route, "dispatch");
+  assert.deepEqual(sim.outputs.assess.ledger.evidence.ci.map((c) => c.logRef), ["fixture:ci/regression"]);
+  assert.ok(sim.outputs.assess.ledger.evidence.commands.every((c) => c.where === "local"));
+  sim.dispatch(REVIEWER);
+  sim.answer(reviewReport(sim));
+  assert.deepEqual(sim.finalize().evidence.ci.map((c) => c.where), ["ci"]);
+  // CI-only still cannot satisfy the gate
+  const ciOnly = atWrite();
+  assert.match(reasonsOf(ciOnly.answer(writerReport(ciOnly, { commands: [cmd(BDD), cmd(LINT), ciRun] }))), /CI-only/);
 });
 
 // ------------------------------------------------------------------ approval / scope / blocked
@@ -592,7 +801,7 @@ test("resume ownership: awaitReport content names the exact assignee and never r
   const c = def.nodes.awaitReport.run(sim.ctx());
   assert.deepEqual(c.assignee, WRITER);
   assert.deepEqual(c.expectedReporter, { role: "writer", identity: WRITER });
-  assert.ok(c.safeguards.some((s) => s.includes("staff_stop") && s.includes("RESUME never re-dispatches")));
+  assert.ok(c.safeguards.some((s) => s.includes("staff_stop") && s.includes("RESUME: never re-dispatches")));
   const rejected = sim.answer(writerReport(sim, { trackedClean: false }));
   const again = def.nodes.awaitReport.run({ ...sim.ctx(), outputs: { ...sim.outputs, assess: rejected } });
   assert.equal(again.rejectionsRemaining, 1);
@@ -605,16 +814,19 @@ const parseDispatch = (prompt) => ({
   mode: /, mode "(\w+)"/.exec(prompt)[1],
 });
 const identityFor = (mode) => (mode === "review" ? REVIEWER : WRITER);
-const receiptFor = (prompt) => {
+const receiptFor = (prompt, adopted = false) => {
   const { corr, mode } = parseDispatch(prompt);
-  return { schema: "earnest.milestone-dispatch.v1", correlation: corr, mode, assignee: identityFor(mode), adopted: false };
+  return { schema: "earnest.milestone-dispatch.v1", correlation: corr, mode, assignee: identityFor(mode), adopted };
 };
 const engineFor = (executor) => new lib.WorkflowEngine({ executor, databasePath: newDb() });
 const goodExecutor = (seen = []) => ({
   enforcesToolAllowlist: true,
   async runAgentStep(request) {
+    // a repair, or a second review, reuses the bound Lead: it is adopted, never re-delegated
+    const mode = parseDispatch(request.prompt).mode;
+    const adopted = mode === "repair" || (mode === "review" && seen.some((r) => parseDispatch(r.prompt).mode === "review"));
     seen.push(request);
-    const accepted = await request.accept(receiptFor(request.prompt));
+    const accepted = await request.accept(receiptFor(request.prompt, adopted));
     if (!accepted.ok) throw new Error(accepted.error);
     return { output: accepted.value };
   },
@@ -668,6 +880,9 @@ test("engine: dispatch timeout routes to finalize as blocked dispatchUncertain",
   assert.equal(state.finalOutput.status, "blocked");
   assert.equal(state.finalOutput.dispatchUncertain, true);
   assert.equal(state.finalOutput.goalCompletion, false);
+  assert.match(state.finalOutput.blocker, /^dispatchUncertain: dispatch step timed_out/);
+  assert.equal(state.error, undefined);
+  assert.equal(state.steps.at(-1).nodeId, "finalize");
 });
 
 test("engine: cancel while dispatching ends cancelled", async () => {
@@ -717,7 +932,7 @@ test("engine: repair loop end to end -> verified_candidate within the step bound
     (ctx) => reportFor(ctx, "writer"),
     (ctx) => reportFor(ctx, "reviewer", { findings: blocking }), // repair 2
     (ctx) => reportFor(ctx, "writer", { testedSha: W2 }),
-    (ctx) => reportFor(ctx, "reviewer", { testedSha: W2 }),
+    (ctx) => reportFor(ctx, "reviewer", { testedSha: W2, findings: [{ ...blocking[0], disposition: "fixed", rationale: "verified fixed at W2" }] }),
   ];
   const seen = [];
   const { state } = await scriptedRun(answers, rawInput(), goodExecutor(seen));
