@@ -264,10 +264,12 @@ const receiptOf = (ctx: Json): { assignee?: Identity } | null => {
 const openBlockers = (ledger: Ledger) => ledger.findings.filter((f) => f.severity === "blocking" && f.disposition !== "fixed");
 const sameIdentity = (a: Identity, b: Identity) => a.lead === b.lead && a.session === b.session && a.branch === b.branch;
 
-function haltGuidance(ledger: Ledger, receipt?: { assignee?: Identity } | null) {
-  const target = receipt?.assignee ?? ledger.reviewer ?? ledger.writer;
+function haltGuidance(ledger: Ledger, receipt?: { assignee?: Identity } | null, uncertainTarget?: Json) {
+  // A failed/timed-out dispatch has no receipt: never guess the writer; the Manager finds the real Lead by correlation.
+  const target = uncertainTarget ? undefined : (receipt?.assignee ?? ledger.reviewer ?? ledger.writer);
   return {
     mustHaltOnPauseOrCancel: true,
+    ...(uncertainTarget ? { uncertainTarget } : {}),
     staffStopTarget: target ?? null,
     staffResumeTarget: target ? { branch: target.branch } : null,
     instructions: SAFEGUARDS[3],
@@ -281,9 +283,12 @@ function dispatchPrompt(ctx: Json): string {
   const { ledger, next } = stateOf(ctx);
   const corr = correlation(ctx, next);
   const review = next.mode === "review";
-  const target = review
-    ? `a SEPARATE read-only REVIEW Lead (different lead, session and branch than the writer${ledger.writer ? ` ${json(ledger.writer)}` : ""}) pinned to testedSha ${ledger.lastTestedSha}`
-    : `the WRITER Lead on branch ${input.scope.writer.branch} (worktree ${input.scope.writer.worktree})${ledger.writer ? `, identity ${json(ledger.writer)}` : ""}`;
+  const bound = review ? ledger.reviewer : next.mode === "repair" ? ledger.writer : null;
+  const target = bound
+    ? `the ALREADY-BOUND ${review ? "REVIEW" : "WRITER"} Lead ${json(bound)} (branch ${bound.branch}, session ${bound.session})${review ? ` pinned to testedSha ${ledger.lastTestedSha}` : ` in worktree ${input.scope.writer.worktree}`}. REUSE it: send the task text with staff_message; staff_resume its EXACT branch ${bound.branch} ONLY if it was stopped (staff_resume takes a branch only, no task, no session); submit the receipt with adopted:true. NEVER staff_delegate for an already-bound ${review ? "reviewer" : "writer"}`
+    : review
+      ? `a SEPARATE read-only REVIEW Lead (first review: staff_delegate a NEW independent Lead whose lead, session and branch all differ from the writer${ledger.writer ? ` ${json(ledger.writer)}` : ""}) pinned to testedSha ${ledger.lastTestedSha}`
+      : `the WRITER Lead on branch ${input.scope.writer.branch} (worktree ${input.scope.writer.worktree}; first write: staff_delegate)`;
   const lines = [
     `You are the Manager dispatching earnest milestone ${input.milestoneId} (${input.rehearsal ? "REHEARSAL" : "real run"}), mode "${next.mode}".`,
     `Correlation for this dispatch (every report must echo it exactly): ${json(corr)}`,
@@ -291,7 +296,7 @@ function dispatchPrompt(ctx: Json): string {
     `Dispatch to ${target}.`,
     input.rehearsal
       ? `REHEARSAL: do NOT delegate or start any Lead. Submit a clearly SYNTHETIC receipt (lead/session like "synthetic-${review ? "reviewer" : "writer"}"), review identity differing from the writer's. Every report must be marked synthetic:true with synthetic refs.`
-      : `1. Call staff_list FIRST. If an assignment for this exact correlation already exists (for example after a resume), ADOPT it with staff_inspect/staff_message; never create a duplicate. Otherwise staff_delegate (or staff_resume by exact branch for a repair) with the task below.\n2. Do NOT wait for the Lead and do NOT poll. Do no repository work yourself.`,
+      : `1. Call staff_list FIRST. If an assignment for this exact correlation already exists (for example after a resume), ADOPT it with staff_inspect/staff_message; never create a duplicate. Otherwise, ONLY for a first dispatch of this role, staff_delegate with the task below; an already-bound Lead is reused via staff_message (staff_resume takes a branch only and carries no task).\n2. Do NOT wait for the Lead and do NOT poll. Do no repository work yourself.`,
     "",
     "Submit exactly this receipt as soon as the assignment exists:",
     `{ "schema": "${SCHEMAS.receipt}", "correlation": ${json(corr)}, "mode": "${next.mode}", "assignee": { "lead": "<lead name>", "session": "<exact session id>", "branch": "<exact branch>" }, "adopted": <true|false> }`,
@@ -355,7 +360,7 @@ function validateReceipt(output: unknown, ctx: Json): Json {
   if (o.adopted !== undefined && typeof o.adopted !== "boolean") errs.push("adopted must be boolean");
   // The Lead for a repair/second review is already bound: reusing it is adoption (staff_list + staff_resume by branch), never a new delegation.
   if ((next.mode === "repair" ? ledger.writer : next.mode === "review" ? ledger.reviewer : null) && o.adopted !== true) {
-    errs.push("this mode must adopt the existing bound assignment (adopted:true via staff_list/staff_resume by branch), not delegate a duplicate");
+    errs.push("this mode must adopt the existing bound assignment (adopted:true via staff_list + staff_message; staff_resume by exact branch only if stopped), not delegate a duplicate");
   }
   if (errs.length) throw new Error(`Dispatch receipt rejected: ${errs.join("; ")}`);
   return clone({ schema: SCHEMAS.receipt, correlation: want, mode: next.mode, assignee: { lead: a.lead, session: a.session, branch: a.branch }, adopted: o.adopted === true });
@@ -753,9 +758,10 @@ function finalizeRun(ctx: Json) {
     history: ledger.history,
     rejections: ledger.rejections,
     repairContext: next.repairContext ?? null,
-    halt: haltGuidance(ledger, lastReceipt),
+    halt: haltGuidance(ledger, lastReceipt, dispatchUncertain ? { phase: next.phase ?? null, cycle: next.cycle ?? null, correlation: correlation(ctx, next) } : undefined),
     managerActions: [
-      "If any Lead for this run may still be active, staff_inspect it, then staff_stop that EXACT session from the assignees above (not optional); keep its assignment, worktree and evidence; never stop unrelated sessions. Never auto-resume after cancel; a deliberate resume uses staff_resume on the exact owned branch, never a new staff_delegate.",
+      dispatchUncertain ? "UNCERTAIN DISPATCH: do NOT blind-stop and do not assume the writer. staff_list then staff_inspect by halt.uncertainTarget.correlation FIRST to find the actual Lead created for this phase/cycle (if any), staff_stop only that exact session, then keep its assignment, worktree and evidence. Never staff_delegate a duplicate." : "",
+      "If any Lead for this run may still be active, staff_inspect it, then staff_stop that EXACT session from the assignees above (not optional); keep its assignment, worktree and evidence; never stop unrelated sessions. Never auto-resume after cancel; a deliberate resume uses staff_resume on the exact owned branch (branch only; task text goes via staff_message), never a new staff_delegate.",
       status === "needs_approval" ? "Run the built-in plan-approval workflow with {mode:\"required\"} as a SEPARATE run; after human approval start a NEW harness run with the amended input." : "",
       status === "verified_candidate" ? "Hand the candidate to independent review/auditing and merge approval; this is not goal completion." : "",
       status === "rehearsal" ? "Synthetic rehearsal only: no candidate exists and nothing may be merged or reported as complete." : "",

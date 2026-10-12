@@ -580,18 +580,19 @@ test("findings: an unknown or wrong id does not stand in for the prior id", () =
   assert.equal(ok.next.status, "verified_candidate");
 });
 
-test("findings: a downgraded, deferred or reviewSha-less prior blocker is rejected", () => {
+test("findings: a downgraded, accepted, deferred, wrong-reviewSha or reviewSha-less prior blocker is rejected for exactly one reason", () => {
   for (const [name, f, re] of [
     ["downgraded", { ...B1, severity: "non-blocking", disposition: "fixed" }, /cannot be downgraded/],
     ["accepted", { ...B1, disposition: "accepted" }, /open or fixed/],
+    ["deferred", { ...B1, disposition: "deferred" }, /open or fixed/],
     ["wrong reviewSha", { ...B1, disposition: "fixed", reviewSha: W1 }, /reviewSha must equal/],
     ["no reviewSha", { ...B1, disposition: "fixed", reviewSha: undefined }, /reviewSha must equal/],
   ]) {
     const sim = atSecondReview();
-    const rep = reviewReport(sim, { testedSha: W2, findings: [f] });
-    rep.findings = rep.findings.map((x) => (f.reviewSha === undefined ? { ...x, reviewSha: undefined } : { ...x, reviewSha: f.reviewSha ?? x.reviewSha }));
-    const a = sim.answer(rep);
+    // reviewReport defaults reviewSha to the reviewed sha; only the reviewSha cases override it
+    const a = sim.answer(reviewReport(sim, { testedSha: W2, findings: [f] }));
     assert.equal(a.route, "rewait", name);
+    assert.equal(a.reasons.length, 1, `${name}: ${reasonsOf(a)}`);
     assert.match(reasonsOf(a), re, name);
   }
 });
@@ -647,9 +648,11 @@ test("pause/resume: halt and prompts name staff_stop (session) and staff_resume 
   }
   assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Call staff_list FIRST"));
   assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("ADOPT it"));
-  const out = sim.finalize();
-  assert.deepEqual(out.halt.staffResumeTarget, { branch: WRITER.branch });
-  assert.ok(out.managerActions[0].includes("Never auto-resume after cancel"));
+  const fin = atReview();
+  fin.answer(reviewReport(fin));
+  const out = fin.finalize();
+  assert.deepEqual(out.halt.staffResumeTarget, { branch: REVIEWER.branch });
+  assert.ok(out.managerActions.some((m) => m.includes("Never auto-resume after cancel")));
 });
 
 test("adoption: a repair or second review that delegates a duplicate Lead (adopted:false) is rejected; adopt is accepted", () => {
@@ -784,7 +787,10 @@ test("finalize: failed or timed-out dispatch -> blocked with dispatchUncertain a
     assert.equal(first.status, "blocked", outcome);
     assert.equal(first.dispatchUncertain, true);
     assert.match(first.blocker, /staff_list\/staff_inspect before ANY retry/);
-    // after an earlier accepted writer cycle the known identity stays visible
+    assert.equal(first.halt.staffStopTarget, null);
+    assert.equal(first.halt.staffResumeTarget, null);
+    assert.deepEqual(first.halt.uncertainTarget, { phase: "write", cycle: 1, correlation: { runId: "run-1", milestoneId: "m-test", phase: "write", cycle: 1 } });
+    // after an earlier accepted writer cycle the known identity stays visible, but is never guessed as the stop target
     const later = atWrite();
     later.answer(writerReport(later));
     later.results.dispatch = { outcome };
@@ -792,8 +798,70 @@ test("finalize: failed or timed-out dispatch -> blocked with dispatchUncertain a
     const out = later.finalize();
     assert.equal(out.dispatchUncertain, true);
     assert.deepEqual(out.assignees.writer, WRITER);
-    assert.deepEqual(out.halt.staffStopTarget, WRITER);
+    assert.equal(out.halt.staffStopTarget, null, "no blind stop of the writer");
+    assert.equal(out.halt.staffResumeTarget, null);
+    assert.deepEqual(out.halt.uncertainTarget.correlation, { runId: "run-1", milestoneId: "m-test", phase: "review", cycle: 1 });
+    assert.ok(!JSON.stringify(out.halt).includes(WRITER.session) && !JSON.stringify(out.halt).includes(WRITER.branch), "halt must not name the writer");
+    const act = out.managerActions[0];
+    for (const needle of ["UNCERTAIN DISPATCH", "do NOT blind-stop", "staff_list then staff_inspect", "uncertainTarget.correlation", "stop only"].map((n) => n.replace("stop only", "staff_stop only that exact session"))) {
+      assert.ok(act.includes(needle), `managerActions[0] missing ${needle}`);
+    }
+    assert.ok(!act.includes(WRITER.session));
   }
+  // a normal (certain) result keeps the exact receipt target and has no uncertainTarget
+  const ok = atReview();
+  ok.answer(reviewReport(ok));
+  const done = ok.finalize();
+  assert.deepEqual(done.halt.staffStopTarget, REVIEWER);
+  assert.equal(done.halt.uncertainTarget, undefined);
+});
+
+// ------------------------------------------------------------------ S-N1 / C-3: bound-Lead reuse vs first delegation
+test("prompt: the FIRST review and FIRST write may staff_delegate a new Lead", () => {
+  const first = new Sim(rawInput());
+  const w = def.nodes.dispatch.prompt(first.ctx());
+  assert.match(w, /ONLY for a first dispatch of this role, staff_delegate/);
+  assert.ok(!w.includes("ALREADY-BOUND"));
+  const rv = atReview(); // writer bound, reviewer not yet dispatched: rebuild the first-review prompt
+  const firstReview = new Sim(rawInput());
+  firstReview.dispatch(WRITER);
+  firstReview.answer(writerReport(firstReview));
+  const p = def.nodes.dispatch.prompt(firstReview.ctx());
+  assert.ok(p.includes("first review: staff_delegate a NEW independent Lead"));
+  assert.ok(p.includes(JSON.stringify(WRITER)), "names the writer it must differ from");
+  assert.ok(!p.includes("ALREADY-BOUND") && !p.includes("NEVER staff_delegate for an already-bound"));
+  assert.ok(rv);
+});
+
+test("prompt: second review and repair name the bound identity, forbid staff_delegate, require adopted:true", () => {
+  const second = atSecondReview();
+  const rv = def.nodes.dispatch.prompt(second.ctx());
+  for (const needle of [JSON.stringify(REVIEWER), REVIEWER.branch, REVIEWER.session, "ALREADY-BOUND REVIEW Lead", "staff_message", `staff_resume its EXACT branch ${REVIEWER.branch} ONLY if it was stopped`, "adopted:true", "NEVER staff_delegate for an already-bound reviewer"]) {
+    assert.ok(rv.includes(needle), `second-review prompt missing ${needle}`);
+  }
+  assert.ok(!rv.includes("a SEPARATE read-only REVIEW Lead (first review"));
+  const repair = new Sim(rawInput());
+  repair.dispatch(WRITER);
+  repair.answer(writerReport(repair, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.equal(repair.next.mode, "repair");
+  const rp = def.nodes.dispatch.prompt(repair.ctx());
+  for (const needle of [JSON.stringify(WRITER), "ALREADY-BOUND WRITER Lead", "staff_message", `staff_resume its EXACT branch ${WRITER.branch} ONLY if it was stopped`, "adopted:true", "NEVER staff_delegate for an already-bound writer"]) {
+    assert.ok(rp.includes(needle), `repair prompt missing ${needle}`);
+  }
+  // the generic step is first-dispatch-only
+  assert.ok(rp.includes("ONLY for a first dispatch of this role"));
+});
+
+test("guidance: staff_resume is branch-only everywhere; task text goes via staff_message", () => {
+  const sim = atSecondReview();
+  const texts = [def.nodes.dispatch.prompt(sim.ctx()), def.nodes.awaitReport.run(sim.ctx()).safeguards.join("\n"), def.nodes.awaitReport.run(sim.ctx()).halt.instructions, sim.finalize().managerActions.join("\n")];
+  for (const t of texts) {
+    assert.ok(!/staff_resume[^.;]*(with the task|session)/i.test(t.replace(/staff_resume takes a branch only, no task, no session/g, "").replace(/staff_resume takes a branch; staff_stop takes the session/g, "")), "staff_resume must not be described as taking a task or session");
+    assert.ok(!t.includes("staff_delegate (or staff_resume"));
+  }
+  assert.ok(texts[0].includes("staff_resume takes a branch only, no task, no session"));
+  assert.ok(texts[3].includes("branch only; task text goes via staff_message"));
+  assert.ok(texts[1].includes("staff_resume takes a branch"));
 });
 
 test("resume ownership: awaitReport content names the exact assignee and never re-dispatches by itself", () => {
