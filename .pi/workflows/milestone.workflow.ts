@@ -358,7 +358,7 @@ function validateReceipt(output: unknown, ctx: Json): Json {
     }
   }
   if (o.adopted !== undefined && typeof o.adopted !== "boolean") errs.push("adopted must be boolean");
-  // The Lead for a repair/second review is already bound: reusing it is adoption (staff_list + staff_resume by branch), never a new delegation.
+  // The Lead for a repair/second review is already bound: reusing it is adoption (staff_list + staff_message; staff_resume by branch only if stopped), never a new delegation.
   if ((next.mode === "repair" ? ledger.writer : next.mode === "review" ? ledger.reviewer : null) && o.adopted !== true) {
     errs.push("this mode must adopt the existing bound assignment (adopted:true via staff_list + staff_message; staff_resume by exact branch only if stopped), not delegate a duplicate");
   }
@@ -631,7 +631,13 @@ function evaluate(raw: unknown, ctx: Json, ledger: Ledger, next: Next): Evaluati
 function out(route: "dispatch" | "rewait" | "finalize", next: Next, ledger: Ledger, reasons: string[]) {
   return { schema: SCHEMAS.assess, route, reasons, ledger, next };
 }
-const finalizeNext = (status: string, extra: Partial<Next> = {}): Next => ({ action: "finalize", status, ...extra });
+// Engine outputs must survive a JSON round-trip, which rejects `undefined` properties (H-R2): keep only defined extras.
+// Only undefined is dropped; any other non-JSON value is left for the engine to reject loudly.
+const finalizeNext = (status: string, extra: Partial<Next> = {}): Next => ({
+  action: "finalize",
+  status,
+  ...Object.fromEntries(Object.entries(extra).filter(([, v]) => v !== undefined)),
+});
 
 function assessRun(ctx: Json) {
   const { ledger, next } = stateOf(ctx);

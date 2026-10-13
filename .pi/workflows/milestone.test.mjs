@@ -876,6 +876,80 @@ test("resume ownership: awaitReport content names the exact assignee and never r
   assert.ok(again.lastRejection.length > 0);
 });
 
+// ------------------------------------------------------------------ H-R2: every node output is strict JSON
+/** The engine rejects outputs that do not survive a JSON round-trip (e.g. undefined properties). */
+const strictJson = (o, label) => assert.deepStrictEqual(JSON.parse(JSON.stringify(o)), o, `${label}: output is not strict JSON`);
+/** Check every node output a Sim can produce at its current state. */
+function roundTripAll(sim, label) {
+  // the engine only runs awaitReport when assess routed to dispatch/rewait
+  if (sim.outputs.assess?.route !== "finalize") strictJson(def.nodes.awaitReport.run(sim.ctx()), `${label} awaitReport`);
+  if (sim.outputs.assess) strictJson(sim.outputs.assess, `${label} assess`);
+  strictJson(sim.finalize(), `${label} finalize`);
+}
+const BLOCKING = (id = "b1") => ({ id, severity: "blocking", category: "c", location: "l", disposition: "open", rationale: "r" });
+
+test("strict JSON: assess and finalize outputs round-trip on every route", () => {
+  const routes = {
+    "rewait": () => { const s = atWrite(); s.answer(writerReport(s, { trackedClean: false })); return s; },
+    "dispatch review": () => { const s = atWrite(); s.answer(writerReport(s)); return s; },
+    "dispatch repair (failing command)": () => { const s = atWrite(); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 1 : 0 })) })); return s; },
+    "dispatch repair (review finding)": () => { const s = atReview(); s.answer(reviewReport(s, { findings: [BLOCKING()] })); return s; },
+    "finalize verified_candidate": () => { const s = atReview(); s.answer(reviewReport(s)); return s; },
+    "finalize rehearsal": () => { const s = atReview(rehearsalInput()); s.answer(reviewReport(s)); return s; },
+    "finalize blocked (blocked report)": () => { const s = atWrite(); s.answer(baseReport(s, "writer", { status: "blocked", blocker: "tool crashed" })); return s; },
+    "finalize blocked (manager report)": () => { const s = atWrite(); s.answer({ ...baseReport(s, "manager", { status: "blocked", blocker: "Lead died" }), reporter: { branch: "manager", role: "manager" } }); return s; },
+    "finalize blocked (invalid cap)": () => { const s = atWrite(); for (let i = 0; i < 3; i++) s.answer("junk"); return s; },
+    "finalize blocked (assess internal error)": () => { const s = atWrite(); s.outputs.assess = def.nodes.assess.run({ ...s.ctx(), input: undefined }); return s; },
+    "finalize exhausted": () => { const s = atWrite(rawInput({ limits: { maxRepairs: 0 } })); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: 1 })), gates: [{ id: BDD.id, exitCode: 1, result: "fail" }] })); return s; },
+    "finalize needs_approval (outside paths)": () => { const s = atWrite(); s.answer(writerReport(s, { changedPaths: ["Makefile"] })); return s; },
+    "finalize needs_approval (writer material)": () => { const s = atWrite(); s.answer(writerReport(s, { materialChange: { kind: "scope", description: "wider scope needed" } })); return s; },
+    "finalize needs_approval (reviewer material)": () => { const s = atReview(); s.answer(reviewReport(s, { materialChange: { kind: "plan", description: "plan is wrong" } })); return s; },
+  };
+  for (const [name, build] of Object.entries(routes)) roundTripAll(build(), name);
+  // sanity: the routes really covered what they claim
+  const statuses = ["verified_candidate", "rehearsal", "blocked", "exhausted", "needs_approval"].map((st) => Object.entries(routes).filter(([n, b]) => n.includes(st) || (st === "blocked" && n.includes("blocked")) ).length);
+  assert.ok(statuses.every((n) => n >= 1));
+  assert.equal(routes["finalize needs_approval (outside paths)"]().outputs.assess.next.status, "needs_approval");
+  assert.equal(routes["finalize needs_approval (writer material)"]().outputs.assess.next.status, "needs_approval");
+  assert.equal(routes["finalize exhausted"]().outputs.assess.next.status, "exhausted");
+});
+
+test("strict JSON: finalize on uncertain dispatch, dispatch receipts, awaitReport content and every stage round-trip", () => {
+  for (const outcome of ["failed", "timed_out"]) {
+    const s = new Sim(rawInput());
+    s.results.dispatch = { outcome, error: "boom" };
+    strictJson(s.finalize(), `uncertain ${outcome}`);
+    const l = atWrite();
+    l.answer(writerReport(l));
+    l.results.dispatch = { outcome };
+    delete l.outputs.dispatch;
+    strictJson(l.finalize(), `uncertain-late ${outcome}`);
+  }
+  // receipts for first write, repair, first review, second review
+  const sim = new Sim(rawInput());
+  strictJson(sim.dispatch(WRITER), "receipt write");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await write");
+  sim.answer(writerReport(sim, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  strictJson(sim.outputs.assess, "assess->repair");
+  strictJson(sim.dispatch(WRITER, { adopted: true }), "receipt repair");
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  strictJson(sim.dispatch(REVIEWER), "receipt first review");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await review");
+  sim.answer(reviewReport(sim, { testedSha: W2, findings: [BLOCKING()] }));
+  strictJson(sim.outputs.assess, "assess->repair(review)");
+  strictJson(sim.dispatch(WRITER, { adopted: true }), "receipt repair 2");
+  sim.answer(writerReport(sim, { testedSha: sha("e"), commands: [BDD, LINT, REG].map((g) => cmd(g, { testedSha: sha("e") })) }));
+  strictJson(sim.dispatch(REVIEWER, { adopted: true }), "receipt second review");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await second review");
+  strictJson(def.nodes.dispatch.prompt(sim.ctx()), "prompt");
+  const rw = sim.answer(reviewReport(sim, { testedSha: sha("e"), findings: [] }));
+  assert.equal(rw.route, "rewait");
+  strictJson(rw, "assess rewait (missing prior id)");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await after rewait");
+  strictJson(sim.answer(reviewReport(sim, { testedSha: sha("e"), findings: [{ ...BLOCKING(), disposition: "fixed" }] })), "assess pass");
+  strictJson(sim.finalize(), "finalize pass");
+});
+
 // ------------------------------------------------------------------ engine (scripted executor, temp database)
 const parseDispatch = (prompt) => ({
   corr: JSON.parse(/Correlation for this dispatch \(every report must echo it exactly\): (\{.*\})/.exec(prompt)[1]),
@@ -1027,4 +1101,17 @@ test("engine: rehearsal end to end ends rehearsal, never verified_candidate", as
   const answers = [(ctx) => reportFor(ctx, "writer"), (ctx) => reportFor(ctx, "reviewer")];
   const { state } = await scriptedRun(answers, rehearsalInput());
   assert.equal(state.finalOutput.status, "rehearsal");
+});
+
+test("engine H-R2: needs_approval via outside paths and via materialChange completes (no JSON round-trip failure)", async () => {
+  for (const [name, over] of [["outside", { changedPaths: ["Makefile"] }], ["material", { materialChange: { kind: "scope", description: "wider scope needed" } }]]) {
+    const { state } = await scriptedRun([(ctx) => reportFor(ctx, "writer", over)], rawInput());
+    assert.equal(state.status, "completed", `${name}: ${state.error}`);
+    assert.equal(state.finalOutput.status, "needs_approval", name);
+    assert.equal(state.finalOutput.goalCompletion, false);
+    strictJson(state.finalOutput, name);
+  }
+  const rv = await scriptedRun([(ctx) => reportFor(ctx, "writer"), (ctx) => reportFor(ctx, "reviewer", { materialChange: { kind: "plan", description: "plan is wrong" } })], rawInput());
+  assert.equal(rv.state.status, "completed", rv.state.error);
+  assert.equal(rv.state.finalOutput.status, "needs_approval");
 });
