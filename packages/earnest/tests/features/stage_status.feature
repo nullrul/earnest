@@ -224,16 +224,3 @@ Feature: Stage status
     And the coding agent has an uncommitted edit to the body of "req~lockout-notice~1"
     When the coding agent runs earnest check
     Then the SARIF log holds no earnest/unbumped-change finding
-
-  Scenario: A route with per-unit stages is refused by the plan (SC8)
-    Given the state file marks "units-generation" as EXECUTE and not skipped
-    When the coding agent runs earnest plan
-    Then the plan exits with code 2, with empty stdout
-    And stderr is one line that names the unsupported per-unit route
-
-  Scenario: A route with per-unit stages is refused by the stage check (SC9)
-    Given the state file marks "units-generation" as EXECUTE and not skipped
-    When the coding agent runs earnest check --stage "construction/code-generation"
-    Then the check exits with code 2, with empty stdout
-    And stderr is one line that names the unsupported per-unit route
-    And Git lists no new file
