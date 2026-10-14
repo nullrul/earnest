@@ -108,7 +108,7 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   prints the assessment hash and writes the run header. After the change
   commit, a check flags the tag, edge and approval left at the old revision,
   and a body edited without a bump. A route with `units-generation` is refused
-  with exit 2.
+  with exit 2; M2b replaces the refusal.
 - Exit command: `uv run pytest tests/steps/test_stage_status.py`.
 - Deliverable: the Region rule in `index.py`, with each item's body hash; the
   per-language code-line scan the Region rule needs in the comment adapters,
@@ -139,32 +139,32 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 ### M2b `unit_status`
 
 - Goal: report per-unit stages, units and team gates on routes with Units
-  Generation.
+  Generation, from this repository alone.
 - Depends on: M2.
-- Exit behavior: in a units variant of `seeded-change`, `earnest plan` prints
-  each per-unit stage as `<phase>/<unit>/<slug>` with its computed status and
-  approval, each unit's computed status, and the frontier; `check --stage` for a
-  per-unit stage prints the assessment hash and writes the run header; a team's
-  unit-scoped approval rows approve their unit's stage.
+- Exit behavior: in the future-format units variant of `seeded-change`,
+  `earnest plan` prints each per-unit stage as
+  `<phase>/<unit directory>/<slug>` with its computed status and approval, and
+  each unit, in unit order, with its status, directory and frontier; an
+  error at one unit's frontier fails the check whatever another unit's
+  frontier; an unusable unit table fails the check and drops no need; `check --stage` for a per-unit stage
+  prints the assessment hash and writes the run header; a gate row approves a
+  unit's stage only through a `Unit` that the unit table joins to its
+  directory, at the unit's latest `Attempt Generation`.
 - Exit command: `uv run pytest tests/steps/test_unit_status.py`.
-- Deliverable: per-unit stage ids and their expansion from the state file's Unit
-  Progress in `plan.py`; the route and per-unit approvals of a units intent
-  without a Unit Progress table (solo ownership); the reader of unit-scoped
-  `GATE_APPROVED` rows; unit status in Computed status;
-  `--stage <phase>/<unit>/<slug>` in `cli.py`; the units variant of
-  `seeded-change`; `unit_status.feature` and its step module; in the fork, the
-  sensor script deriving the unit from `output_path` and passing
-  `<phase>/<unit>/<slug>`, and the three approval fields at the team gates' emit
-  sites.
-- Spec coverage: UC7; SC8 (unit status); the Plan and stage status capability.
-- Context to load: `01`: Stages, Frontier and position, Computed status; `02`:
-  `plan.py`, `fixtures/seeded-change/`.
-- Gating open questions: the join from the unit-DAG name to the unit directory;
-  the route and per-unit approvals of a units intent without a Unit Progress
-  table (solo ownership, whose approval rows carry no `Unit`) (`01`); the units
-  variant of `seeded-change` (`02`).
-- Task plan: `docs/superpowers/plans/<date>-unit-status.md`, written when M2b
-  is next.
+- Deliverable: in `plan.py` the unit table, per-unit stages, unit frontiers,
+  unit-scoped gate rows and unit status; in `cli.py` per-unit `--stage` and no
+  unsupported-route refusal; the unit lines in `reporter.py`; the `units/`
+  overlay of `seeded-change`; `unit_status.feature` and its step module. The
+  fork's per-unit work is M7's.
+- Spec coverage: UC7, UC9 (per-unit approvals); SC1, SC8 (unit and per-unit
+  stage status), SC9 (per-unit run header); the Plan and stage status
+  capability.
+- Context to load: `01`: Stages, Frontier and position, Per-unit stages and
+  units, Computed status, Command surface. `02`: `plan.py`, `conftest.py`,
+  `fixtures/seeded-change/`, L6.
+- Gating open questions: none.
+- Task plan:
+  [2026-10-14-unit-status.md](../superpowers/plans/2026-10-14-unit-status.md).
 
 ### M3 `task_change`
 
@@ -269,9 +269,14 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   sensor prints `{pass, findings_count}` with exit 0 for a `seeded-change`
   stage, with pass false while an error sits behind or current. Approve writes
   `GATE_APPROVED` with `Assessment Hash`, `Items` and `Approved By`.
+  For a per-unit stage of the units variant the sensor passes
+  `<phase>/<unit directory>/<slug>`, and approve writes `Unit` with them.
 - Exit command: `uv run pytest tests/steps/test_aidlc_fork.py`.
 - Deliverable: `aidlc_fork.feature` and its step module here; the Fork delta
-  in the fork's repository.
+  in the fork's repository, which must include the per-unit work M2b leaves to
+  it: the sensor script deriving the unit directory from `output_path`, the
+  three fields and `Unit` at the team gates' emit sites in `aidlc-state.ts` and
+  `aidlc-unit.ts`, and `Unit` on the solo approve path.
 - Spec coverage: UC9; SC9; the Stage approval capability; G13.
 - Context to load: `01`: Adopting AI-DLC, including "The `earnest` sensor and
   the approval gate"; Command surface; Runtime and permission model. `02`: Fork
@@ -285,6 +290,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   read `source-manifest.json`; the upstream artifacts the mapping table leaves
   unnamed; the User Stories requirement ids; holding the sensor on through the
   sensors-off switches; the upstream tests that pin sensor ids and routes.
+  From M2b: authority to create and push the fork repository, a fork checkout
+  with Bun, and the per-unit row of `01`.
 - Task plan: the integration gate at
   `docs/superpowers/plans/<date>-aidlc-fork.md`, written when M7 is next; the
   delta's plan lives in the fork's repository.
