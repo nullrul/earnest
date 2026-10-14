@@ -372,7 +372,7 @@ FULL_STATE = f"""## Project Information
 - [S] deployment-execution {DASH} EXECUTE: no pipeline change
 """
 ROWS = plan.parse_state(FULL_STATE).rows
-UNSUPPORTED_STATE = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+UNITS_STATE = FULL_STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
 START = block("2026-09-26T09:00:00Z", "WORKFLOW_STARTED", Scope="bugfix")
 SKIPS = "".join(
     block(f"2026-09-26T09:{minute}:00Z", "STAGE_SKIPPED", Stage=slug, Skip_Kind="conditional-runtime")
@@ -398,9 +398,9 @@ def events_of(*blocks):
     return plan.parse_audit("".join(blocks), "a.md")
 
 
-def intent_of(*blocks, state=FULL_STATE, directory="r"):
+def intent_of(*blocks, state=FULL_STATE, directory="r", table=None):
     events = tuple(sorted(events_of(*blocks)))
-    return plan.intent(Record(directory, f"{directory}/aidlc-state.md", plan.parse_state(state), events))
+    return plan.intent(Record(directory, f"{directory}/aidlc-state.md", plan.parse_state(state), events, table))
 
 
 def ident(text):
@@ -587,18 +587,26 @@ def test_missing_stage_progress_section_is_a_route_mismatch_finding_at_line_one(
     assert plan.route_findings(intent_of(BASE)) == []  # a state file that reads gives none
 
 
-def test_units_generation_on_the_route_is_unsupported():
+def test_units_generation_on_the_route_expands_per_unit_stages():
     state = FULL_STATE.replace(
         f"- [S] units-generation {DASH} SKIP: not in bugfix scope", f"- [ ] units-generation {DASH} EXECUTE: needed"
     )
     current = intent_of(BASE, state=state)
-    assert "inception/units-generation" in current.route
-    assert current.unsupported
+    assert current.units_route
+    assert "construction/code-generation" in current.route  # the intent holds the route before the expansion
+    table = "| Unit ID | Directory |\n| --- | --- |\n| A | a-dir |\n"
+    built = plan.build(intent_of(BASE, state=state, table=table), Index((unit("a"),), (), ()))
+    expanded = (REQUIREMENTS, "inception/units-generation", "construction/a-dir/code-generation", BUILD_AND_TEST)
+    assert built.intent.route == expanded
+    assert built.intent.executed == current.route
 
 
-def test_units_generation_off_the_route_is_supported():
-    assert not intent_of(BASE).unsupported
-    assert not intent_of(START).unsupported
+def test_route_without_units_generation_is_unchanged():
+    for current in (intent_of(BASE), intent_of(START)):
+        assert not current.units_route
+        built = plan.build(current, Index((unit("a"),), (), ()))
+        assert built.intent.route == current.route == current.executed
+        assert (built.units, built.join) == ((), ())
 
 
 def test_approval_row_is_read():
@@ -772,10 +780,10 @@ def task(text, line=3):
     return item(text, stage=CODE_GENERATION, line=line)
 
 
-def planned(*blocks, items=(), links=(), state=FULL_STATE):
+def planned(*blocks, items=(), links=(), state=FULL_STATE, table=None):
     """Return the plan and the index of an intent that the audit blocks describe, over the given items and links."""
     index = Index(tuple(items), tuple(links), ())
-    return plan.build(intent_of(*blocks, state=state), index), index
+    return plan.build(intent_of(*blocks, state=state, table=table), index), index
 
 
 def found_in(stage, **fields):
@@ -842,20 +850,19 @@ def test_produces_is_none_when_the_route_produces_nothing():
     assert plan.produces([intent_of(BASE, state="")]) is None
 
 
-def test_produces_is_none_when_no_intent_is_supported():
+def test_produces_is_none_without_an_intent_and_keeps_a_units_routes_needs():
     assert plan.produces([]) is None
-    assert plan.produces([intent_of(BASE, state=UNSUPPORTED_STATE)]) is None
-    assert plan.produces([intent_of(BASE, state=UNSUPPORTED_STATE), intent_of(BASE)]) == plan.produces(
-        [intent_of(BASE)]
-    )
+    wanted = {"req", "unit", "task", "impl", "utest", "itest", "stest"}
+    assert plan.produces([intent_of(BASE, state=UNITS_STATE)]) == wanted
+    assert plan.produces([intent_of(BASE, state=UNITS_STATE), intent_of(BASE)]) == wanted
 
 
-def test_in_tree_is_false_for_an_unsupported_intents_state_and_audit_files():
-    unsupported = intent_of(BASE, state=UNSUPPORTED_STATE, directory="u")
-    assert unsupported.unsupported
-    assert not plan.in_tree([unsupported], "u/aidlc-state.md")
-    assert not plan.in_tree([unsupported], "u/audit/a.md")
-    assert plan.in_tree([unsupported], "u/inception/requirements-analysis/requirements.md")
+def test_in_tree_of_a_units_intent_drops_bookkeeping_and_keeps_per_unit_files():
+    units = intent_of(BASE, state=UNITS_STATE, directory="u")
+    assert not plan.in_tree([units], "u/aidlc-state.md")
+    assert not plan.in_tree([units], "u/audit/a.md")
+    assert plan.in_tree([units], "u/inception/requirements-analysis/requirements.md")
+    assert plan.in_tree([units], "u/construction/any-dir/code-generation/code-generation-plan.md")
 
 
 def test_stage_is_not_done_without_an_approval():
@@ -1241,13 +1248,14 @@ def test_properties_hold_one_entry_per_supported_intent():
     assert (stale["approval"], stale["approvedBy"]) == ("outdated", None)  # `approvedBy` is for a current approval
 
 
-def test_properties_leave_out_an_unsupported_intent():
+def test_properties_list_a_units_intent():
     built, index = planned(BASE)
-    unsupported = plan.build(intent_of(BASE, state=UNSUPPORTED_STATE, directory="u"), index)
-    statuses = {p.intent.directory: plan.statuses(p, index, [], {}) for p in (built, unsupported)}
-    props = plan.properties([unsupported, built], statuses, index, {})
-    assert [entry["intent"] for entry in props["intents"]] == ["r"]
-    assert plan.properties([unsupported], statuses, index, {}) == {"intents": []}
+    units = plan.build(intent_of(BASE, state=UNITS_STATE, directory="u"), index)
+    statuses = {p.intent.directory: plan.statuses(p, index, [], {}) for p in (built, units)}
+    props = plan.properties([units, built], statuses, index, {})
+    assert [entry["intent"] for entry in props["intents"]] == ["r", "u"]
+    stages = [stage["stage"] for stage in props["intents"][1]["stages"]]
+    assert stages == [REQUIREMENTS, "inception/units-generation", BUILD_AND_TEST]  # no table: no per-unit stage
 
 
 def source(path, data="x"):
@@ -1508,44 +1516,37 @@ def test_dirty_ignores_a_stage_diary_memory_md():
     assert plan.dirty([memory, f"r/{REQUIREMENTS}/requirements.md"], [intent_of(BASE)])
 
 
-def test_dirty_ignores_the_files_of_an_unsupported_intent_that_ai_dlc_writes():
-    unsupported = intent_of(BASE, state=UNSUPPORTED_STATE, directory="u")
-    assert not plan.dirty(["u/aidlc-state.md", "u/audit/a.md", "u/.aidlc-engine/x.md"], [unsupported])
-    assert plan.dirty(["u/inception/requirements-analysis/r.md"], [unsupported])
+def test_dirty_ignores_a_units_intents_bookkeeping_and_sees_its_per_unit_files():
+    units = intent_of(BASE, state=UNITS_STATE, directory="u")
+    assert not plan.dirty(["u/aidlc-state.md", "u/audit/a.md", "u/.aidlc-engine/x.md"], [units])
+    assert plan.dirty(["u/inception/requirements-analysis/r.md"], [units])
+    assert plan.dirty(["u/construction/a-dir/code-generation/plan.md"], [units])
 
 
-def test_select_intent_by_directory_option():
+def test_find_intent_by_directory_option():
     one, two = intent_of(BASE, directory="a"), intent_of(BASE, directory="b")
-    assert plan.select_intent([one, two], "b") is two
-    assert plan.select_intent([one, two], "a") is one
+    assert plan.find_intent([one, two], "b") is two
+    assert plan.find_intent([one, two], "a") is one
 
 
-def test_select_intent_single_record_without_the_option():
+def test_find_intent_single_record_without_the_option():
     only = intent_of(BASE, directory="a")
-    assert plan.select_intent([only], None) is only
+    assert plan.find_intent([only], None) is only
 
 
-def test_select_intent_with_several_records_and_no_option_lists_them():
+def test_find_intent_with_several_records_and_no_option_lists_them():
     with pytest.raises(plan.PlanError, match=r"--intent.*a.*b"):
-        plan.select_intent([intent_of(BASE, directory="a"), intent_of(BASE, directory="b")], None)
+        plan.find_intent([intent_of(BASE, directory="a"), intent_of(BASE, directory="b")], None)
 
 
-def test_select_intent_with_no_record_raises():
+def test_find_intent_with_no_record_raises():
     with pytest.raises(plan.PlanError, match=r"no record directory holds an aidlc-state\.md"):
-        plan.select_intent([], None)
+        plan.find_intent([], None)
 
 
-def test_select_intent_unknown_directory_names_the_candidates():
+def test_find_intent_unknown_directory_names_the_candidates():
     with pytest.raises(plan.PlanError, match=r"zzz.*a, b"):
-        plan.select_intent([intent_of(BASE, directory="a"), intent_of(BASE, directory="b")], "zzz")
-
-
-def test_select_intent_unsupported_raises_the_unsupported_route_error():
-    unsupported = intent_of(BASE, state=UNSUPPORTED_STATE, directory="u")
-    with pytest.raises(plan.PlanError) as error:
-        plan.select_intent([unsupported], None)
-    assert str(error.value) == "unsupported route: units-generation is on the route, so per-unit stages"
-    assert plan.find_intent([unsupported], "u") is unsupported  # finding it is no refusal; selecting it is
+        plan.find_intent([intent_of(BASE, directory="a"), intent_of(BASE, directory="b")], "zzz")
 
 
 def test_select_stage_by_phase_slash_slug():
@@ -1586,3 +1587,554 @@ def test_select_stage_rejects_an_ambiguous_bare_slug():
     with pytest.raises(plan.PlanError, match=r"names several stages.*inception/requirements-analysis.*construction/"):
         plan.select_stage(built, "requirements-analysis")
     assert plan.select_stage(built, "inception/requirements-analysis") == "inception/requirements-analysis"
+
+
+# Units routes: the unit table, per-unit stages, unit gates, lanes and unit status (M2b).
+
+UNIT_STATE = UNITS_STATE.replace(
+    "### CONSTRUCTION PHASE\n", f"### CONSTRUCTION PHASE\n- [ ] functional-design {DASH} EXECUTE: per unit\n"
+)
+UNITS_ROW = next(row.line for row in plan.parse_state(UNIT_STATE).rows if row.slug == "units-generation")
+UNITS_GENERATION = "inception/units-generation"
+TABLE_PATH = f"r/{UNITS_GENERATION}/unit-of-work.md"
+TABLE = (
+    "# Units\n\n| Unit ID | Directory | Responsibility |\n| --- | --- | --- |\n| A | a-dir | x |\n| B | b-dir | y |\n"
+)
+
+
+def unit(name, line=10, path=TABLE_PATH):
+    return Item(ident(f"unit~{name}~1"), path, line)
+
+
+def unit_link(key, owner, target, line=12):
+    return Link(key, "unit", ident(target), TABLE_PATH, line, owner=ident(owner))
+
+
+UNITS_AB = (unit("a"), unit("b", 11))
+
+
+def units_plan(*blocks, items=UNITS_AB, links=(), table=TABLE, state=UNIT_STATE):
+    return planned(START, SKIPS, *blocks, items=list(items), links=list(links), state=state, table=table)
+
+
+def mismatches(built, index):
+    return [found for found in plan.plan_findings(built, index) if found.rule == "earnest/route-mismatch"]
+
+
+def test_parse_units_reads_the_first_unfenced_unit_id_and_directory_table():
+    text = (
+        "```\n| Unit ID | Directory |\n| --- | --- |\n| F | fenced |\n```\n\n"
+        "| Name | Other |\n| --- | --- |\n| X | y |\n\n"
+        "| Responsibility | Unit ID | Directory |\n|:--|--:|---|\n| r | U1.2 | u1-dir |\n| s | NFR3 | n3 |\n\nafter\n"
+        "| Unit ID | Directory |\n| --- | --- |\n| Z | second-table |\n"
+    )
+    table = plan.parse_units(text, frozenset())
+    assert table is not None
+    assert [(row.name, row.directory, row.line) for row in table.rows] == [("u1-2", "u1-dir", 13), ("nfr3", "n3", 14)]
+    assert table.bad == ()
+    assert plan.parse_units(text.replace("\n", "\r\n"), frozenset()) == table
+
+
+def test_parse_units_flags_unreadable_repeated_and_unsafe_rows():
+    rows = ["| `u1` | a |", "| U 1 | b |", "| C | .. |", "| D | a/b |", "| E | code-generation |", "| F | F-dir |"]
+    rows += ["| G | g |", "| g | h |", "| H | g |", "| I |"]
+    text = "| Unit ID | Directory |\n| --- | --- |\n" + "\n".join(rows) + "\n"
+    table = plan.parse_units(text, frozenset({"code-generation"}))
+    assert table is not None
+    assert [(row.name, row.directory) for row in table.rows] == [("g", "g")]
+    assert [line for line, _ in table.bad] == [3, 4, 5, 6, 7, 8, 10, 11, 12]
+    assert all(reason for _, reason in table.bad)
+
+
+def test_parse_units_without_a_header_table_is_none():
+    assert plan.parse_units("# Units\n\n| Unit | Dir |\n| --- | --- |\n| A | a |\n", frozenset()) is None
+    assert plan.parse_units("| Unit ID | Directory |\n| A | a |\n", frozenset()) is None  # no delimiter row
+    assert plan.parse_units("", frozenset()) is None
+
+
+def test_missing_symlinked_or_headerless_table_is_a_route_mismatch_at_units_generation(tmp_path):
+    put(tmp_path, {"r/aidlc-state.md": UNIT_STATE, "elsewhere.md": TABLE})
+    listed = ["r/aidlc-state.md", TABLE_PATH]
+    (record,) = plan.load(tmp_path, listed)
+    assert record.table is None  # missing
+    (tmp_path / TABLE_PATH).parent.mkdir(parents=True)
+    (tmp_path / TABLE_PATH).symlink_to(tmp_path / "elsewhere.md")
+    (record,) = plan.load(tmp_path, listed)
+    assert record.table is None  # a symlink
+    for table in (None, "# Units\n\nno table here\n"):
+        built, index = units_plan(items=(), table=table)
+        (found,) = mismatches(built, index)
+        assert (found.path, found.line, found.stage, found.intent) == (
+            "r/aidlc-state.md",
+            UNITS_ROW,
+            UNITS_GENERATION,
+            "r",
+        )
+        assert "unit-of-work.md" in found.message
+
+
+def test_load_reads_the_unit_table_raw(tmp_path):
+    put(tmp_path, {"r/aidlc-state.md": UNIT_STATE, TABLE_PATH: "\ufeff" + TABLE})
+    (record,) = plan.load(tmp_path, ["r/aidlc-state.md", TABLE_PATH])
+    assert record.table == TABLE
+
+
+def test_unit_item_without_row_is_flagged_with_or_without_a_table():
+    for table in (TABLE, None):
+        built, index = units_plan(items=(unit("a"), unit("b", 11), unit("c", 12)), table=table)
+        flagged = [(found.path, found.line, found.subject) for found in mismatches(built, index)]
+        assert (TABLE_PATH, 12, "unit~c~1") in flagged
+        assert all(found.stage == UNITS_GENERATION for found in mismatches(built, index))
+    built, index = units_plan()
+    assert mismatches(built, index) == []
+
+
+def test_row_without_unit_item_is_flagged_and_expands_nothing():
+    built, index = units_plan(items=(unit("a"),))
+    (found,) = mismatches(built, index)
+    assert (found.path, found.line, found.subject, found.stage) == (TABLE_PATH, 6, "b", UNITS_GENERATION)
+    assert not any("b-dir" in stage for stage in built.intent.route)
+    assert "construction/a-dir/code-generation" in built.intent.route
+
+
+def test_table_is_read_only_with_units_generation_on_the_route(tmp_path):
+    put(tmp_path, {"r/aidlc-state.md": FULL_STATE, TABLE_PATH: TABLE})
+    (record,) = plan.load(tmp_path, ["r/aidlc-state.md", TABLE_PATH])
+    assert record.table is None
+    built, index = planned(BASE, items=[unit("c")], table=None)  # no units route: no table needed, no unit flagged
+    assert mismatches(built, index) == []
+
+
+@pytest.mark.parametrize("slug", sorted(plan.FOR_EACH))
+def test_each_for_each_slug_expands_once_per_unit(slug):
+    row = f"- [ ] {slug} {DASH} EXECUTE: per unit\n"
+    state = UNITS_STATE.replace("### CONSTRUCTION PHASE\n", f"### CONSTRUCTION PHASE\n{row}")
+    if slug == "code-generation":
+        state = UNITS_STATE
+    built, _ = units_plan(state=state)
+    per_unit = [stage for stage in built.intent.route if stage.endswith(f"/{slug}")]
+    assert per_unit == [f"construction/a-dir/{slug}", f"construction/b-dir/{slug}"]
+    assert [built.owners[stage] for stage in per_unit] == ["a", "b"]
+
+
+def test_shared_slugs_stay_single():
+    built, _ = units_plan()
+    assert built.intent.route == (
+        REQUIREMENTS,
+        UNITS_GENERATION,
+        "construction/a-dir/functional-design",
+        "construction/b-dir/functional-design",
+        "construction/a-dir/code-generation",
+        "construction/b-dir/code-generation",
+        BUILD_AND_TEST,
+    )
+    assert not {REQUIREMENTS, UNITS_GENERATION, BUILD_AND_TEST} & set(built.owners)
+
+
+def order(items, links):
+    return [(each.name, each.resolved) for each in plan.unit_order("r", Index(tuple(items), tuple(links), ()))]
+
+
+def test_unit_order_is_dependency_order_with_ties_by_code_point():
+    items = [unit("a"), unit("b"), unit("c")]
+    assert order(items, [unit_link("Depends", "unit~a~1", "unit~c~1")]) == [("b", True), ("c", True), ("a", True)]
+    assert order([unit("u2"), unit("u10")], []) == [("u10", True), ("u2", True)]
+
+
+def test_unit_order_puts_a_cycle_last_by_name():
+    items = [unit("a"), unit("b"), unit("x"), unit("d")]
+    links = [unit_link("Depends", "unit~a~1", "unit~b~1"), unit_link("Depends", "unit~b~1", "unit~a~1")]
+    links.append(unit_link("Depends", "unit~x~1", "unit~x~1"))
+    assert order(items, links) == [("d", True), ("a", False), ("b", False), ("x", False)]
+
+
+def test_unit_order_puts_an_unknown_dependency_last_by_name():
+    other = unit("o", path="o/inception/units-generation/unit-of-work.md")
+    items = [unit("a"), unit("b"), unit("c"), unit("d"), unit("e"), other, task("task~t~1")]
+    links = [
+        unit_link("Depends", "unit~b~1", "unit~nothing~1"),  # an id with no item
+        unit_link("Depends", "unit~c~1", "task~t~1"),  # a task
+        unit_link("Depends", "unit~d~1", "unit~o~1"),  # a unit of another intent
+        unit_link("Depends", "unit~a~1", "unit~e~2"),  # a unit there, by type and name, whatever its revision
+    ]
+    assert order(items, links) == [("e", True), ("a", True), ("b", False), ("c", False), ("d", False)]
+
+
+def test_unit_order_puts_units_blocked_by_an_unresolved_unit_last_by_name():
+    links = [unit_link("Depends", "unit~a~1", "unit~zz~1"), unit_link("Depends", "unit~c~1", "unit~a~1")]
+    assert order([unit("a"), unit("b"), unit("c")], links) == [("b", True), ("a", False), ("c", False)]
+
+
+def test_expansion_follows_unit_order_and_skips_units_without_a_row():
+    table = "| Unit ID | Directory |\n| --- | --- |\n| A | a-dir |\n| C | c-dir |\n"
+    links = (unit_link("Depends", "unit~a~1", "unit~c~1"),)
+    built, _ = units_plan(items=(unit("a"), unit("b"), unit("c")), links=links, table=table)
+    assert [(each.name, each.directory) for each in built.units] == [("b", None), ("c", "c-dir"), ("a", "a-dir")]
+    assert [stage for stage in built.intent.route if stage.endswith("/functional-design")] == [
+        "construction/c-dir/functional-design",
+        "construction/a-dir/functional-design",
+    ]
+
+
+def test_unitless_audited_skip_removes_a_per_unit_slug_for_every_unit():
+    skip = block("2026-09-26T09:30:00Z", "STAGE_SKIPPED", Stage="functional-design", Skip_Kind="conditional-runtime")
+    built, _ = units_plan(skip)
+    assert not any(stage.endswith("/functional-design") for stage in built.intent.route)
+
+
+def test_unit_scoped_skip_skips_nothing():
+    for field_name in ("Unit", "Gate_Scope", "Gate_Stages"):
+        skip = block("2026-09-26T09:30:00Z", "STAGE_SKIPPED", Stage="functional-design", **{field_name: "a"})
+        built, _ = units_plan(skip)
+        assert [stage for stage in built.intent.route if stage.endswith("/functional-design")] == [
+            "construction/a-dir/functional-design",
+            "construction/b-dir/functional-design",
+        ]
+
+
+def test_produces_reads_the_unexpanded_route():
+    current = intent_of(START, SKIPS, state=UNIT_STATE)  # no table: the needs of every per-unit stage stay
+    assert plan.produces([current]) == {"req", "unit", "dsn", "task", "impl", "utest", "itest", "stest"}
+
+
+def test_in_tree_keeps_per_unit_files_without_a_table():
+    current = intent_of(START, SKIPS, state=UNIT_STATE)
+    assert plan.in_tree([current], "r/construction/any-dir/functional-design/spec.md")
+    assert plan.in_tree([current], "r/construction/other/code-generation/code-generation-plan.md")
+    assert not plan.in_tree([current], "r/construction/any-dir/build-and-test/x.md")  # a shared stage is not per unit
+    assert not plan.in_tree([current], "r/construction/a/b/functional-design/x.md")  # a directory is one segment
+    assert not plan.in_tree([current], "r/construction/any-dir/nfr-design/x.md")  # not on the route
+
+
+def test_select_stage_takes_a_per_unit_id_and_refuses_a_unit_name():
+    built, _ = units_plan()
+    assert plan.select_stage(built, "construction/a-dir/code-generation") == "construction/a-dir/code-generation"
+    texts = ("construction/a/code-generation", "construction/code-generation", "construction/../a-dir/code-generation")
+    for text in texts:
+        with pytest.raises(plan.PlanError, match="is not a stage on the route"):
+            plan.select_stage(built, text)
+    with pytest.raises(plan.PlanError, match=r"names several stages.*construction/a-dir/code-generation"):
+        plan.select_stage(built, "code-generation")
+
+
+A_FD, B_FD = "construction/a-dir/functional-design", "construction/b-dir/functional-design"
+A_CG, B_CG = "construction/a-dir/code-generation", "construction/b-dir/code-generation"
+LANES = {"a": frozenset({"functional-design", "code-generation"}), "b": frozenset({"functional-design"})}
+
+
+def unit_item(text, stage, line=3):
+    return Item(ident(text), f"r/{stage}/doc.md", line)
+
+
+UNIT_ITEMS = (*UNITS_AB, unit_item("dsn~a~1", A_FD), unit_item("dsn~b~1", B_FD), unit_item("task~a~1", A_CG))
+
+
+def unit_gate(minute, slug, event="GATE_APPROVED", **fields):
+    return block(f"2026-09-26T10:{minute:02d}:00Z", event, Stage=slug, **fields)
+
+
+def approvals_of(*blocks, items=UNIT_ITEMS):
+    built, _ = units_plan(*blocks, items=items)
+    return {state.stage: state.state for state in built.stages if state.stage in {A_FD, B_FD, A_CG, B_CG}}, built
+
+
+def keys(stage="functional-design", **fields):
+    (event,) = events_of(gate("2026-09-26T10:00:00Z", stage=stage, **fields))
+    return plan._gate_keys(event, LANES)
+
+
+def test_gate_keys_per_stage_unit_end_merge_and_unknown():
+    assert keys(Unit="a") == {("a", "functional-design")}
+    assert keys(Unit="a", Gate_Scope="per-stage", Gate_Stages="functional-design") == {("a", "functional-design")}
+    assert keys(Unit="a", Gate_Scope="per-stage", Gate_Stages="code-generation") == set()
+    assert keys(Unit="a", Gate_Scope="per-stage", Gate_Stages="functional-design,code-generation") == set()
+    listed = keys("code-generation", Unit="a", Gate_Scope="unit-end", Gate_Stages="functional-design,code-generation")
+    assert listed == {("a", "functional-design"), ("a", "code-generation")}
+    assert keys(Unit="a", Gate_Scope="unit-end", Gate_Stages="code-generation") == set()  # it must list its Stage
+    assert (
+        keys(Unit="b", Gate_Scope="unit-end", Gate_Stages="functional-design,code-generation") == set()
+    )  # off b's lane
+    for scope in ("unit-merge", "team"):
+        assert keys(Unit="a", Gate_Scope=scope, Gate_Stages="functional-design") == set()
+    for unknown in ("z", "A", "a-dir"):
+        assert keys(Unit=unknown) == set()
+    assert keys() == set()
+    assert keys("requirements-analysis", Unit="a") == set()  # not a per-unit stage
+
+
+def test_gate_stages_split_like_items():
+    for text in (
+        "functional-design,code-generation",
+        "functional-design code-generation",
+        " ,functional-design, code-generation,",
+    ):
+        assert keys("code-generation", Unit="a", Gate_Scope="unit-end", Gate_Stages=text) == {
+            ("a", "functional-design"),
+            ("a", "code-generation"),
+        }
+
+
+def test_unit_end_needs_every_listed_stage_on_the_units_lane_and_is_current_on_the_union():
+    fields = {"Unit": "a", "Gate_Scope": "unit-end", "Approved_By": "human"}
+    union = unit_gate(
+        30, "code-generation", Gate_Stages="functional-design,code-generation", Items="dsn~a~1, task~a~1", **fields
+    )
+    states, built = approvals_of(union)
+    assert (states[A_FD], states[A_CG], states[B_FD]) == ("current", "current", "none")
+    assert next(state for state in built.stages if state.stage == A_FD).approval.by == "human"
+    part = unit_gate(30, "code-generation", Gate_Stages="functional-design,code-generation", Items="task~a~1", **fields)
+    states, _ = approvals_of(part)
+    assert (states[A_FD], states[A_CG]) == ("outdated", "outdated")
+    off_lane = unit_gate(30, "code-generation", Gate_Stages="nfr-design,code-generation", Items="task~a~1", **fields)
+    assert approvals_of(off_lane)[0][A_CG] == "none"
+
+
+def test_generation_is_the_highest_counting_row_per_unit_of_any_scope():
+    rows = [
+        unit_gate(10, "functional-design", Unit="a", Attempt_Generation="2", Items="dsn~a~1"),
+        unit_gate(
+            20,
+            "code-generation",
+            Unit="a",
+            Gate_Scope="unit-end",
+            Gate_Stages="code-generation",
+            Attempt_Generation="3",
+            Items="task~a~1",
+        ),
+        unit_gate(25, "functional-design", Unit="a", Gate_Scope="unit-merge", Attempt_Generation="9"),  # not counting
+        unit_gate(30, "functional-design", Unit="b", Attempt_Generation="1", Items="dsn~b~1"),
+    ]
+    states, _ = approvals_of(*rows)
+    assert (states[A_FD], states[A_CG], states[B_FD]) == ("none", "current", "current")
+
+
+def test_missing_generation_is_zero_and_invalid_approves_nothing_and_raises_no_maximum():
+    states, _ = approvals_of(unit_gate(10, "functional-design", Unit="a", Items="dsn~a~1"))
+    assert states[A_FD] == "current"
+    for invalid in ("x2", "1234567890", "-1", "1.0"):
+        rows = (
+            unit_gate(10, "functional-design", Unit="a", Items="dsn~a~1"),
+            unit_gate(20, "code-generation", Unit="a", Attempt_Generation=invalid, Items="task~a~1"),
+        )
+        states, _ = approvals_of(*rows)
+        assert (states[A_FD], states[A_CG]) == ("current", "none"), invalid
+
+
+def test_generation_two_on_another_stage_voids_generation_one():
+    rows = (
+        unit_gate(10, "functional-design", Unit="a", Attempt_Generation="1", Items="dsn~a~1"),
+        unit_gate(20, "code-generation", Unit="a", Attempt_Generation="2", Items="task~a~1"),
+    )
+    states, _ = approvals_of(*rows)
+    assert (states[A_FD], states[A_CG]) == ("none", "current")
+
+
+def test_rejection_voids_its_key_else_its_slug_for_its_unit_or_every_unit():
+    approved = (
+        unit_gate(10, "functional-design", Unit="a", Attempt_Generation="1", Items="dsn~a~1"),
+        unit_gate(11, "functional-design", Unit="b", Items="dsn~b~1"),
+    )
+    cases = {
+        (("Unit", "a"), ("Gate_Scope", "per-stage")): ("none", "current"),
+        (("Unit", "a"), ("Gate_Scope", "unit-merge")): ("none", "current"),  # it would approve nothing: a's Stage
+        (): ("none", "none"),  # no Unit: every unit
+        (("Unit", "zz"),): ("none", "none"),  # a Unit that names no unit: every unit
+    }
+    for fields, expected in cases.items():
+        rejected = unit_gate(30, "functional-design", "GATE_REJECTED", Feedback="Rework.", **dict(fields))
+        states, _ = approvals_of(*approved, rejected)
+        assert (states[A_FD], states[B_FD]) == expected, fields
+    before = unit_gate(5, "functional-design", "GATE_REJECTED", Unit="a")
+    assert approvals_of(before, *approved)[0][A_FD] == "current"  # a rejection before the approval is history
+
+
+def test_restart_and_jump_void_per_unit_rows_for_every_unit():
+    approved = (
+        unit_gate(10, "functional-design", Unit="a", Items="dsn~a~1"),
+        unit_gate(11, "functional-design", Unit="b", Items="dsn~b~1"),
+    )
+    restart = block("2026-09-26T11:00:00Z", "WORKFLOW_STARTED", Scope="classic")
+    states, _ = approvals_of(*approved, restart)
+    assert (states[A_FD], states[B_FD]) == ("none", "none")
+    back = jump("2026-09-26T11:00:00Z", "BACKWARD", "functional-design")
+    states, _ = approvals_of(*approved, back)
+    assert (states[A_FD], states[B_FD]) == ("none", "none")
+
+
+def test_named_items_follow_counting_per_unit_approvals():
+    rows = (
+        unit_gate(10, "functional-design", Unit="a", Items="dsn~a~1"),
+        unit_gate(11, "functional-design", Unit="b", Items="dsn~b~1"),
+        unit_gate(12, "functional-design", "GATE_REJECTED", Unit="b"),
+        unit_gate(13, "code-generation", Unit="a", Attempt_Generation="x", Items="task~a~1"),  # approves nothing
+        unit_gate(14, "functional-design", Items="dsn~loose~1"),  # no Unit on a per-unit stage: approves nothing
+    )
+    _, built = approvals_of(*rows)
+    assert {"dsn~a~1"} <= built.intent.named_items
+    assert not {"dsn~b~1", "task~a~1", "dsn~loose~1"} & built.intent.named_items
+
+
+SHARED = (unit_gate(1, "requirements-analysis"), unit_gate(2, "units-generation"))  # no Items: current, never stale
+
+
+def at(stage, rule="earnest/duplicate", subject="req~a~1", line=1, **fields):
+    return Finding(f"r/{stage}/x.md", line, rule, subject, "m", **fields)
+
+
+def placed(built, index, *findings):
+    return [(found.stage, found.position) for found in plan.place([built], index, list(findings))]
+
+
+def test_each_unit_has_its_own_frontier():
+    built, _ = units_plan(*SHARED, unit_gate(10, "functional-design", Unit="a"))
+    assert [(each.name, each.frontier) for each in built.units] == [("a", A_CG), ("b", B_FD)]
+    assert built.frontier == B_FD
+    done = [
+        unit_gate(minute, slug, Unit=name)
+        for minute, (slug, name) in enumerate(
+            [
+                ("functional-design", "a"),
+                ("functional-design", "b"),
+                ("code-generation", "a"),
+                ("code-generation", "b"),
+            ],
+            10,
+        )
+    ]
+    every, _ = units_plan(*SHARED, *done)
+    assert [(each.name, each.frontier) for each in every.units] == [("a", BUILD_AND_TEST), ("b", BUILD_AND_TEST)]
+
+
+def test_a_units_error_is_not_ahead_because_another_units_frontier_is_earlier():
+    built, index = units_plan(*SHARED, unit_gate(10, "functional-design", Unit="a"))
+    assert built.intent.route.index(B_FD) < built.intent.route.index(A_CG)  # b's frontier sits earlier on the route
+    assert placed(built, index, at(A_CG), at(B_CG), at(A_FD), at(B_FD)) == [
+        (A_CG, "current"),
+        (B_CG, "ahead"),
+        (A_FD, "behind"),
+        (B_FD, "current"),
+    ]
+
+
+def test_shared_stage_after_units_is_ahead_until_every_unit_is_approved():
+    three = [unit_gate(10, "functional-design", Unit="a"), unit_gate(11, "functional-design", Unit="b")]
+    three.append(unit_gate(12, "code-generation", Unit="a"))
+    built, index = units_plan(*SHARED, *three)
+    assert placed(built, index, at(BUILD_AND_TEST), at(UNITS_GENERATION)) == [
+        (BUILD_AND_TEST, "ahead"),
+        (UNITS_GENERATION, "behind"),
+    ]
+    every, index = units_plan(*SHARED, *three, unit_gate(13, "code-generation", Unit="b"))
+    assert placed(every, index, at(BUILD_AND_TEST)) == [(BUILD_AND_TEST, "current")]
+
+
+# Units a (no row), b and c (rows), so the lowest name owns no fallback; c delivers req~x~1, and so does a.
+FALLBACK_TABLE = "| Unit ID | Directory |\n| --- | --- |\n| B | b-dir |\n| C | c-dir |\n"
+FALLBACK_ITEMS = (unit("a"), unit("b", 11), unit("c", 12), item("req~x~1", line=3), item("req~y~1", line=8))
+FALLBACK_LINKS = (unit_link("Delivers", "unit~c~1", "req~x~1"), unit_link("Delivers", "unit~a~1", "req~x~1"))
+REVERSED = (
+    (unit_link("Depends", "unit~b~1", "unit~c~1"),),  # c, then b
+    (unit_link("Depends", "unit~c~1", "unit~b~1"),),  # b, then c
+)
+
+
+def fallback_plan(depends, extra=()):
+    rows = [*SHARED, unit_gate(10, "functional-design", Unit="b"), unit_gate(11, "functional-design", Unit="c")]
+    items = (*FALLBACK_ITEMS, *extra)
+    return units_plan(*rows, items=items, links=(*FALLBACK_LINKS, *depends), table=FALLBACK_TABLE)
+
+
+def test_gap_placement_holding_then_lowest_lexical_valid_delivering_then_lowest_lexical_valid_unit():
+    held = unit_item("dsn~held~1", "construction/c-dir/functional-design")
+    results = []
+    for depends in REVERSED:
+        built, index = fallback_plan(depends, extra=(held,))
+        gaps = [
+            Finding(held.path, 3, "earnest/gap", "dsn~held~1", "m", child="impl"),  # held by c's stage
+            Finding(f"r/{REQUIREMENTS}/doc.md", 3, "earnest/gap", "req~x~1", "m", child="impl"),  # c delivers it
+            Finding(f"r/{REQUIREMENTS}/doc.md", 8, "earnest/gap", "req~y~1", "m", child="utest"),  # nobody does
+            Finding(f"r/{REQUIREMENTS}/doc.md", 8, "earnest/gap", "req~y~1", "m", child="dsn"),
+        ]
+        results.append(placed(built, index, *gaps))
+    assert (
+        results[0]
+        == results[1]
+        == [
+            ("construction/c-dir/code-generation", "current"),
+            ("construction/c-dir/code-generation", "current"),
+            ("construction/b-dir/code-generation", "current"),
+            ("construction/b-dir/functional-design", "behind"),
+        ]
+    )
+
+
+def test_needs_with_no_unit_count_against_units_generation():
+    for table in (None, "| Unit ID | Directory |\n| --- | --- |\n| A | .. |\n"):
+        built, index = units_plan(*SHARED, items=(unit("a"), item("req~x~1", line=3)), table=table)
+        gap = Finding(f"r/{REQUIREMENTS}/doc.md", 3, "earnest/gap", "req~x~1", "m", child="impl")
+        assert placed(built, index, gap) == [(UNITS_GENERATION, "behind")]  # its approval names no Items
+        (unplanned,) = [found for found in plan.plan_findings(built, index) if found.rule == "earnest/unplanned"]
+        assert unplanned.stage == UNITS_GENERATION
+
+
+def test_unplanned_lowest_lexical_valid_delivering_unit_then_lowest_lexical_valid_unit_code_generation():
+    results = []
+    for depends in REVERSED:
+        built, index = fallback_plan(depends)
+        found = sorted(f for f in plan.plan_findings(built, index) if f.rule == "earnest/unplanned")
+        results.append([(f.subject, f.stage) for f in found])
+    assert (
+        results[0]
+        == results[1]
+        == [
+            ("req~x~1", "construction/c-dir/code-generation"),
+            ("req~y~1", "construction/b-dir/code-generation"),
+        ]
+    )
+    route = UNIT_STATE.replace(f"- [x] code-generation {DASH} EXECUTE: always\n", "")
+    built, index = units_plan(items=FALLBACK_ITEMS, table=FALLBACK_TABLE, state=route)
+    assert [f for f in plan.plan_findings(built, index) if f.rule == "earnest/unplanned"] == []
+
+
+def done_of(items, links=(), levels=None, table=TABLE):
+    built, index = units_plan(*SHARED, items=items, links=links, table=table)
+    return plan.unit_done(built, index, levels or {})
+
+
+def test_unit_done_needs_a_row_dependencies_a_task_and_every_task_done():
+    items = (*UNITS_AB, unit("c", 12), unit_item("task~a~1", A_CG))  # task~a~1 delivers nothing, so it is done
+    assert done_of(items) == {"a": True, "b": False, "c": False}  # b has no task, c no row
+    assert done_of(items, links=(unit_link("Depends", "unit~a~1", "unit~b~1"),))["a"] is False  # b is not done
+    delivering = (Link("Delivers", "task", ident("req~r~1"), f"r/{A_CG}/doc.md", 7, owner=ident("task~a~1")),)
+    with_req = (*items, item("req~r~1"))
+    assert done_of(with_req, links=delivering, levels={"req~r~1": "traced"})["a"] is False
+    assert done_of(with_req, links=delivering, levels={"req~r~1": "evidenced"})["a"] is True
+
+
+def test_unresolved_unit_is_not_done():
+    table = "| Unit ID | Directory |\n| --- | --- |\n| A | a-dir |\n| B | b-dir |\n"
+    items = (*UNITS_AB, unit_item("task~a~1", A_CG), unit_item("task~b~1", B_CG))
+    assert done_of(items, table=table) == {"a": True, "b": True}
+    cycle = (unit_link("Depends", "unit~a~1", "unit~b~1"), unit_link("Depends", "unit~b~1", "unit~a~1"))
+    assert done_of(items, links=cycle, table=table) == {"a": False, "b": False}
+    unknown = (unit_link("Depends", "unit~a~1", "unit~zz~1"),)
+    assert done_of(items, links=unknown, table=table) == {"a": False, "b": True}
+    blocked = (*unknown, unit_link("Depends", "unit~b~1", "unit~a~1"))
+    assert done_of(items, links=blocked, table=table) == {"a": False, "b": False}
+
+
+def test_properties_list_units_in_unit_order_and_tasks_by_id():
+    items = (*UNITS_AB, unit_item("task~z~1", A_CG), unit_item("task~b~1", B_CG))
+    links = (unit_link("Depends", "unit~a~1", "unit~b~1"),)  # b, then a
+    built, index = units_plan(*SHARED, unit_gate(10, "functional-design", Unit="b"), items=items, links=links)
+    statuses = {"r": plan.statuses(built, index, [], {})}
+    (entry,) = plan.properties([built], statuses, index, {})["intents"]
+    assert entry["units"] == [
+        {"id": "unit~b~1", "status": "done", "directory": "b-dir", "frontier": B_CG},
+        {"id": "unit~a~1", "status": "done", "directory": "a-dir", "frontier": A_FD},
+    ]
+    assert [task["id"] for task in entry["tasks"]] == ["task~b~1", "task~z~1"]
+    lonely, index = units_plan(*SHARED, items=(unit("a"),), table=None)
+    statuses = {"r": plan.statuses(lonely, index, [], {})}
+    (entry,) = plan.properties([lonely], statuses, index, {})["intents"]
+    assert entry["units"] == [{"id": "unit~a~1", "status": "not done", "directory": None, "frontier": BUILD_AND_TEST}]

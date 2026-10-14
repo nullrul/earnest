@@ -53,8 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
-    or newer, an intent or stage cannot be chosen, the route has per-unit stages, or the reader of the log or the
-    summary goes away.
+    or newer, an intent or stage cannot be chosen, or the reader of the log or the summary goes away.
     """
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     # main never dispatches on the bare command, so a bare `earnest` must stop here rather than run the check
@@ -95,18 +94,18 @@ def _read() -> _World:
 
 def _analyse(world: _World) -> _Analysis:
     index = build_index(world.sources)
-    supported = [current for current in world.intents if not current.unsupported]
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
-    plans = [plan.build(current, index) for current in supported]
-    frozen = plan.frozen_bodies(world.record.bodies, supported)
+    plans = [plan.build(current, index) for current in world.intents]
+    built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
+    frozen = plan.frozen_bodies(world.record.bodies, built)
     own = [found for each in plans for found in (*plan.plan_findings(each, index), *plan.approval_findings(each))]
     derived = plan.place(plans, index, own)
     findings = [*plan.place(plans, index, structural.check(index, produces=produces, frozen=frozen)), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None
     held = world.record.bodies
-    unheld = sum(1 for item in index.defined.values() if _in_any(supported, item.path) and str(item.id) not in held)
+    unheld = sum(1 for item in index.defined.values() if _in_any(built, item.path) and str(item.id) not in held)
     run = Run(
         world.commit,
         plan.dirty(world.changes, world.intents),
@@ -141,17 +140,13 @@ def _option(world: _World, text: str | None) -> str | None:
 
 
 def _plan(world: _World) -> _Result:
-    skipped = [current for current in world.intents if current.unsupported]
-    if len(world.intents) == 1 and skipped:
-        raise plan.PlanError(plan.UNSUPPORTED_ROUTE)
     analysis = _analyse(world)
-    notes = "".join(f"earnest: skipped {current.directory}: unsupported route\n" for current in skipped)
     results, run = analysis.derived, analysis.run
     return _Result(
         reporter.sarif(results, analysis.levels, run),
         reporter.summary(results, analysis.levels, run),
         _code(results),
-        notes or ("" if world.intents else "no plan\n"),
+        "" if world.intents else "no plan\n",
     )
 
 
@@ -166,7 +161,7 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
             reporter.summary(findings, analysis.levels, run),
             _code(findings),
         )
-    chosen = plan.select_intent(world.intents, _option(world, args.intent))
+    chosen = plan.find_intent(world.intents, _option(world, args.intent))
     return _stage(world, _analyse(world), chosen, args.stage)
 
 

@@ -47,7 +47,6 @@ def test_a_reader_of_the_summary_that_goes_away_early_gets_exit_code_2(files_rep
 
 
 DASH = "\u2014"
-UNSUPPORTED = "earnest: unsupported route: units-generation is on the route, so per-unit stages\n"
 STATE = f"""## Stage Progress
 ### INCEPTION PHASE
 - [S] units-generation {DASH} SKIP: not in scope
@@ -56,6 +55,7 @@ STATE = f"""## Stage Progress
 - [x] code-generation {DASH} EXECUTE: always
 """
 UNITS = STATE.replace(f"- [S] units-generation {DASH} SKIP", f"- [ ] units-generation {DASH} EXECUTE")
+UNIT_TABLE = "i/inception/units-generation/unit-of-work.md"
 
 
 def run(repo, monkeypatch, capsys, *args):
@@ -180,38 +180,57 @@ def test_plan_without_a_record_directory_says_no_plan_and_exits_zero(files_repo,
     assert "plan" not in sarif_run(out)["properties"]
 
 
-def test_plan_of_an_only_unsupported_intent_exits_two_with_empty_stdout(files_repo, monkeypatch, capsys):
+def test_plan_of_a_units_intent_without_a_table_at_its_frontier_exits_nonzero(files_repo, monkeypatch, capsys):
     code, out, err = run(files_repo({"i/aidlc-state.md": UNITS}), monkeypatch, capsys, "plan")
-    assert (code, out, err) == (2, "", UNSUPPORTED)
+    assert code == 1  # Units Generation is first on the route, so the missing table is a current error
+    (found,) = sarif_run(out)["results"]
+    assert (found["ruleId"], found["level"], found["properties"]["stage"]) == (
+        "earnest/route-mismatch",
+        "error",
+        "inception/units-generation",
+    )
+    assert "unsupported route" not in err
 
 
-def test_check_stage_of_an_unsupported_intent_exits_two_and_writes_nothing(files_repo, monkeypatch, capsys):
-    repo = files_repo({"i/aidlc-state.md": UNITS})
-    code, out, err = run(repo, monkeypatch, capsys, "check", "--stage", "inception/requirements-analysis")
-    assert (code, out, err) == (2, "", UNSUPPORTED)
-    assert not (repo / ".earnest").exists()
+def test_check_stage_of_a_per_unit_stage_writes_its_run_header(files_repo, monkeypatch, capsys):
+    table = "| Unit ID | Directory |\n| --- | --- |\n| A | a-dir |\n\n`unit~a~1`\n\nThe unit.\n"
+    repo = files_repo({"i/aidlc-state.md": UNITS, UNIT_TABLE: table})
+    stage = "construction/a-dir/code-generation"
+    code, out, _ = run(repo, monkeypatch, capsys, "check", "--stage", stage)
+    assert code == 0
+    assert sarif_run(out)["properties"]["assessment"]["stage"] == f"i/{stage}"
+    runs = json.loads((repo / ".earnest" / "assessment.json").read_text(encoding="utf-8"))["runs"]
+    assert list(runs) == [f"i/{stage}"]
 
 
-def test_plain_check_places_an_unsupported_intents_findings_without_a_plan(files_repo, monkeypatch, capsys):
+def test_plain_check_of_a_units_intent_without_a_table_places_its_needs_at_units_generation(
+    files_repo, monkeypatch, capsys
+):
     repo = files_repo({"i/aidlc-state.md": UNITS, "i/inception/requirements-analysis/r.md": "`req~a~1`\n\nBody.\n"})
     code, out, _ = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     results = sarif_run(out)["results"]
-    assert results
+    assert sorted((result["ruleId"], result["level"]) for result in results) == [
+        ("earnest/gap", "error"),
+        ("earnest/gap", "error"),
+        ("earnest/route-mismatch", "error"),
+        ("earnest/unplanned", "warning"),
+    ]
     for result in results:
-        assert result["properties"]["position"] == "current"
-        assert "stage" not in result["properties"]
-        assert result["message"]["text"].startswith("in scope: ")
+        assert (result["properties"]["position"], result["properties"]["stage"]) == (
+            "current",
+            "inception/units-generation",
+        )
 
 
-def test_plan_lists_the_supported_intents_when_another_is_unsupported(fixture_repo, monkeypatch, capsys):
+def test_plan_lists_every_intent_including_a_units_intent(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
     other = "aidlc/spaces/default/intents/260927-other"
     write(repo, f"{other}/aidlc-state.md", UNITS)
     code, out, err = run(repo, monkeypatch, capsys, "plan")
-    assert code == 0
-    assert [entry["intent"] for entry in sarif_run(out)["properties"]["plan"]["intents"]] == [RECORD]
-    assert f"earnest: skipped {other}: unsupported route" in err.splitlines()
+    assert code == 1  # the units intent has no unit table
+    assert [entry["intent"] for entry in sarif_run(out)["properties"]["plan"]["intents"]] == [RECORD, other]
+    assert not [line for line in err.splitlines() if line.startswith("earnest:")]
 
 
 def test_intent_option_without_stage_is_validated_and_changes_nothing_else(fixture_repo, monkeypatch, capsys):
@@ -231,17 +250,6 @@ def test_intent_option_root_relative_wins_over_the_working_directory_form(files_
         capsys.readouterr()
     runs = json.loads((repo / ".earnest" / "assessment.json").read_text(encoding="utf-8"))["runs"]
     assert sorted(runs) == [f"a/{stage}", f"sub/b/{stage}"]  # `a` exists at the root, `b` only below `sub`
-
-
-def test_plan_of_several_intents_all_unsupported_exits_zero_with_skip_lines(files_repo, monkeypatch, capsys):
-    repo = files_repo({"a/aidlc-state.md": UNITS, "b/aidlc-state.md": UNITS})
-    code, out, err = run(repo, monkeypatch, capsys, "plan")
-    assert code == 0
-    assert sarif_run(out)["properties"]["plan"] == {"intents": []}
-    assert [line for line in err.splitlines() if line.startswith("earnest:")] == [
-        "earnest: skipped a: unsupported route",
-        "earnest: skipped b: unsupported route",
-    ]
 
 
 def test_an_unreadable_stage_progress_row_fails_every_command(files_repo, monkeypatch, capsys):
@@ -271,10 +279,16 @@ def test_a_renamed_stage_progress_heading_is_a_finding_not_a_silent_pass(files_r
     assert run(repo, monkeypatch, capsys, "plan")[0] == 1
 
 
-def test_plain_check_of_an_unsupported_only_repository_keeps_the_m1_findings(files_repo, monkeypatch, capsys):
+def test_plain_check_of_a_units_intent_without_a_table_is_no_silent_pass(files_repo, monkeypatch, capsys):
     repo = files_repo({"i/aidlc-state.md": UNITS, "docs/a.md": "`req~a~1`\n\nBody.\n"})
-    code, out, _ = run(repo, monkeypatch, capsys, "check")
+    code, out, err = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     log = sarif_run(out)
-    assert {result["ruleId"] for result in log["results"]} == {"earnest/orphaned", "earnest/gap"}
-    assert log["properties"]["plan"] == {"intents": []}
+    assert {result["ruleId"] for result in log["results"]} == {"earnest/route-mismatch", "earnest/gap"}
+    assert sorted(
+        result["message"]["text"].split("`")[3] for result in log["results"] if result["ruleId"] == "earnest/gap"
+    ) == [
+        "impl",
+        "utest",
+    ]
+    assert err.splitlines()[0].startswith("traced 0%")
