@@ -26,6 +26,8 @@ const LINT = { id: "lint", kind: "lint", argv: ["make", "lint"], cwd: WT };
 const REG = { id: "regression", kind: "regression", argv: ["make", "test"], cwd: WT };
 const WRITER = { lead: "lead-w", session: "sess-w", branch: "feat/writer" };
 const REVIEWER = { lead: "lead-r", session: "sess-r", branch: "review/reader" };
+/** Current Herdsman Manager tool surface (H-R3); stop_lead is a Manager action outside the dispatch step. */
+const DISPATCH_TOOLS = ["list_staff", "inspect_staff", "read_staff_transcript", "message_staff", "delegate_project", "resume_project"];
 
 const rawInput = (over = {}) => ({
   schema: "earnest.milestone-run.v1",
@@ -207,7 +209,7 @@ test("graph: definition validates, node kinds are restricted, bounds are explici
   assert.equal(def.includes, undefined);
   assert.equal(def.nodes.awaitReport.timeoutMs, null);
   assert.equal(def.nodes.awaitReport.humanDecision, undefined);
-  assert.deepEqual(def.nodes.dispatch.allowedTools, ["staff_list", "staff_inspect", "staff_message", "staff_delegate", "staff_resume"]);
+  assert.deepEqual(def.nodes.dispatch.allowedTools, DISPATCH_TOOLS);
   assert.equal(def.nodes.dispatch.timeoutMs, 15 * 60_000);
   assert.equal(def.nodes.assess.timeoutMs, 30_000);
   assert.equal(def.nodes.finalize.timeoutMs, 30_000);
@@ -223,7 +225,7 @@ test("dispatch receipt: accepted and normalised; prompt carries correlation and 
   const sim = new Sim(rawInput());
   const prompt = def.nodes.dispatch.prompt(sim.ctx());
   assert.ok(prompt.includes(JSON.stringify(sim.corr)));
-  for (const needle of ["staff_list", "staff_stop", "NEVER delete", "NONZERO", "different identity", "managerAttestation", "needs_approval", "never repeats side effects", "Do NOT wait"]) {
+  for (const needle of ["list_staff", "stop_lead", "NEVER delete", "NONZERO", "different identity", "managerAttestation", "needs_approval", "never repeats side effects", "Do NOT wait"]) {
     assert.ok(prompt.includes(needle), `prompt missing ${needle}`);
   }
   const v = sim.dispatch(WRITER);
@@ -304,7 +306,7 @@ test("pass: green writer evidence -> review; clean review -> verified_candidate 
   assert.equal(out.attestations.reports.length, 2);
   assert.deepEqual(out.evidence.ci, []);
   assert.deepEqual(out.untrackedDisclosed, [".pi-herdsman/notes.md"]);
-  assert.ok(out.managerActions.some((m) => m.includes("staff_stop")));
+  assert.ok(out.managerActions.some((m) => m.includes("stop_lead")));
   assert.ok(out.limitations.some((l) => l.includes("Cancellation")));
 });
 
@@ -637,17 +639,17 @@ test("review: claimed edits are rejected before scope handling and leave the wri
 });
 
 // ------------------------------------------------------------------ SHOULD3: pause / resume / adoption
-test("pause/resume: halt and prompts name staff_stop (session) and staff_resume (branch); no duplicate delegation", () => {
+test("pause/resume: halt and prompts name stop_lead (session) and resume_project (branch); no duplicate delegation", () => {
   const sim = atWrite();
   const c = def.nodes.awaitReport.run(sim.ctx());
   assert.deepEqual(c.halt.staffStopTarget, WRITER);
   assert.deepEqual(c.halt.staffResumeTarget, { branch: WRITER.branch });
   const text = c.safeguards.join("\n");
-  for (const needle of ["staff_stop on the EXACT assignee.session", "staff_resume the EXACT owned assignee.branch", "Never staff_delegate a new Lead for a correlation that already has an assignment", "CANCEL: no automatic resume", "staff_list/staff_inspect", "preserves the worktree and reports"]) {
+  for (const needle of ["stop_lead on the EXACT assignee.session", "resume_project the EXACT owned assignee.branch", "Never delegate_project a new Lead for a correlation that already has an assignment", "CANCEL: no automatic resume", "list_staff/inspect_staff", "preserves the worktree and reports"]) {
     assert.ok(text.includes(needle), `safeguards missing ${needle}`);
   }
-  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Call staff_list FIRST"));
-  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("ADOPT it"));
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Call list_staff FIRST"));
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Never create a second Lead for that branch"));
   const fin = atReview();
   fin.answer(reviewReport(fin));
   const out = fin.finalize();
@@ -786,7 +788,7 @@ test("finalize: failed or timed-out dispatch -> blocked with dispatchUncertain a
     const first = sim.finalize();
     assert.equal(first.status, "blocked", outcome);
     assert.equal(first.dispatchUncertain, true);
-    assert.match(first.blocker, /staff_list\/staff_inspect before ANY retry/);
+    assert.match(first.blocker, /list_staff\/inspect_staff before ANY retry/);
     assert.equal(first.halt.staffStopTarget, null);
     assert.equal(first.halt.staffResumeTarget, null);
     assert.deepEqual(first.halt.uncertainTarget, { phase: "write", cycle: 1, correlation: { runId: "run-1", milestoneId: "m-test", phase: "write", cycle: 1 } });
@@ -803,7 +805,7 @@ test("finalize: failed or timed-out dispatch -> blocked with dispatchUncertain a
     assert.deepEqual(out.halt.uncertainTarget.correlation, { runId: "run-1", milestoneId: "m-test", phase: "review", cycle: 1 });
     assert.ok(!JSON.stringify(out.halt).includes(WRITER.session) && !JSON.stringify(out.halt).includes(WRITER.branch), "halt must not name the writer");
     const act = out.managerActions[0];
-    for (const needle of ["UNCERTAIN DISPATCH", "do NOT blind-stop", "staff_list then staff_inspect", "uncertainTarget.correlation", "stop only"].map((n) => n.replace("stop only", "staff_stop only that exact session"))) {
+    for (const needle of ["UNCERTAIN DISPATCH", "do NOT blind-stop", "list_staff then inspect_staff", "uncertainTarget.correlation", "stop only"].map((n) => n.replace("stop only", "stop_lead only that exact session"))) {
       assert.ok(act.includes(needle), `managerActions[0] missing ${needle}`);
     }
     assert.ok(!act.includes(WRITER.session));
@@ -817,26 +819,27 @@ test("finalize: failed or timed-out dispatch -> blocked with dispatchUncertain a
 });
 
 // ------------------------------------------------------------------ S-N1 / C-3: bound-Lead reuse vs first delegation
-test("prompt: the FIRST review and FIRST write may staff_delegate a new Lead", () => {
+test("prompt: the FIRST review and FIRST write may delegate_project a new Lead", () => {
   const first = new Sim(rawInput());
   const w = def.nodes.dispatch.prompt(first.ctx());
-  assert.match(w, /ONLY for a first dispatch of this role, staff_delegate/);
+  assert.ok(w.includes(`Otherwise delegate_project with branch ${WRITER.branch}`));
   assert.ok(!w.includes("ALREADY-BOUND"));
   const rv = atReview(); // writer bound, reviewer not yet dispatched: rebuild the first-review prompt
   const firstReview = new Sim(rawInput());
   firstReview.dispatch(WRITER);
   firstReview.answer(writerReport(firstReview));
   const p = def.nodes.dispatch.prompt(firstReview.ctx());
-  assert.ok(p.includes("first review: staff_delegate a NEW independent Lead"));
+  assert.ok(p.includes("first review: delegate_project a NEW independent Lead"));
+  assert.ok(p.includes("Otherwise delegate_project ONE new independent read-only review Lead"));
   assert.ok(p.includes(JSON.stringify(WRITER)), "names the writer it must differ from");
-  assert.ok(!p.includes("ALREADY-BOUND") && !p.includes("NEVER staff_delegate for an already-bound"));
+  assert.ok(!p.includes("ALREADY-BOUND") && !p.includes("NEVER delegate_project for an already-bound"));
   assert.ok(rv);
 });
 
-test("prompt: second review and repair name the bound identity, forbid staff_delegate, require adopted:true", () => {
+test("prompt: second review and repair name the bound identity, forbid delegate_project, require adopted:true", () => {
   const second = atSecondReview();
   const rv = def.nodes.dispatch.prompt(second.ctx());
-  for (const needle of [JSON.stringify(REVIEWER), REVIEWER.branch, REVIEWER.session, "ALREADY-BOUND REVIEW Lead", "staff_message", `staff_resume its EXACT branch ${REVIEWER.branch} ONLY if it was stopped`, "adopted:true", "NEVER staff_delegate for an already-bound reviewer"]) {
+  for (const needle of [JSON.stringify(REVIEWER), REVIEWER.branch, REVIEWER.session, "ALREADY-BOUND REVIEW Lead", "message_staff", `resume_project its EXACT branch ${REVIEWER.branch} ONLY if it was stopped`, "adopted:true", "NEVER delegate_project for an already-bound reviewer"]) {
     assert.ok(rv.includes(needle), `second-review prompt missing ${needle}`);
   }
   assert.ok(!rv.includes("a SEPARATE read-only REVIEW Lead (first review"));
@@ -845,23 +848,26 @@ test("prompt: second review and repair name the bound identity, forbid staff_del
   repair.answer(writerReport(repair, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
   assert.equal(repair.next.mode, "repair");
   const rp = def.nodes.dispatch.prompt(repair.ctx());
-  for (const needle of [JSON.stringify(WRITER), "ALREADY-BOUND WRITER Lead", "staff_message", `staff_resume its EXACT branch ${WRITER.branch} ONLY if it was stopped`, "adopted:true", "NEVER staff_delegate for an already-bound writer"]) {
+  for (const needle of [JSON.stringify(WRITER), "ALREADY-BOUND WRITER Lead", "message_staff", `resume_project its EXACT branch ${WRITER.branch} ONLY if it was stopped`, "adopted:true", "NEVER delegate_project for an already-bound writer"]) {
     assert.ok(rp.includes(needle), `repair prompt missing ${needle}`);
   }
-  // the generic step is first-dispatch-only
-  assert.ok(rp.includes("ONLY for a first dispatch of this role"));
+  // the bound step reuses the exact session and never delegates
+  assert.ok(rp.includes(`message_staff on session ${WRITER.session}`));
+  assert.ok(rp.includes(`call resume_project with branch ${WRITER.branch} ONLY if that Lead was stopped`));
+  assert.ok(rp.includes("NEVER delegate_project here"));
+  assert.ok(!rp.includes("Otherwise delegate_project"));
 });
 
-test("guidance: staff_resume is branch-only everywhere; task text goes via staff_message", () => {
+test("guidance: resume_project is branch-only everywhere; task text goes via message_staff", () => {
   const sim = atSecondReview();
   const texts = [def.nodes.dispatch.prompt(sim.ctx()), def.nodes.awaitReport.run(sim.ctx()).safeguards.join("\n"), def.nodes.awaitReport.run(sim.ctx()).halt.instructions, sim.finalize().managerActions.join("\n")];
   for (const t of texts) {
-    assert.ok(!/staff_resume[^.;]*(with the task|session)/i.test(t.replace(/staff_resume takes a branch only, no task, no session/g, "").replace(/staff_resume takes a branch; staff_stop takes the session/g, "")), "staff_resume must not be described as taking a task or session");
-    assert.ok(!t.includes("staff_delegate (or staff_resume"));
+    assert.ok(!/resume_project[^.;]*(with the task|session)/i.test(t.replace(/resume_project takes a branch only, no task, no session/g, "").replace(/resume_project takes a branch; stop_lead takes the session/g, "")), "resume_project must not be described as taking a task or session");
+    assert.ok(!t.includes("delegate_project (or resume_project"));
   }
-  assert.ok(texts[0].includes("staff_resume takes a branch only, no task, no session"));
-  assert.ok(texts[3].includes("branch only; task text goes via staff_message"));
-  assert.ok(texts[1].includes("staff_resume takes a branch"));
+  assert.ok(texts[0].includes("resume_project takes a branch only, no task, no session"));
+  assert.ok(texts[3].includes("branch only; task text goes via message_staff"));
+  assert.ok(texts[1].includes("resume_project takes a branch"));
 });
 
 test("resume ownership: awaitReport content names the exact assignee and never re-dispatches by itself", () => {
@@ -869,7 +875,7 @@ test("resume ownership: awaitReport content names the exact assignee and never r
   const c = def.nodes.awaitReport.run(sim.ctx());
   assert.deepEqual(c.assignee, WRITER);
   assert.deepEqual(c.expectedReporter, { role: "writer", identity: WRITER });
-  assert.ok(c.safeguards.some((s) => s.includes("staff_stop") && s.includes("RESUME: never re-dispatches")));
+  assert.ok(c.safeguards.some((s) => s.includes("stop_lead") && s.includes("RESUME: never re-dispatches")));
   const rejected = sim.answer(writerReport(sim, { trackedClean: false }));
   const again = def.nodes.awaitReport.run({ ...sim.ctx(), outputs: { ...sim.outputs, assess: rejected } });
   assert.equal(again.rejectionsRemaining, 1);
@@ -980,7 +986,7 @@ test("engine: accepted dispatch parks the run waiting on the no-timeout checkpoi
   assert.equal(state.status, "waiting");
   assert.equal(state.waitingOn, "awaitReport");
   assert.equal(seen.length, 1);
-  assert.deepEqual(seen[0].contract.allowedTools, ["staff_list", "staff_inspect", "staff_message", "staff_delegate", "staff_resume"]);
+  assert.deepEqual(seen[0].contract.allowedTools, DISPATCH_TOOLS);
   assert.equal(state.outputs.dispatch.assignee.branch, WRITER.branch);
   assert.equal(state.outputs.dispatch.correlation.runId, state.runId);
 });
@@ -1114,4 +1120,70 @@ test("engine H-R2: needs_approval via outside paths and via materialChange compl
   const rv = await scriptedRun([(ctx) => reportFor(ctx, "writer"), (ctx) => reportFor(ctx, "reviewer", { materialChange: { kind: "plan", description: "plan is wrong" } })], rawInput());
   assert.equal(rv.state.status, "completed", rv.state.error);
   assert.equal(rv.state.finalOutput.status, "needs_approval");
+});
+
+// ------------------------------------------------------------------ H-R3: current Herdsman Manager tool contract
+test("H-R3 allowlist: dispatch allows exactly the current Herdsman Manager tools, in order, and never stop_lead", () => {
+  assert.deepStrictEqual(def.nodes.dispatch.allowedTools, DISPATCH_TOOLS);
+  assert.ok(!def.nodes.dispatch.allowedTools.includes("stop_lead"));
+});
+
+test("H-R3 tool names: every prompt, safeguard, halt and result text uses only current Herdsman tool names", () => {
+  const OLD = new RegExp(["list", "inspect", "message", "delegate", "resume", "stop"].map((t) => "staff" + "_" + t).join("|"));
+  const sims = [new Sim(rawInput()), atWrite(), atReview(), atSecondReview(), new Sim(rehearsalInput())];
+  for (const sim of sims) {
+    const texts = [def.nodes.dispatch.prompt(sim.ctx()), JSON.stringify(def.nodes.awaitReport.run(sim.ctx())), JSON.stringify(sim.finalize())];
+    for (const t of texts) assert.ok(!OLD.test(t), `obsolete tool name in: ${t.match(OLD)?.[0]}`);
+  }
+  const unc = new Sim(rawInput());
+  unc.results.dispatch = { outcome: "failed" };
+  assert.ok(!OLD.test(JSON.stringify(unc.finalize())));
+  assert.ok(unc.finalize().managerActions[0].includes("list_staff then inspect_staff"));
+  assert.ok(unc.finalize().managerActions.some((m) => m.includes("stop_lead")));
+});
+
+test("H-R3 first write: list_staff first; an existing owner of scope.writer.branch gets message_staff with adopted:false, else delegate_project", () => {
+  const sim = new Sim(rawInput());
+  const p = def.nodes.dispatch.prompt(sim.ctx());
+  const first = p.indexOf("1. Call list_staff FIRST");
+  assert.ok(first >= 0);
+  for (const needle of [
+    `If a Lead already owns branch ${WRITER.branch}, give it the task below with message_staff on that Lead's EXACT session`,
+    "adopted:false (this is the first dispatch of this correlation, not a bound reuse)",
+    `Otherwise delegate_project with branch ${WRITER.branch}`,
+    "resume_project takes a branch only and carries no task",
+  ]) assert.ok(p.indexOf(needle) > first, `first-write prompt missing ${needle}`);
+  assert.ok(!p.includes("NEVER delegate_project here"));
+  // the branch comes from input, never a hard-coded value
+  const other = new Sim(rawInput({ scope: { writer: { branch: "herdsman/work-other", worktree: WT }, paths: ["src"] } }));
+  assert.ok(def.nodes.dispatch.prompt(other.ctx()).includes("If a Lead already owns branch herdsman/work-other"));
+  // an existing branch owner (a pre-existing Lead, not yet bound to this run) is accepted with adopted:false
+  const owner = { lead: "Lead-existing-owner", session: "sess-existing-owner", branch: WRITER.branch };
+  const v = sim.dispatch(owner, { adopted: false });
+  assert.deepEqual(v.assignee, owner);
+  assert.equal(v.adopted, false);
+  // rehearsal makes no real staff calls
+  const rh = def.nodes.dispatch.prompt(new Sim(rehearsalInput()).ctx());
+  assert.ok(rh.includes("REHEARSAL: do NOT delegate or start any Lead"));
+  assert.ok(!rh.includes("1. Call list_staff FIRST"));
+});
+
+test("H-R3 receipts: first write and first review accept adopted:false; repair and later review require adopted:true", () => {
+  assert.equal(new Sim(rawInput()).dispatch(WRITER, { adopted: false }).adopted, false);
+  const fr = new Sim(rawInput());
+  fr.dispatch(WRITER);
+  fr.answer(writerReport(fr));
+  assert.equal(fr.dispatch(REVIEWER, { adopted: false }).adopted, false);
+  const rep = new Sim(rawInput());
+  rep.dispatch(WRITER);
+  rep.answer(writerReport(rep, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt(WRITER, { adopted: false }), rep.ctx()), /must adopt the existing bound assignment/);
+  const sim = atReview();
+  sim.answer(reviewReport(sim, { findings: [B1] }));
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  assert.throws(() => def.nodes.dispatch.validate(sim.receipt(REVIEWER, { adopted: false }), sim.ctx()), /must adopt the existing bound assignment/);
+  // second-review prompt reuses the exact bound reviewer and never delegates
+  const rp = def.nodes.dispatch.prompt(sim.ctx());
+  assert.ok(rp.includes(`message_staff on session ${REVIEWER.session}`) && rp.includes(`resume_project with branch ${REVIEWER.branch} ONLY if that Lead was stopped`) && rp.includes("NEVER delegate_project here"));
 });
