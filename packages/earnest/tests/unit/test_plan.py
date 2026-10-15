@@ -1972,6 +1972,64 @@ def test_partial_unit_end_rejection_keeps_surviving_stage_unbumped_change_and_ba
     assert plan.next_bodies(held, built, A_FD) == held  # The surviving approval must not let a check overwrite FD.
 
 
+def test_partial_unit_end_rejection_keeps_relocated_item_unbumped_change_and_baseline():
+    original_fd = hashed("dsn~a~1", digest_of(b"Original functional design."), A_FD, line=3)
+    original_cg = hashed("task~a~1", digest_of(b"Original code generation plan."), A_CG, line=7)
+    unchecked, _ = units_plan(items=(*UNITS_AB, original_fd, original_cg))
+    held = plan.next_bodies(plan.next_bodies({}, unchecked, A_FD), unchecked, A_CG)
+    assert held == {"dsn~a~1": original_fd.body_hash, "task~a~1": original_cg.body_hash}
+    approved = unit_gate(
+        10,
+        "code-generation",
+        Unit="a",
+        Gate_Scope="unit-end",
+        Gate_Stages="functional-design,code-generation",
+        Attempt_Generation="1",
+        Items="dsn~a~1, task~a~1",
+        Approved_By="human",
+        Assessment_Hash=HASH,
+    )
+    rejected = unit_gate(
+        20,
+        "code-generation",
+        "GATE_REJECTED",
+        Unit="a",
+        Gate_Scope="per-stage",
+        Gate_Stages="code-generation",
+        Attempt_Generation="1",
+    )
+    approval_event, rejection_event = events_of(approved, rejected)
+    assert approval_event.fields["Gate Scope"] == "unit-end"
+    assert approval_event.fields["Gate Stages"] == "functional-design,code-generation"
+    assert approval_event.fields["Items"] == "dsn~a~1, task~a~1"
+    assert rejection_event.name == "GATE_REJECTED"
+    assert rejection_event.fields["Gate Scope"] == "per-stage"
+    assert rejection_event.fields["Gate Stages"] == "code-generation"
+    assert approval_event.fields["Attempt Generation"] == rejection_event.fields["Attempt Generation"] == "1"
+    assert approval_event.key < rejection_event.key
+    moved_fd = hashed("dsn~a~1", original_fd.body_hash, A_CG, line=3)
+    assert moved_fd.id == original_fd.id and moved_fd.path != original_fd.path
+    moved, _ = units_plan(approved, rejected, items=(*UNITS_AB, moved_fd, original_cg))
+    assert next(stage for stage in moved.stages if stage.stage == A_FD).state == "current"
+    changed_fd = hashed("dsn~a~1", digest_of(b"Relocated and edited without a revision bump."), A_CG, line=3)
+    assert changed_fd.id == moved_fd.id and changed_fd.path == moved_fd.path
+    assert changed_fd.body_hash != moved_fd.body_hash
+    built, index = units_plan(approved, rejected, items=(*UNITS_AB, changed_fd, original_cg))
+    stages = {stage.stage: stage for stage in built.stages}
+    assert (stages[A_FD].state, stages[A_CG].state) == ("current", "none")
+    surviving = stages[A_FD].approval
+    assert surviving is not None and surviving.items == ("dsn~a~1", "task~a~1")
+    assert surviving.scope == (A_CG, A_FD)
+    assert not stages[A_FD].items
+    frozen = plan.frozen_bodies(held, [built.intent])
+    findings = structural.check(index, produces=plan.produces([built.intent]), frozen=frozen)
+    assert [(f.rule, f.subject, f.path, f.line, f.level) for f in findings if f.rule == "earnest/unbumped-change"] == [
+        ("earnest/unbumped-change", "dsn~a~1", f"r/{A_CG}/doc.md", 3, "error")
+    ]
+    assert frozen == held
+    assert plan.next_bodies(held, built, A_CG) == held  # Checking the new location cannot overwrite the baseline.
+
+
 @pytest.mark.parametrize(
     ("rejected_slug", "scope", "unit_name", "expected"),
     [
