@@ -1705,7 +1705,11 @@ def test_table_is_read_only_with_units_generation_on_the_route(tmp_path):
     assert mismatches(built, index) == []
 
 
-@pytest.mark.parametrize("slug", sorted(plan.FOR_EACH))
+# Upstream's `for_each: unit-of-work` stages, written out so a slug dropped from `plan.FOR_EACH` fails here.
+PER_UNIT_SLUGS = ("functional-design", "nfr-requirements", "nfr-design", "infrastructure-design", "code-generation")
+
+
+@pytest.mark.parametrize("slug", PER_UNIT_SLUGS)
 def test_each_for_each_slug_expands_once_per_unit(slug):
     row = f"- [ ] {slug} {DASH} EXECUTE: per unit\n"
     state = UNITS_STATE.replace("### CONSTRUCTION PHASE\n", f"### CONSTRUCTION PHASE\n{row}")
