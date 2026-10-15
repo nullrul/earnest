@@ -59,11 +59,13 @@ class Sim {
   constructor(input, runId = "run-1") {
     this.runId = runId;
     this.input = def.input(input);
+    this.rawInput = structuredClone(input);
     this.outputs = {};
     this.results = {};
   }
   ctx() {
-    return { input: this.input, outputs: this.outputs, results: this.results, state: { runId: this.runId }, signal: new AbortController().signal };
+    // Sim.rawCtx: nodes see the raw start input, as the live server runner persists it (H-R4)
+    return { input: Sim.rawCtx ? this.rawInput : this.input, outputs: this.outputs, results: this.results, state: { runId: this.runId }, signal: new AbortController().signal };
   }
   get next() {
     return this.outputs.assess?.next ?? { action: "dispatch", phase: "write", cycle: 1, mode: "write" };
@@ -894,23 +896,25 @@ function roundTripAll(sim, label) {
 }
 const BLOCKING = (id = "b1") => ({ id, severity: "blocking", category: "c", location: "l", disposition: "open", rationale: "r" });
 
+const ROUTES = {
+  "rewait": () => { const s = atWrite(); s.answer(writerReport(s, { trackedClean: false })); return s; },
+  "dispatch review": () => { const s = atWrite(); s.answer(writerReport(s)); return s; },
+  "dispatch repair (failing command)": () => { const s = atWrite(); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 1 : 0 })) })); return s; },
+  "dispatch repair (review finding)": () => { const s = atReview(); s.answer(reviewReport(s, { findings: [BLOCKING()] })); return s; },
+  "finalize verified_candidate": () => { const s = atReview(); s.answer(reviewReport(s)); return s; },
+  "finalize rehearsal": () => { const s = atReview(rehearsalInput()); s.answer(reviewReport(s)); return s; },
+  "finalize blocked (blocked report)": () => { const s = atWrite(); s.answer(baseReport(s, "writer", { status: "blocked", blocker: "tool crashed" })); return s; },
+  "finalize blocked (manager report)": () => { const s = atWrite(); s.answer({ ...baseReport(s, "manager", { status: "blocked", blocker: "Lead died" }), reporter: { branch: "manager", role: "manager" } }); return s; },
+  "finalize blocked (invalid cap)": () => { const s = atWrite(); for (let i = 0; i < 3; i++) s.answer("junk"); return s; },
+  "finalize blocked (assess internal error)": () => { const s = atWrite(); s.outputs.assess = def.nodes.assess.run({ ...s.ctx(), input: undefined }); return s; },
+  "finalize exhausted": () => { const s = atWrite(rawInput({ limits: { maxRepairs: 0 } })); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: 1 })), gates: [{ id: BDD.id, exitCode: 1, result: "fail" }] })); return s; },
+  "finalize needs_approval (outside paths)": () => { const s = atWrite(); s.answer(writerReport(s, { changedPaths: ["Makefile"] })); return s; },
+  "finalize needs_approval (writer material)": () => { const s = atWrite(); s.answer(writerReport(s, { materialChange: { kind: "scope", description: "wider scope needed" } })); return s; },
+  "finalize needs_approval (reviewer material)": () => { const s = atReview(); s.answer(reviewReport(s, { materialChange: { kind: "plan", description: "plan is wrong" } })); return s; },
+};
+
 test("strict JSON: assess and finalize outputs round-trip on every route", () => {
-  const routes = {
-    "rewait": () => { const s = atWrite(); s.answer(writerReport(s, { trackedClean: false })); return s; },
-    "dispatch review": () => { const s = atWrite(); s.answer(writerReport(s)); return s; },
-    "dispatch repair (failing command)": () => { const s = atWrite(); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 1 : 0 })) })); return s; },
-    "dispatch repair (review finding)": () => { const s = atReview(); s.answer(reviewReport(s, { findings: [BLOCKING()] })); return s; },
-    "finalize verified_candidate": () => { const s = atReview(); s.answer(reviewReport(s)); return s; },
-    "finalize rehearsal": () => { const s = atReview(rehearsalInput()); s.answer(reviewReport(s)); return s; },
-    "finalize blocked (blocked report)": () => { const s = atWrite(); s.answer(baseReport(s, "writer", { status: "blocked", blocker: "tool crashed" })); return s; },
-    "finalize blocked (manager report)": () => { const s = atWrite(); s.answer({ ...baseReport(s, "manager", { status: "blocked", blocker: "Lead died" }), reporter: { branch: "manager", role: "manager" } }); return s; },
-    "finalize blocked (invalid cap)": () => { const s = atWrite(); for (let i = 0; i < 3; i++) s.answer("junk"); return s; },
-    "finalize blocked (assess internal error)": () => { const s = atWrite(); s.outputs.assess = def.nodes.assess.run({ ...s.ctx(), input: undefined }); return s; },
-    "finalize exhausted": () => { const s = atWrite(rawInput({ limits: { maxRepairs: 0 } })); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: 1 })), gates: [{ id: BDD.id, exitCode: 1, result: "fail" }] })); return s; },
-    "finalize needs_approval (outside paths)": () => { const s = atWrite(); s.answer(writerReport(s, { changedPaths: ["Makefile"] })); return s; },
-    "finalize needs_approval (writer material)": () => { const s = atWrite(); s.answer(writerReport(s, { materialChange: { kind: "scope", description: "wider scope needed" } })); return s; },
-    "finalize needs_approval (reviewer material)": () => { const s = atReview(); s.answer(reviewReport(s, { materialChange: { kind: "plan", description: "plan is wrong" } })); return s; },
-  };
+  const routes = ROUTES;
   for (const [name, build] of Object.entries(routes)) roundTripAll(build(), name);
   // sanity: the routes really covered what they claim
   const statuses = ["verified_candidate", "rehearsal", "blocked", "exhausted", "needs_approval"].map((st) => Object.entries(routes).filter(([n, b]) => n.includes(st) || (st === "blocked" && n.includes("blocked")) ).length);
@@ -1057,11 +1061,11 @@ test("engine: cancel while dispatching ends cancelled", async () => {
 // workflow server. They are covered by the Manager rehearsal smoke (A-D), not here.
 
 /** Replace only the checkpoint with scripted answers (a human/Manager answer needs the server). */
-function scriptedRun(answers, input, executor = goodExecutor()) {
+function scriptedRun(answers, input, executor = goodExecutor(), base = def) {
   const queue = [...answers];
   const scripted = lib.defineWorkflow({
-    ...def,
-    nodes: { ...def.nodes, awaitReport: lib.compute({ run: (ctx) => queue.shift()(ctx) }) },
+    ...base,
+    nodes: { ...base.nodes, awaitReport: lib.compute({ run: (ctx) => queue.shift()(ctx) }) },
   });
   return engineFor(executor).run(scripted, input);
 }
@@ -1186,4 +1190,151 @@ test("H-R3 receipts: first write and first review accept adopted:false; repair a
   // second-review prompt reuses the exact bound reviewer and never delegates
   const rp = def.nodes.dispatch.prompt(sim.ctx());
   assert.ok(rp.includes(`message_staff on session ${REVIEWER.session}`) && rp.includes(`resume_project with branch ${REVIEWER.branch} ONLY if that Lead was stopped`) && rp.includes("NEVER delegate_project here"));
+});
+
+// ------------------------------------------------------------------ H-R4: real blocked finalization (raw persisted input)
+// Sanitized fixture shaped like live run ad39f6db: the start input has NO `rehearsal` key (the server runner hands nodes
+// the raw persisted input, not the normalized one), limits 3/3, one BDD gate plus six checks, bound writer and reviewer,
+// and a reviewer report with status "blocked" that also carries findings. No real run data is copied here.
+const CHECKS6 = [LINT, REG, { id: "bdd-stage", kind: "regression", argv: ["uv", "run", "pytest", "tests/stage"], cwd: WT }, { id: "bdd-trace", kind: "regression", argv: ["uv", "run", "pytest", "tests/trace"], cwd: WT }, { id: "docs-lint", kind: "lint", argv: ["make", "docs-lint"], cwd: WT }, { id: "build", kind: "build", argv: ["make", "build"], cwd: WT }];
+const realRaw = () => {
+  const r = rawInput({ gates: { bdd: [BDD], checks: CHECKS6 }, limits: { maxRepairs: 3, maxInvalidReports: 3 }, scope: { writer: { branch: WRITER.branch, worktree: WT }, paths: ["packages/earnest/src", "packages/earnest/tests", "docs"] } });
+  assert.equal("rehearsal" in r, false);
+  return r;
+};
+const ALL7 = [BDD, ...CHECKS6];
+const realFindings = () => [
+  { id: "C1-001", severity: "blocking", category: "test", location: "tests/unit/test_plan.py:1708", disposition: "open", rationale: "pin is wrong" },
+  { id: "C1-002", severity: "non-blocking", category: "docs", location: "docs/x.md:1", disposition: "deferred", rationale: "later" },
+  { id: "C1-003", severity: "non-blocking", category: "style", location: "src/a.py:2", disposition: "accepted", rationale: "fine" },
+];
+const reviewerBlocked = (simLike, over = {}) => ({
+  ...reviewReport(simLike, { commands: [cmd(LINT)], findings: realFindings(), ...over }),
+  status: "blocked",
+  blocker: "reviewer could not complete: evidence log missing",
+});
+const withRawCtx = (fn) => {
+  Sim.rawCtx = true;
+  try {
+    return fn();
+  } finally {
+    Sim.rawCtx = false;
+  }
+};
+
+test("H-R4 real-shaped: reviewer-blocked finalize on the raw persisted input round-trips as strict JSON", () => {
+  withRawCtx(() => {
+    const sim = new Sim(realRaw(), "20261014T205642791Z-milestone-fixture");
+    strictJson(sim.dispatch(WRITER, { adopted: false }), "receipt write");
+    strictJson(def.nodes.awaitReport.run(sim.ctx()), "await write");
+    const a1 = sim.answer(writerReport(sim, { commands: ALL7.map((g) => cmd(g)), untrackedDisclosed: [".pi-herdsman/a.md", ".pi-herdsman/b.json"] }));
+    assert.equal(a1.next.mode, "review", reasonsOf(a1));
+    strictJson(a1, "assess write");
+    strictJson(sim.dispatch(REVIEWER, { adopted: false }), "receipt review");
+    strictJson(def.nodes.awaitReport.run(sim.ctx()), "await review");
+    const a2 = sim.answer(reviewerBlocked(sim));
+    assert.equal(a2.route, "finalize");
+    assert.equal(a2.next.status, "blocked");
+    strictJson(a2, "assess blocked");
+    const out = sim.finalize();
+    strictJson(out, "finalize blocked (real-shaped)");
+    assert.equal(out.status, "blocked");
+    assert.equal(out.rehearsal, false, "absent rehearsal key means a real run");
+    assert.equal(out.goalCompletion, false);
+    assert.deepEqual(out.assignees.writer, WRITER);
+    assert.deepEqual(out.assignees.reviewer, REVIEWER);
+    assert.deepEqual(out.halt.staffStopTarget, REVIEWER);
+    assert.deepEqual(out.history, ["write#1: writer evidence accepted", "review#1: blocked"]);
+  });
+});
+
+test("H-R4 every route into finalize round-trips with the raw persisted input (rehearsal and limits keys absent)", () => {
+  withRawCtx(() => {
+    for (const [name, build] of Object.entries(ROUTES)) {
+      const sim = build();
+      roundTripAll(sim, `raw ${name}`);
+      const out = sim.finalize();
+      assert.equal(typeof out.rehearsal, "boolean", name);
+      if (!name.includes("internal error")) assert.ok(!String(out.blocker ?? "").includes("assessInternalError"), `${name}: ${out.blocker}`);
+    }
+    for (const outcome of ["failed", "timed_out"]) {
+      const s = new Sim(rawInput());
+      s.results.dispatch = { outcome, error: "boom" };
+      strictJson(s.finalize(), `raw uncertain ${outcome}`);
+      const late = atReview();
+      late.results.dispatch = { outcome };
+      delete late.outputs.dispatch;
+      strictJson(late.finalize(), `raw uncertain-late ${outcome}`);
+    }
+    // the raw scope path "docs/" is normalized before scope checks
+    const s = atWrite();
+    assert.equal(s.answer(writerReport(s, { changedPaths: ["docs/x.md"] })).next.mode, "review");
+    // reviewer-blocked from the write phase and from the review phase
+    const w = atWrite();
+    w.answer(baseReport(w, "writer", { status: "blocked", blocker: "cannot run" }));
+    strictJson(w.finalize(), "raw writer blocked");
+    const r = atReview();
+    r.answer(reviewerBlocked(r));
+    strictJson(r.finalize(), "raw reviewer blocked");
+  });
+});
+
+test("H-R4 engine: reviewer-blocked finalize completes when nodes receive the raw start input", async () => {
+  const { input: _normalizer, ...rawRunner } = def; // the live runner hands nodes the raw persisted input
+  const answers = [(ctx) => reportFor(ctx, "writer", { commands: ALL7.map((g) => cmd(g)) }), (ctx) => reviewerBlocked({ corr: reportFor(ctx, "reviewer").correlation, input: ctx.input })];
+  const { state } = await scriptedRun(answers, realRaw(), goodExecutor(), lib.defineWorkflow(rawRunner));
+  assert.equal(state.status, "completed", state.error);
+  assert.equal(state.finalOutput.status, "blocked");
+  assert.equal(state.finalOutput.rehearsal, false);
+  strictJson(state.finalOutput, "engine raw finalize");
+});
+
+test("H-R4 reviewer contract: completed review with open blockers is done -> repair; blocked means the review could not complete", () => {
+  const text = def.nodes.awaitReport.run(atReview().ctx()).safeguards.join("\n") + def.nodes.dispatch.prompt(atReview().ctx());
+  for (const needle of ['a COMPLETED review reports status:"done"', 'status:"blocked" ONLY when the review could NOT be completed', "never report an incomplete review as findings"]) {
+    assert.ok(text.includes(needle), `reviewer contract missing: ${needle}`);
+  }
+  const done = atReview();
+  assert.equal(done.answer(reviewReport(done, { findings: [BLOCKING("c1")] })).next.mode, "repair");
+  const blocked = atReview();
+  const b = blocked.answer(reviewerBlocked(blocked));
+  assert.equal(b.next.status, "blocked");
+  assert.match(b.next.blocker, /could not complete/);
+});
+
+test("H-R4 nits: first-review adoption, resume before message, inspect_staff by session, rehearsal makes no staff calls", () => {
+  // (1) an already-existing FIRST-review assignment is adopted:true; a new one is adopted:false; both validate
+  const fr = new Sim(rawInput());
+  fr.dispatch(WRITER);
+  fr.answer(writerReport(fr));
+  const p = def.nodes.dispatch.prompt(fr.ctx());
+  assert.ok(p.includes("reuse it with message_staff and submit adopted:true"));
+  assert.ok(p.includes("Otherwise delegate_project ONE new independent read-only review Lead with the task below and submit adopted:false"));
+  assert.equal(def.nodes.dispatch.validate(fr.receipt(REVIEWER, { adopted: true }), fr.ctx()).adopted, true);
+  assert.equal(def.nodes.dispatch.validate(fr.receipt(REVIEWER, { adopted: false }), fr.ctx()).adopted, false);
+  // (2) a stopped bound Lead is resumed BEFORE it is messaged
+  for (const sim of [atSecondReview(), (() => { const r = atWrite(); r.answer(writerReport(r, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) })); return r; })()]) {
+    const bp = def.nodes.dispatch.prompt(sim.ctx());
+    const step = bp.slice(bp.indexOf("1. Call list_staff FIRST"));
+    assert.ok(step.indexOf("call resume_project with branch") < step.indexOf("message_staff on session"), "step: resume before message");
+    assert.ok(bp.indexOf("first resume_project its EXACT branch") < bp.indexOf("then send the task text with message_staff"), "target: resume before message");
+  }
+  assert.throws(() => { const r = atWrite(); r.answer(writerReport(r, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) })); def.nodes.dispatch.validate(r.receipt(WRITER, { adopted: false }), r.ctx()); }, /must adopt the existing bound assignment \(adopted:true via list_staff, resume_project by exact branch only if stopped, then message_staff\)/);
+  // (3) inspect_staff takes a session: inspect each candidate session from list_staff
+  const unc = new Sim(rawInput());
+  unc.results.dispatch = { outcome: "failed" };
+  assert.ok(unc.finalize().managerActions[0].includes("inspect_staff({session}) each candidate session from list_staff"));
+  // (4) rehearsal: no staff tool call of any kind
+  assert.ok(def.nodes.dispatch.prompt(new Sim(rehearsalInput()).ctx()).includes("make NO staff tool call of any kind"));
+  // (6) a new writer branch starts from baseSha
+  assert.ok(def.nodes.dispatch.prompt(new Sim(rawInput()).ctx()).includes(`(base ${BASE} if the branch is new)`));
+});
+
+test("H-R4 rehearsal files: guide and fixtures use only current Herdsman tool names", async () => {
+  const { readFileSync } = await import("node:fs");
+  const OLD = new RegExp(["list", "inspect", "message", "delegate", "resume", "stop"].map((t) => "staff" + "_" + t).join("|"));
+  for (const f of ["rehearsal/guide.md", "rehearsal/inputs.json"]) {
+    const t = readFileSync(fileURLToPath(new URL(`./${f}`, import.meta.url)), "utf8");
+    assert.ok(!OLD.test(t), `${f}: ${t.match(OLD)?.[0]}`);
+  }
 });

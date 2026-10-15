@@ -6,7 +6,7 @@ Fixtures: `.pi-herdsman/rehearsal-inputs.json`. Everything in it is synthetic an
 
 ## Warnings
 
-- Never call `staff_stop`, `staff_resume` or `staff_inspect` on synthetic ids (`synthetic-session-*`). Submit synthetic dispatch receipts with no real staff call, and delegate no Lead.
+- Never call `stop_lead`, `resume_project` or `inspect_staff` on synthetic ids (`synthetic-session-*`). Submit synthetic dispatch receipts with no real staff call, and delegate no Lead.
 - Rehearsal can never yield `verified_candidate` or goal completion. The best outcome is status `rehearsal`, and `goalCompletion` is always false.
 - D's human consent tests only the harness rehearsal gate. It approves nothing: not M2b and not any future material plan.
 - These are planned expectations, not observed smoke results. Pause, resume, cancel, late answer and the human gate need the real server and are not offline-validated.

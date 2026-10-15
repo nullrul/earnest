@@ -52,7 +52,7 @@
     {"k":"start"},
     {"k":"receipt","use":"recW1"},
     {"k":"answer","use":"staleCycle","exp":{"route":"rewait","reasonsMatch":"stale/wrong-run/wrong-attempt","invalidReports":1,"noNewDispatch":true}},
-    {"k":"server","op":"pause the run (workflow-level only, no staff_stop)","exp":"PLANNED: run paused; staff untouched"},
+    {"k":"server","op":"pause the run (workflow-level only, no stop_lead)","exp":"PLANNED: run paused; staff untouched"},
     {"k":"server","op":"submit A.w1 while paused","exp":"PLANNED: conflict/rejected, assess not run, still parked on awaitReport"},
     {"k":"server","op":"resume the run","exp":"PLANNED: returns to waiting on awaitReport; NO automatic re-dispatch (dispatch step count stays 1)"},
     {"k":"answer","use":"A.w1","exp":{"route":"dispatch","nextMode":"repair","nextCycle":2,"repairs":1,"repairFailingIds":["synthetic-lint"]}},

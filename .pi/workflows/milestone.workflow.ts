@@ -121,7 +121,7 @@ const relPath = (v: unknown): v is string =>
 const SAFEGUARDS = [
   "CLEAN means TRACKED content is unchanged versus testedSha: report trackedClean:true and trackedChanges:[]. Untracked user/evidence notes are PRESERVED and listed in untrackedDisclosed; report untrackedPreserved:true. NEVER delete, clean, stash or reset untracked files to become clean.",
   "WRITER evidence needs (1) RED: red[] entries each with an actual NONZERO integer exitCode, failureKind:\"behavior\" (startup/import/collection/syntax failures are NOT red evidence), expectedFailure (why the intended behavior failed), logRef, a 40-hex redSha of an EARLIER commit that differs from the final testedSha, and a chronology sentence naming that redSha (7+ chars) and its relation to testedSha; at least one entry must match a BDD gate by exact id, argv and cwd. The harness cannot prove ancestry: the reviewer must run git merge-base --is-ancestor <redSha> <testedSha>; and (2) GREEN: every BDD gate and check run LOCALLY on the final testedSha with exact argv/cwd, exitCode 0, logRef. CI-only evidence never satisfies a gate.",
-  "REVIEWER must be a different identity (lead, session and branch) than the writer, is read-only (changedPaths:[] - a review claiming edits is rejected), and must pin the writer's final testedSha. Every finding carries reviewSha (= that testedSha). The reviewer MUST explicitly disposition EVERY prior blocking finding id (open|fixed) with rationale; a missing prior id is rejected, never silently cleared. Only a fresh independent reviewer report can clear a blocker; writer claims never do. Every non-blocking finding needs a disposition (fixed|accepted|deferred) and rationale.",
+  "REVIEWER must be a different identity (lead, session and branch) than the writer, is read-only (changedPaths:[] - a review claiming edits is rejected), and must pin the writer's final testedSha. Every finding carries reviewSha (= that testedSha). The reviewer MUST explicitly disposition EVERY prior blocking finding id (open|fixed) with rationale; a missing prior id is rejected, never silently cleared. Only a fresh independent reviewer report can clear a blocker; writer claims never do. Every non-blocking finding needs a disposition (fixed|accepted|deferred) and rationale. STATUS: a COMPLETED review reports status:\"done\" with all its findings (open blocking findings route to repair); status:\"blocked\" ONLY when the review could NOT be completed (it ends the run blocked) - never report an incomplete review as findings, and never report blocking findings as blocked.",
   "PAUSE: does not stop the Lead. The Manager MUST halt run-owned active execution with stop_lead on the EXACT assignee.session from the dispatch receipt (not optional), keep the assignment, worktree and evidence, and never stop unrelated sessions. RESUME: never re-dispatches automatically and never repeats side effects; list_staff/inspect_staff the receipt's assignee first, then, if that Lead was stopped, resume_project the EXACT owned assignee.branch (resume_project takes a branch; stop_lead takes the session). Never delegate_project a new Lead for a correlation that already has an assignment: adopt it (list_staff, receipt adopted:true). CANCEL: no automatic resume; the Manager calls stop_lead on the exact session, then list_staff/inspect_staff any uncertain target before any retry, and preserves the worktree and reports.",
   "TRUST: schemas cannot prove anything. The Manager attests (managerAttestation) that the approval receipt and every resultRef/artifact were actually checked before relaying; the harness only records and echoes that claim.",
   "A material plan/scope/BDD change, or changedPaths outside scope.paths, ends the run needs_approval; approval is a SEPARATE required plan-approval run, then a NEW harness run. This harness never approves anything and goalCompletion is always false.",
@@ -251,7 +251,9 @@ function stateOf(ctx: Json): { ledger: Ledger; next: Next } {
   return { ledger: initialLedger(), next: initialNext() };
 }
 const runIdOf = (ctx: Json) => String((ctx.state as Json | undefined)?.runId ?? "");
-const inputOf = (ctx: Json) => ctx.input as Input;
+// H-R4: the server runner hands nodes the RAW persisted start input (e.g. no `rehearsal` key, unnormalized paths), not
+// the parsed one. Every node reads input through the same idempotent parser; an invalid input throws (fail closed).
+const inputOf = (ctx: Json) => parseInput(ctx.input);
 const correlation = (ctx: Json, next: Next) => ({
   runId: runIdOf(ctx),
   milestoneId: inputOf(ctx).milestoneId,
@@ -286,22 +288,22 @@ function dispatchPrompt(ctx: Json): string {
   const review = next.mode === "review";
   const bound = review ? ledger.reviewer : next.mode === "repair" ? ledger.writer : null;
   const target = bound
-    ? `the ALREADY-BOUND ${review ? "REVIEW" : "WRITER"} Lead ${json(bound)} (branch ${bound.branch}, session ${bound.session})${review ? ` pinned to testedSha ${ledger.lastTestedSha}` : ` in worktree ${input.scope.writer.worktree}`}. REUSE it: send the task text with message_staff; resume_project its EXACT branch ${bound.branch} ONLY if it was stopped (resume_project takes a branch only, no task, no session); submit the receipt with adopted:true. NEVER delegate_project for an already-bound ${review ? "reviewer" : "writer"}`
+    ? `the ALREADY-BOUND ${review ? "REVIEW" : "WRITER"} Lead ${json(bound)} (branch ${bound.branch}, session ${bound.session})${review ? ` pinned to testedSha ${ledger.lastTestedSha}` : ` in worktree ${input.scope.writer.worktree}`}. REUSE it: first resume_project its EXACT branch ${bound.branch} ONLY if it was stopped (resume_project takes a branch only, no task, no session), then send the task text with message_staff; submit the receipt with adopted:true. NEVER delegate_project for an already-bound ${review ? "reviewer" : "writer"}`
     : review
       ? `a SEPARATE read-only REVIEW Lead (first review: delegate_project a NEW independent Lead whose lead, session and branch all differ from the writer${ledger.writer ? ` ${json(ledger.writer)}` : ""}) pinned to testedSha ${ledger.lastTestedSha}`
       : `the WRITER Lead for branch ${input.scope.writer.branch} (worktree ${input.scope.writer.worktree}; first write)`;
   const firstStep = bound
-    ? `1. Call list_staff FIRST to check the bound Lead's state. Send the task below with message_staff on session ${bound.session}; call resume_project with branch ${bound.branch} ONLY if that Lead was stopped. Submit adopted:true. NEVER delegate_project here.`
+    ? `1. Call list_staff FIRST to check the bound Lead's state. Before messaging, call resume_project with branch ${bound.branch} ONLY if that Lead was stopped; then send the task below with message_staff on session ${bound.session}. Submit adopted:true. NEVER delegate_project here.`
     : review
-      ? "1. Call list_staff FIRST. If a review Lead already exists for this exact correlation (for example after a resume), reuse it with message_staff and never create a duplicate. Otherwise delegate_project ONE new independent read-only review Lead with the task below. Submit adopted:false."
-      : `1. Call list_staff FIRST. If a Lead already owns branch ${input.scope.writer.branch}, give it the task below with message_staff on that Lead's EXACT session and submit that Lead's identity with adopted:false (this is the first dispatch of this correlation, not a bound reuse). Otherwise delegate_project with branch ${input.scope.writer.branch} and the task below, and submit adopted:false. Never create a second Lead for that branch.`;
+      ? "1. Call list_staff FIRST. If a review Lead already exists for this exact correlation (for example after a resume), reuse it with message_staff and submit adopted:true; never create a duplicate. Otherwise delegate_project ONE new independent read-only review Lead with the task below and submit adopted:false."
+      : `1. Call list_staff FIRST. If a Lead already owns branch ${input.scope.writer.branch}, give it the task below with message_staff on that Lead's EXACT session and submit that Lead's identity with adopted:false (this is the first dispatch of this correlation, not a bound reuse). Otherwise delegate_project with branch ${input.scope.writer.branch} (base ${input.baseSha} if the branch is new) and the task below, and submit adopted:false. Never create a second Lead for that branch.`;
   const lines = [
     `You are the Manager dispatching earnest milestone ${input.milestoneId} (${input.rehearsal ? "REHEARSAL" : "real run"}), mode "${next.mode}".`,
     `Correlation for this dispatch (every report must echo it exactly): ${json(corr)}`,
     "",
     `Dispatch to ${target}.`,
     input.rehearsal
-      ? `REHEARSAL: do NOT delegate or start any Lead. Submit a clearly SYNTHETIC receipt (lead/session like "synthetic-${review ? "reviewer" : "writer"}"), review identity differing from the writer's. Every report must be marked synthetic:true with synthetic refs.`
+      ? `REHEARSAL: do NOT delegate or start any Lead, and make NO staff tool call of any kind; the reuse/delegate wording above applies to real runs only. Submit a clearly SYNTHETIC receipt (lead/session like "synthetic-${review ? "reviewer" : "writer"}"), review identity differing from the writer's. Every report must be marked synthetic:true with synthetic refs.`
       : `${firstStep} resume_project takes a branch only and carries no task; task text always goes via message_staff.\n2. Do NOT wait for the Lead and do NOT poll. Do no repository work yourself.`,
     "",
     "Submit exactly this receipt as soon as the assignment exists:",
@@ -335,6 +337,7 @@ function reviewContextLines(input: Input, ledger: Ledger, next: Next): string[] 
     prior.length
       ? `- You MUST explicitly disposition EVERY prior blocking finding id ${json(prior)} as "open" (still broken) or "fixed" with rationale and reviewSha. A missing id is REJECTED and never counts as cleared; writer claims never clear a blocker; only your independent verification does.`
       : "- There are no prior blocking findings; report any new findings with stable ids.",
+    '- A COMPLETED review reports status "done" with all findings (open blocking findings route to repair). Use status "blocked" ONLY if the review could not be completed; never relay blocking findings as "blocked".',
   ];
 }
 
@@ -364,9 +367,9 @@ function validateReceipt(output: unknown, ctx: Json): Json {
     }
   }
   if (o.adopted !== undefined && typeof o.adopted !== "boolean") errs.push("adopted must be boolean");
-  // The Lead for a repair/second review is already bound: reusing it is adoption (list_staff + message_staff; resume_project by branch only if stopped), never a new delegation.
+  // The Lead for a repair/second review is already bound: reusing it is adoption (list_staff, resume_project by branch only if stopped, then message_staff), never a new delegation.
   if ((next.mode === "repair" ? ledger.writer : next.mode === "review" ? ledger.reviewer : null) && o.adopted !== true) {
-    errs.push("this mode must adopt the existing bound assignment (adopted:true via list_staff + message_staff; resume_project by exact branch only if stopped), not delegate a duplicate");
+    errs.push("this mode must adopt the existing bound assignment (adopted:true via list_staff, resume_project by exact branch only if stopped, then message_staff), not delegate a duplicate");
   }
   if (errs.length) throw new Error(`Dispatch receipt rejected: ${errs.join("; ")}`);
   return clone({ schema: SCHEMAS.receipt, correlation: want, mode: next.mode, assignee: { lead: a.lead, session: a.session, branch: a.branch }, adopted: o.adopted === true });
@@ -772,7 +775,7 @@ function finalizeRun(ctx: Json) {
     repairContext: next.repairContext ?? null,
     halt: haltGuidance(ledger, lastReceipt, dispatchUncertain ? { phase: next.phase ?? null, cycle: next.cycle ?? null, correlation: correlation(ctx, next) } : undefined),
     managerActions: [
-      dispatchUncertain ? "UNCERTAIN DISPATCH: do NOT blind-stop and do not assume the writer. list_staff then inspect_staff by halt.uncertainTarget.correlation FIRST to find the actual Lead created for this phase/cycle (if any), stop_lead only that exact session, then keep its assignment, worktree and evidence. Never delegate_project a duplicate." : "",
+      dispatchUncertain ? "UNCERTAIN DISPATCH: do NOT blind-stop and do not assume the writer. list_staff then inspect_staff({session}) each candidate session from list_staff FIRST to find the actual Lead whose task carries halt.uncertainTarget.correlation (if any), stop_lead only that exact session, then keep its assignment, worktree and evidence. Never delegate_project a duplicate." : "",
       "If any Lead for this run may still be active, inspect_staff it, then stop_lead that EXACT session from the assignees above (not optional); keep its assignment, worktree and evidence; never stop unrelated sessions. Never auto-resume after cancel; a deliberate resume uses resume_project on the exact owned branch (branch only; task text goes via message_staff), never a new delegate_project.",
       status === "needs_approval" ? "Run the built-in plan-approval workflow with {mode:\"required\"} as a SEPARATE run; after human approval start a NEW harness run with the amended input." : "",
       status === "verified_candidate" ? "Hand the candidate to independent review/auditing and merge approval; this is not goal completion." : "",
