@@ -1972,6 +1972,138 @@ def test_partial_unit_end_rejection_keeps_surviving_stage_unbumped_change_and_ba
     assert plan.next_bodies(held, built, A_FD) == held  # The surviving approval must not let a check overwrite FD.
 
 
+@pytest.mark.parametrize(
+    ("rejected_slug", "scope", "unit_name", "expected"),
+    [
+        (None, None, None, {"dsn~a~1", "task~a~1", "dsn~b~1"}),
+        ("code-generation", "per-stage", "a", {"dsn~a~1", "dsn~b~1"}),
+        ("functional-design", "per-stage", "a", {"task~a~1", "dsn~b~1"}),
+        ("code-generation", "unit-end", "a", {"dsn~b~1"}),
+        ("code-generation", "per-stage", "b", {"dsn~a~1", "task~a~1", "dsn~b~1"}),
+    ],
+)
+def test_unit_end_frozen_items_follow_surviving_keys_without_affecting_other_units(
+    rejected_slug, scope, unit_name, expected
+):
+    rows = [
+        unit_gate(
+            10,
+            "code-generation",
+            Unit="a",
+            Gate_Scope="unit-end",
+            Gate_Stages="functional-design,code-generation",
+            Items="dsn~a~1, task~a~1",
+        ),
+        unit_gate(11, "functional-design", Unit="b", Items="dsn~b~1"),
+    ]
+    if rejected_slug:
+        listed = "functional-design,code-generation" if scope == "unit-end" else rejected_slug
+        rows.append(unit_gate(20, rejected_slug, "GATE_REJECTED", Unit=unit_name, Gate_Scope=scope, Gate_Stages=listed))
+    states, built = approvals_of(*rows)
+    assert built.intent.named_items == expected
+    assert states[B_FD] == "current"
+    held = {text: digest_of(text.encode()) for text in ("dsn~a~1", "task~a~1", "dsn~b~1")}
+    assert plan.frozen_bodies(held, [built.intent]) == {text: held[text] for text in expected}
+
+
+def test_partial_unit_end_rejection_preserves_edited_code_generation_but_releases_functional_design():
+    original_fd = hashed("dsn~a~1", digest_of(b"Original design."), A_FD)
+    original_cg = hashed("task~a~1", digest_of(b"Original plan."), A_CG)
+    unchecked, _ = units_plan(items=(*UNITS_AB, original_fd, original_cg))
+    held = plan.next_bodies(plan.next_bodies({}, unchecked, A_FD), unchecked, A_CG)
+    changed_fd = hashed("dsn~a~1", digest_of(b"Reworked design."), A_FD)
+    changed_cg = hashed("task~a~1", digest_of(b"Unbumped plan."), A_CG)
+    rows = [
+        unit_gate(
+            10,
+            "code-generation",
+            Unit="a",
+            Gate_Scope="unit-end",
+            Gate_Stages="functional-design,code-generation",
+            Items="dsn~a~1, task~a~1",
+        ),
+        unit_gate(20, "functional-design", "GATE_REJECTED", Unit="a"),
+    ]
+    built, index = units_plan(*rows, items=(*UNITS_AB, changed_fd, changed_cg))
+    states = {stage.stage: stage.state for stage in built.stages}
+    assert (states[A_FD], states[A_CG]) == ("none", "current")
+    frozen = plan.frozen_bodies(held, [built.intent])
+    assert frozen == {"task~a~1": original_cg.body_hash}
+    findings = structural.check(index, produces=plan.produces([built.intent]), frozen=frozen)
+    assert [f.subject for f in findings if f.rule == "earnest/unbumped-change"] == ["task~a~1"]
+    assert plan.next_bodies(held, built, A_CG) == held
+    assert plan.next_bodies(held, built, A_FD) == {
+        "dsn~a~1": changed_fd.body_hash,
+        "task~a~1": original_cg.body_hash,
+    }
+
+
+@pytest.mark.parametrize("reverse_definitions", [False, True])
+def test_partial_unit_end_ownership_uses_all_definitions_but_not_references(reverse_definitions):
+    shared = [unit_item("dsn~shared~1", A_CG), unit_item("dsn~shared~1", A_FD)]
+    if reverse_definitions:
+        shared.reverse()
+    items = (*UNIT_ITEMS, *shared)
+    reference = Link("Delivers", "dsn", ident("task~a~1"), f"r/{A_FD}/doc.md", 7, owner=ident("dsn~a~1"))
+    approved = unit_gate(
+        10,
+        "code-generation",
+        Unit="a",
+        Gate_Scope="unit-end",
+        Gate_Stages="functional-design,code-generation",
+        Items="dsn~a~1, dsn~shared~1, task~a~1",
+    )
+    rejected = unit_gate(20, "code-generation", "GATE_REJECTED", Unit="a")
+    built, _ = units_plan(approved, rejected, items=items, links=(reference,))
+    assert built.intent.named_items == {"dsn~a~1", "dsn~shared~1"}
+    # A separate surviving approval can still freeze the otherwise voided-only task.
+    independent = unit_gate(5, "functional-design", Unit="a", Items="task~a~1")
+    built, _ = units_plan(independent, approved, rejected, items=items, links=(reference,))
+    assert built.intent.named_items == {"dsn~a~1", "dsn~shared~1", "task~a~1"}
+
+
+@pytest.mark.parametrize("scope", ["per-stage", "unit-end"])
+def test_partial_unit_end_unknown_ownership_is_retained_only_while_a_key_survives(scope):
+    # This definition is not inside functional-design/; the missing id has no current definition at all.
+    boundary = unit_item("dsn~boundary~1", A_FD + "-extra")
+    approved = unit_gate(
+        10,
+        "code-generation",
+        Unit="a",
+        Gate_Scope="unit-end",
+        Gate_Stages="functional-design,code-generation",
+        Items="dsn~a~1, task~a~1, dsn~missing~7, dsn~boundary~1",
+    )
+    listed = "functional-design" if scope == "per-stage" else "functional-design,code-generation"
+    rejected = unit_gate(20, "functional-design", "GATE_REJECTED", Unit="a", Gate_Scope=scope, Gate_Stages=listed)
+    built, _ = units_plan(approved, items=(*UNIT_ITEMS, boundary))
+    assert built.intent.named_items == {"dsn~a~1", "task~a~1", "dsn~missing~7", "dsn~boundary~1"}
+    built, _ = units_plan(approved, rejected, items=(*UNIT_ITEMS, boundary))
+    expected = {"task~a~1", "dsn~missing~7", "dsn~boundary~1"} if scope == "per-stage" else set()
+    assert built.intent.named_items == expected
+
+
+def test_partial_unit_end_ownership_matches_type_and_name_but_freezes_only_the_listed_revision():
+    changed_fd = hashed("dsn~a~2", digest_of(b"New revision design."), A_FD)
+    changed_cg = hashed("task~a~2", digest_of(b"New revision plan."), A_CG)
+    approved = unit_gate(
+        10,
+        "code-generation",
+        Unit="a",
+        Gate_Scope="unit-end",
+        Gate_Stages="functional-design,code-generation",
+        Items="dsn~a~1, task~a~1",
+    )
+    rejected = unit_gate(20, "code-generation", "GATE_REJECTED", Unit="a")
+    built, index = units_plan(approved, rejected, items=(*UNITS_AB, changed_fd, changed_cg))
+    assert built.intent.named_items == {"dsn~a~1"}  # Neither task~a~1 nor a new-revision id is frozen.
+    held = {"dsn~a~1": digest_of(b"Old design."), "task~a~1": digest_of(b"Old plan.")}
+    frozen = plan.frozen_bodies(held, [built.intent])
+    assert frozen == {"dsn~a~1": held["dsn~a~1"]}
+    assert not [f for f in structural.check(index, frozen=frozen) if f.rule == "earnest/unbumped-change"]
+    assert plan.next_bodies(held, built, A_FD) == {**held, "dsn~a~2": changed_fd.body_hash}
+
+
 def test_generation_is_the_highest_counting_row_per_unit_of_any_scope():
     rows = [
         unit_gate(10, "functional-design", Unit="a", Attempt_Generation="2", Items="dsn~a~1"),

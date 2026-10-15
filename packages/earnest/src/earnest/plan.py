@@ -462,7 +462,7 @@ def build(intent: Intent, index: Index) -> Plan:
     join: list[Finding] = []
     if intent.units_route:
         units, join = _join(intent, index)
-        intent = _expand(intent, units)
+        intent = _expand(intent, units, index)
     owners = {
         f"{_phase_of(stage)}/{unit.directory}/{_slug(stage)}": unit.name
         for unit in units
@@ -607,7 +607,7 @@ def unit_order(directory: str, index: Index) -> list[Unit]:
     ]
 
 
-def _expand(intent: Intent, units: Sequence[Unit]) -> Intent:
+def _expand(intent: Intent, units: Sequence[Unit], index: Index) -> Intent:
     """Return the intent with each per-unit stage once per joined unit, in unit order, as `<phase>/<directory>/<slug>`.
 
     Its approvals add those of the per-unit stages, which only unit-scoped gate rows give, and its named items add the
@@ -637,8 +637,9 @@ def _expand(intent: Intent, units: Sequence[Unit]) -> Intent:
             approvals[stage] = found
     slugs = {_slug(stage) for stage in per_unit}
     plain = [event for event in gates if not _team(event) and event.fields.get("Stage") not in slugs]
+    owners = _unit_item_owners(intent.directory, stage_ids, index)
     return replace(
-        intent, route=route, approvals=approvals, named_items=_named(plain) | _unit_named(gates, lanes, floors)
+        intent, route=route, approvals=approvals, named_items=_named(plain) | _unit_named(gates, lanes, floors, owners)
     )
 
 
@@ -733,12 +734,30 @@ def _unit_approval(
     )
 
 
+def _unit_item_owners(
+    directory: str, stage_ids: Mapping[tuple[str, str], str], index: Index
+) -> dict[tuple[str, str], set[tuple[str, str]]]:
+    """Attribute definitions, including duplicates but not references, to current per-unit stage paths."""
+    owners: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for key, stage in stage_ids.items():
+        prefix = posixpath.join(directory, stage) + "/"
+        for item in index.items:
+            if item.path.startswith(prefix):
+                owners.setdefault(item.id.key, set()).add(key)
+    return owners
+
+
 def _unit_named(
-    gates: Sequence[Event], lanes: Mapping[str, frozenset[str]], floors: Mapping[str, int]
+    gates: Sequence[Event],
+    lanes: Mapping[str, frozenset[str]],
+    floors: Mapping[str, int],
+    owners: Mapping[tuple[str, str], set[tuple[str, str]]],
 ) -> frozenset[str]:
     """Return the ids that counting unit-scoped approvals froze.
 
-    They are the items of every such row at its unit's generation that no later rejection voids.
+    A partial rejection releases only items defined solely in voided covered stages. Ownership uses current
+    definitions by type and name, not historical locations; the frozen ids keep their listed revisions. Unknown
+    ownership conservatively retains a baseline while any key survives, without granting approval or currentness.
     """
     named: set[str] = set()
     for event in gates:
@@ -749,8 +768,17 @@ def _unit_named(
         if not _at_generation(event, floors[next(iter(spoken))[0]]):
             continue
         later = [other for other in gates if other.name == "GATE_REJECTED" and other.key > event.key]
-        if not any(_voids(other, key, lanes) for other in later for key in spoken):
+        surviving = {key for key in spoken if not any(_voids(other, key, lanes) for other in later)}
+        if not surviving:
+            continue
+        if surviving == spoken:
             named.update(items)
+            continue
+        for text in items:
+            kind, name, _ = text.split("~")
+            covered = owners.get((kind, name), set()) & spoken
+            if not covered or covered & surviving:
+                named.add(text)
     return frozenset(named)
 
 
