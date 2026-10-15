@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from earnest import plan
+from earnest import plan, structural
 from earnest.index import MARKDOWN, Id, Index, Item, Link, Source
 from earnest.index import digest as digest_of
 from earnest.plan import Approval, Event, Record, Row
@@ -1891,6 +1891,81 @@ def test_unit_end_needs_every_listed_stage_on_the_units_lane_and_is_current_on_t
     assert (states[A_FD], states[A_CG]) == ("outdated", "outdated")
     off_lane = unit_gate(30, "code-generation", Gate_Stages="nfr-design,code-generation", Items="task~a~1", **fields)
     assert approvals_of(off_lane)[0][A_CG] == "none"
+
+
+def test_partial_unit_end_rejection_keeps_surviving_stage_unbumped_change_and_baseline():
+    original_fd = hashed("dsn~a~1", digest_of(b"Original functional design."), A_FD, line=3)
+    original_cg = hashed("task~a~1", digest_of(b"Original code generation plan."), A_CG, line=3)
+    original_items = (*UNITS_AB, original_fd, original_cg)
+    unchecked, _ = units_plan(items=original_items)
+    held = plan.next_bodies({}, unchecked, A_FD)
+    held = plan.next_bodies(held, unchecked, A_CG)
+    assert held == {"dsn~a~1": original_fd.body_hash, "task~a~1": original_cg.body_hash}
+    approved = unit_gate(
+        10,
+        "code-generation",
+        Unit="a",
+        Gate_Scope="unit-end",
+        Gate_Stages="functional-design,code-generation",
+        Attempt_Generation="1",
+        Items="dsn~a~1, task~a~1",
+        Approved_By="human",
+        Assessment_Hash=HASH,
+    )
+    rejected = unit_gate(
+        20,
+        "code-generation",
+        "GATE_REJECTED",
+        Unit="a",
+        Gate_Scope="per-stage",
+        Gate_Stages="code-generation",
+        Attempt_Generation="1",
+        Feedback="Rework only the code generation plan.",
+    )
+    approval_event, rejection_event = events_of(approved, rejected)
+    assert approval_event.name == "GATE_APPROVED"
+    assert approval_event.fields == {
+        "Stage": "code-generation",
+        "Unit": "a",
+        "Gate Scope": "unit-end",
+        "Gate Stages": "functional-design,code-generation",
+        "Attempt Generation": "1",
+        "Items": "dsn~a~1, task~a~1",
+        "Approved By": "human",
+        "Assessment Hash": HASH,
+    }
+    assert rejection_event.name == "GATE_REJECTED"
+    assert rejection_event.fields == {
+        "Stage": "code-generation",
+        "Unit": "a",
+        "Gate Scope": "per-stage",
+        "Gate Stages": "code-generation",
+        "Attempt Generation": "1",
+        "Feedback": "Rework only the code generation plan.",
+    }
+    assert approval_event.key < rejection_event.key
+    states, before_rejection = approvals_of(approved, items=original_items)
+    assert (states[A_FD], states[A_CG]) == ("current", "current")
+    assert plan.frozen_bodies(held, [before_rejection.intent]) == held
+    changed_fd = hashed("dsn~a~1", digest_of(b"Edited functional design without a revision bump."), A_FD, line=3)
+    assert changed_fd.id == original_fd.id
+    assert changed_fd.body_hash != original_fd.body_hash
+    built, index = units_plan(approved, rejected, items=(*UNITS_AB, changed_fd, original_cg))
+    stages = {stage.stage: stage for stage in built.stages}
+    assert (stages[A_FD].state, stages[A_CG].state) == ("current", "none")
+    surviving = stages[A_FD].approval
+    assert surviving is not None
+    assert surviving.items == ("dsn~a~1", "task~a~1")
+    assert surviving.scope == (A_CG, A_FD)
+    frozen = plan.frozen_bodies(held, [built.intent])
+    findings = structural.check(index, produces=plan.produces([built.intent]), frozen=frozen)
+    assert [(f.rule, f.subject, f.path, f.line, f.level) for f in findings if f.rule == "earnest/unbumped-change"] == [
+        ("earnest/unbumped-change", "dsn~a~1", f"r/{A_FD}/doc.md", 3, "error")
+    ]
+    assert frozen == {"dsn~a~1": original_fd.body_hash}  # CG-only items must be free to change again.
+    assert "dsn~a~1" in built.intent.named_items
+    assert "task~a~1" not in built.intent.named_items
+    assert plan.next_bodies(held, built, A_FD) == held  # The surviving approval must not let a check overwrite FD.
 
 
 def test_generation_is_the_highest_counting_row_per_unit_of_any_scope():
