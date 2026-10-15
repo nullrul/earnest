@@ -2,7 +2,7 @@
 
 Workflow path: `/Users/rc/.herdr/worktrees/earnest/herdsman-work-7c4a24ca/.pi/workflows/milestone.workflow.ts` (harness commit `a89bcc1`, frozen).
 
-Fixtures: `.pi-herdsman/rehearsal-inputs.json`. Everything in it is synthetic and every `expected`/`exp` is a planned expectation, not an observed result. Fill `observed` from the real smoke.
+Fixtures: `.pi/workflows/rehearsal/inputs.json`. Everything in it is synthetic and every `expected`/`exp` is a planned expectation, not an observed result. Fill `observed` from the real smoke.
 
 ## Warnings
 

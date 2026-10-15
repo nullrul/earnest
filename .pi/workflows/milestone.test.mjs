@@ -172,6 +172,12 @@ test("input: valid input normalises with default limits and trimmed scope", () =
   assert.deepEqual(def.input(rawInput({ limits: { maxRepairs: 3, maxInvalidReports: 0 } })).limits, { maxRepairs: 3, maxInvalidReports: 0 });
 });
 
+test("input: repeated leading ./ scope normalization is idempotent", () => {
+  const x = rawInput({ scope: { ...rawInput().scope, paths: ["././docs/"] } });
+  assert.deepEqual(def.input(def.input(x)), def.input(x));
+  assert.deepEqual(def.input(x).scope.paths, ["docs"]);
+});
+
 test("input: rejections", () => {
   const approved = rawInput().approvedPlan;
   const cases = {

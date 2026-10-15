@@ -33,6 +33,25 @@ No test touched the global workflow database.
 - COULD, vacuous `statuses` check at `milestone.test.mjs:910-911`: DEFERRED, non-blocking; the real assertions at 912-914 remain.
 - Stale `outputs.dispatch` note: UNVERIFIED, not a gate.
 
+## Round 5 nit dispositions
+
+Base: `4ebb5ee4d5bf562a7b2ee10cfb99e68f27857ff6`. These offline checks do not replace the historical live rehearsal or establish milestone completion.
+
+- R5-N1, non-idempotent scope normalization: FIXED. The parser strips all repeated leading `./` segments with `/^(?:\.\/)+/`. A regression using `././docs/` asserts that parsing twice equals parsing once and that the normalized path is `docs`.
+- R5-N2, stale rehearsal references: FIXED. The guide points to tracked `.pi/workflows/rehearsal/inputs.json`; the fixture warnings point to tracked `.pi/workflows/rehearsal/guide.md`. Historical frozen-harness references are unchanged.
+
+| Validation | Exit | Result |
+| --- | --- | --- |
+| Test-only RED on the unchanged base production file: `rtk proxy node --test .pi/workflows/milestone.test.mjs` | 1 | 59 tests, 58 pass, 1 fail: the new idempotence assertion, `docs` versus `./docs` |
+| GREEN after the parser fix: same command | 0 | 59 tests, 59 pass, 0 fail |
+| Obsolete-tool-name grep over the five changed harness paths | 1 | No matches; empty output, not a grep error |
+| Cached markdownlint-cli2 0.19.1, both changed Markdown files | 0 | 0 errors; no install |
+| `rtk proxy node --check .pi/workflows/milestone.test.mjs` | 0 | Syntax valid |
+| JSON parse and corrected-reference checks | 0 | Both target files exist and are tracked |
+| `git diff --check` | 0 | No whitespace errors |
+
+Both test commands captured the raw exit status immediately, without a pipeline. `TMPDIR` was set to the ignored implementation evidence directory's `tmp` subdirectory, keeping temporary test databases inside this worktree; no global workflow database was used. RED output, the test-only patch, unchanged-production proof, GREEN output, and further check results are retained under ignored `.pi-herdsman/r5-nits-implementation/`. No live workflow was run for these nits. A broader recursive grep exited 0 because the unchanged historical `observed-a89bcc1.txt` transcript contains two lines with old tool names; it is outside the five-path change scope and was preserved. The scoped grep command and both scan outputs are retained with the implementation evidence.
+
 ## Live rehearsal
 
 | Scenario | Commit | Outcome |

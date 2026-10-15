@@ -175,7 +175,7 @@ function parseInput(value: unknown): Input {
   const writer = isObj(scope.writer) ? scope.writer : {};
   if (!nonEmpty(writer.branch)) errs.push("scope.writer.branch required");
   if (!nonEmpty(writer.worktree) || !isAbsolute(writer.worktree)) errs.push("scope.writer.worktree must be absolute");
-  const paths = Array.isArray(scope.paths) ? scope.paths.map((p) => (typeof p === "string" ? p.replace(/^\.\//, "").replace(/\/+$/, "") : p)) : [];
+  const paths = Array.isArray(scope.paths) ? scope.paths.map((p) => (typeof p === "string" ? p.replace(/^(?:\.\/)+/, "").replace(/\/+$/, "") : p)) : [];
   if (paths.length === 0 || !paths.every(relPath)) errs.push("scope.paths must be a non-empty list of relative paths without '..'");
   if (typeof v.baseSha !== "string" || !SHA.test(v.baseSha)) errs.push("baseSha must be a 40-hex sha");
 
