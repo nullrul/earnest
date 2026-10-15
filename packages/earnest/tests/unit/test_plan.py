@@ -1925,6 +1925,8 @@ def test_partial_unit_end_rejection_keeps_surviving_stage_unbumped_change_and_ba
     approval_event, rejection_event = events_of(approved, rejected)
     assert approval_event.name == "GATE_APPROVED"
     assert approval_event.fields == {
+        "Timestamp": "2026-09-26T10:10:00Z",
+        "Event": "GATE_APPROVED",
         "Stage": "code-generation",
         "Unit": "a",
         "Gate Scope": "unit-end",
@@ -1936,6 +1938,8 @@ def test_partial_unit_end_rejection_keeps_surviving_stage_unbumped_change_and_ba
     }
     assert rejection_event.name == "GATE_REJECTED"
     assert rejection_event.fields == {
+        "Timestamp": "2026-09-26T10:20:00Z",
+        "Event": "GATE_REJECTED",
         "Stage": "code-generation",
         "Unit": "a",
         "Gate Scope": "per-stage",
