@@ -891,8 +891,8 @@ def task_done(task: Item, index: Index, levels: Mapping[str, str]) -> bool:
 def unit_done(plan: Plan, index: Index, levels: Mapping[str, str]) -> dict[str, bool]:
     """Return whether each unit is done.
 
-    A unit is done when it has a row, unit order resolves it, every unit it depends on is done, and its Code Generation
-    stage holds a task and every task there is done.
+    A unit is done when it has a row, unit order resolves it, every unit it depends on is done, and its canonical
+    code-generation-plan.md holds a task and every task in that file is done.
     """
     done: dict[str, bool] = {}
     for unit in plan.units:  # in unit order, so a resolved unit's dependencies are decided before it
@@ -902,6 +902,7 @@ def unit_done(plan: Plan, index: Index, levels: Mapping[str, str]) -> dict[str, 
             if plan.owners.get(state.stage) == unit.name and _slug(state.stage) == _CODE_GENERATION
             for item in state.items
             if item.id.type == "task"
+            and item.path == posixpath.join(plan.intent.directory, state.stage, "code-generation-plan.md")
         ]
         done[unit.name] = (
             unit.directory is not None

@@ -2444,10 +2444,16 @@ def test_unit_done_ignores_doc_tasks_when_canonical_plan_has_no_tasks(tmp_path, 
 
 
 def test_unit_done_needs_a_row_dependencies_a_task_and_every_task_done():
-    items = (*UNITS_AB, unit("c", 12), unit_item("task~a~1", A_CG))  # task~a~1 delivers nothing, so it is done
+    items = (
+        *UNITS_AB,
+        unit("c", 12),
+        Item(ident("task~a~1"), f"r/{A_CG}/code-generation-plan.md", 3),  # no deliveries, so done
+    )
     assert done_of(items) == {"a": True, "b": False, "c": False}  # b has no task, c no row
     assert done_of(items, links=(unit_link("Depends", "unit~a~1", "unit~b~1"),))["a"] is False  # b is not done
-    delivering = (Link("Delivers", "task", ident("req~r~1"), f"r/{A_CG}/doc.md", 7, owner=ident("task~a~1")),)
+    delivering = (
+        Link("Delivers", "task", ident("req~r~1"), f"r/{A_CG}/code-generation-plan.md", 7, owner=ident("task~a~1")),
+    )
     with_req = (*items, item("req~r~1"))
     assert done_of(with_req, links=delivering, levels={"req~r~1": "traced"})["a"] is False
     assert done_of(with_req, links=delivering, levels={"req~r~1": "evidenced"})["a"] is True
@@ -2455,7 +2461,11 @@ def test_unit_done_needs_a_row_dependencies_a_task_and_every_task_done():
 
 def test_unresolved_unit_is_not_done():
     table = "| Unit ID | Directory |\n| --- | --- |\n| A | a-dir |\n| B | b-dir |\n"
-    items = (*UNITS_AB, unit_item("task~a~1", A_CG), unit_item("task~b~1", B_CG))
+    items = (
+        *UNITS_AB,
+        Item(ident("task~a~1"), f"r/{A_CG}/code-generation-plan.md", 3),
+        Item(ident("task~b~1"), f"r/{B_CG}/code-generation-plan.md", 3),
+    )
     assert done_of(items, table=table) == {"a": True, "b": True}
     cycle = (unit_link("Depends", "unit~a~1", "unit~b~1"), unit_link("Depends", "unit~b~1", "unit~a~1"))
     assert done_of(items, links=cycle, table=table) == {"a": False, "b": False}
@@ -2466,7 +2476,11 @@ def test_unresolved_unit_is_not_done():
 
 
 def test_properties_list_units_in_unit_order_and_tasks_by_id():
-    items = (*UNITS_AB, unit_item("task~z~1", A_CG), unit_item("task~b~1", B_CG))
+    items = (
+        *UNITS_AB,
+        Item(ident("task~z~1"), f"r/{A_CG}/code-generation-plan.md", 3),
+        Item(ident("task~b~1"), f"r/{B_CG}/code-generation-plan.md", 3),
+    )
     links = (unit_link("Depends", "unit~a~1", "unit~b~1"),)  # b, then a
     built, index = units_plan(*SHARED, unit_gate(10, "functional-design", Unit="b"), items=items, links=links)
     statuses = {"r": plan.statuses(built, index, [], {})}
