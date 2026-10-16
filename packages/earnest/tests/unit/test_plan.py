@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from earnest import plan, structural
-from earnest.index import MARKDOWN, Id, Index, Item, Link, Source
+from earnest import adapters, plan, structural
+from earnest.index import MARKDOWN, Id, Index, Item, Link, Source, build_index
 from earnest.index import digest as digest_of
 from earnest.plan import Approval, Event, Record, Row
 from earnest.reporter import Finding, Run
@@ -2418,6 +2418,29 @@ def test_unplanned_lowest_lexical_valid_delivering_unit_then_lowest_lexical_vali
 def done_of(items, links=(), levels=None, table=TABLE):
     built, index = units_plan(*SHARED, items=items, links=links, table=table)
     return plan.unit_done(built, index, levels or {})
+
+
+@pytest.mark.parametrize("plan_present", [False, True], ids=["missing-plan", "task-empty-plan"])
+def test_unit_done_ignores_doc_tasks_when_canonical_plan_has_no_tasks(tmp_path, plan_present):
+    canonical = f"r/{A_CG}/code-generation-plan.md"
+    files = {
+        "r/aidlc-state.md": UNIT_STATE,
+        TABLE_PATH: TABLE + "\n`unit~a~1`\n\nDo the work.\n",
+        f"r/{A_CG}/doc.md": "# Notes\n\n`task~a~1`\n\nA completed task with no deliveries.\n",
+    }
+    if plan_present:
+        files[canonical] = "# Code generation plan\n\nNo tasks have been planned.\n"
+    put(tmp_path, files)
+    assert (tmp_path / canonical).is_file() is plan_present
+    sources = adapters.scan(tmp_path, sorted(files))
+    assert (canonical in {source.path for source in sources}) is plan_present
+    index = build_index(sources)
+    (record,) = plan.load(tmp_path, sorted(files))
+    built = plan.build(plan.intent(record), index)
+    (task_item,) = [item for item in index.items if item.id.type == "task"]
+    assert task_item.path == f"r/{A_CG}/doc.md"
+    assert plan.task_done(task_item, index, {}) is True
+    assert plan.unit_done(built, index, {}) == {"a": False}
 
 
 def test_unit_done_needs_a_row_dependencies_a_task_and_every_task_done():
