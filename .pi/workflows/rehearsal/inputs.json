@@ -1,0 +1,136 @@
+{
+ "_meta": {
+  "purpose": "SYNTHETIC rehearsal fixtures. exp/expected = PLANNED; observed = Manager fills from the real smoke (null here).",
+  "harness": {"path":"/Users/rc/.herdr/worktrees/earnest/herdsman-work-7c4a24ca/.pi/workflows/milestone.workflow.ts","commit":"a89bcc1ab5de05b415b1351fd5880ad7a50d466e"},
+  "schemas": {"input":"earnest.milestone-run.v1","report":"earnest.milestone-report.v1","receipt":"earnest.milestone-dispatch.v1","assess":"earnest.milestone-assess.v1","await":"earnest.milestone-await.v1","result":"earnest.milestone-result.v1"},
+  "legend": "Steps run in array order. Step k: start=start with validStartInput (expect dispatch, mode write, cycle 1); receipt=submit it (expect accepted then parked on awaitReport, unless exp.rejectedMatch); answer=answer awaitReport (exp = assess route/next/ledger); server=PLANNED-ONLY server action, not validated offline; result=finalize output. Derived fixture: copy `from`, replace <SHA>/<SHA7> with `sha`/its first 7 chars, then apply `set`.",
+  "placeholders": "Replace every <RUN_ID> with the runId of the run under test. Correlation phase/cycle must equal the checkpoint's expectedCorrelation (already set per fixture). Derived fixtures: copy `from`, apply `set` (dotted paths; \"$unset\" deletes the key).",
+  "syntheticShas": {"baseSha":"ba5eba5eba5eba5eba5eba5eba5eba5eba5eba5e","redSha":"0ed00ed00ed00ed00ed00ed00ed00ed00ed00ed0","W1":"cafecafecafecafecafecafecafecafecafecafe","W2":"feedfeedfeedfeedfeedfeedfeedfeedfeedfeed","W3":"f00df00df00df00df00df00df00df00df00df00d","note":"40-hex repeating patterns, not real commits"},
+  "approval": "provenance \"human\" is a validator-required literal; decisionRef synthetic:rehearsal-only-not-an-approval makes it plainly not an approval.",
+  "warnings": "see .pi/workflows/rehearsal/guide.md: never call staff tools on synthetic ids; no verified_candidate; D consent approves nothing",
+  "observed": null
+ },
+ "validStartInput": {"schema":"earnest.milestone-run.v1","milestoneId":"synthetic-rehearsal-m1","rehearsal":true,"approvedPlan":{"ref":"synthetic:rehearsal-plan-not-real","digest":"synthetic:digest-not-real","approval":{"provenance":"human","decisionRef":"synthetic:rehearsal-only-not-an-approval","approvedAt":"2000-01-01T00:00:00Z"}},"managerAttestation":{"validatedBy":"synthetic:rehearsal-no-real-receipt","approvalReceiptChecked":true,"resultRefsChecked":true},"scope":{"writer":{"branch":"synthetic/writer-branch","worktree":"/synthetic/rehearsal-worktree"},"paths":["synthetic/src","synthetic/docs"]},"baseSha":"ba5eba5eba5eba5eba5eba5eba5eba5eba5eba5e","gates":{"bdd":[{"id":"synthetic-bdd-1","argv":["synthetic-bdd-gate","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree"}],"checks":[{"id":"synthetic-lint","kind":"lint","argv":["synthetic-lint-check","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree"},{"id":"synthetic-regression","kind":"regression","argv":["synthetic-regression-suite","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree"}]},"limits":{"maxRepairs":2,"maxInvalidReports":2}},
+ "invalidStartInput": {
+  "from": "validStartInput",
+  "set": {"limits.maxRepairs":4},
+  "expectedRejection": "Invalid milestone input: limits.maxRepairs must be an integer 0..3"
+ },
+ "reports": {
+  "writerTemplate": {"schema":"earnest.milestone-report.v1","correlation":{"runId":"<RUN_ID>","milestoneId":"synthetic-rehearsal-m1","phase":"write","cycle":0},"resultRef":"synthetic:rehearsal/TEMPLATE","reporter":{"branch":"synthetic/writer-branch","role":"writer"},"status":"done","managerAttestation":{"validatedBy":"synthetic-manager","resultRefsChecked":true},"synthetic":true,"testedSha":"<SHA>","trackedClean":true,"trackedChanges":[],"untrackedPreserved":true,"untrackedDisclosed":[],"changedPaths":["synthetic/src/feature.py"],"red":[{"id":"synthetic-bdd-1","argv":["synthetic-bdd-gate","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree","exitCode":1,"failureKind":"behavior","expectedFailure":"synthetic: behavior absent before change","logRef":"synthetic:log/red","redSha":"0ed00ed00ed00ed00ed00ed00ed00ed00ed00ed0","chronology":"redSha 0ed00ed is the synthetic earlier commit; testedSha is its descendant"}],"commands":[{"id":"synthetic-bdd-1","argv":["synthetic-bdd-gate","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree","exitCode":0,"where":"local","logRef":"synthetic:log/synthetic-bdd-1-<SHA7>","testedSha":"<SHA>"},{"id":"synthetic-lint","argv":["synthetic-lint-check","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree","exitCode":0,"where":"local","logRef":"synthetic:log/synthetic-lint-<SHA7>","testedSha":"<SHA>"},{"id":"synthetic-regression","argv":["synthetic-regression-suite","--rehearsal"],"cwd":"/synthetic/rehearsal-worktree","exitCode":0,"where":"local","logRef":"synthetic:log/synthetic-regression-<SHA7>","testedSha":"<SHA>"}],"gates":[{"id":"synthetic-bdd-1","exitCode":0,"result":"pass"}],"findings":[],"limitations":[]},
+  "A.r1": {"schema":"earnest.milestone-report.v1","correlation":{"runId":"<RUN_ID>","milestoneId":"synthetic-rehearsal-m1","phase":"review","cycle":1},"resultRef":"synthetic:rehearsal/A.r1","reporter":{"branch":"synthetic/reviewer-branch","role":"reviewer"},"status":"done","managerAttestation":{"validatedBy":"synthetic-manager","resultRefsChecked":true},"synthetic":true,"testedSha":"feedfeedfeedfeedfeedfeedfeedfeedfeedfeed","trackedClean":true,"trackedChanges":[],"untrackedPreserved":true,"untrackedDisclosed":[],"changedPaths":[],"findings":[{"id":"synthetic-f1","severity":"blocking","category":"logic","location":"synthetic/src/feature.py:1","disposition":"open","rationale":"synthetic: off-by-one in rehearsal fixture","reviewSha":"feedfeedfeedfeedfeedfeedfeedfeedfeedfeed"}]},
+  "A.r2": {"schema":"earnest.milestone-report.v1","correlation":{"runId":"<RUN_ID>","milestoneId":"synthetic-rehearsal-m1","phase":"review","cycle":2},"resultRef":"synthetic:rehearsal/A.r2","reporter":{"branch":"synthetic/reviewer-branch","role":"reviewer"},"status":"done","managerAttestation":{"validatedBy":"synthetic-manager","resultRefsChecked":true},"synthetic":true,"testedSha":"f00df00df00df00df00df00df00df00df00df00d","trackedClean":true,"trackedChanges":[],"untrackedPreserved":true,"untrackedDisclosed":[],"changedPaths":[],"findings":[{"id":"synthetic-f1","severity":"blocking","category":"logic","location":"synthetic/src/feature.py:1","disposition":"fixed","rationale":"synthetic: reviewer verified fixed at the reviewed sha","reviewSha":"f00df00df00df00df00df00df00df00df00df00d"},{"id":"synthetic-n1","severity":"non-blocking","category":"style","location":"synthetic/src/feature.py:2","disposition":"deferred","rationale":"synthetic: cosmetic, tracked elsewhere","reviewSha":"f00df00df00df00df00df00df00df00df00df00d"}]}
+ },
+ "derivedReports": {
+  "A.w1": {"from":"writerTemplate","sha":"cafecafecafecafecafecafecafecafecafecafe","set":{"correlation.cycle":1,"resultRef":"synthetic:rehearsal/A.w1","commands.1.exitCode":2}},
+  "A.w2": {"from":"writerTemplate","sha":"feedfeedfeedfeedfeedfeedfeedfeedfeedfeed","set":{"correlation.cycle":2,"resultRef":"synthetic:rehearsal/A.w2"}},
+  "A.w3": {"from":"writerTemplate","sha":"f00df00df00df00df00df00df00df00df00df00d","set":{"correlation.cycle":3,"resultRef":"synthetic:rehearsal/A.w3","findings":[{"id":"synthetic-f1","severity":"blocking","category":"logic","location":"synthetic/src/feature.py:1","disposition":"fixed","rationale":"synthetic: writer CLAIM only; cannot clear the blocker"}]}},
+  "staleCycle": {"from":"A.w1","set":{"correlation.cycle":9,"resultRef":"synthetic:rehearsal/stale-cycle"}},
+  "staleRun": {"from":"A.w1","set":{"correlation.runId":"synthetic-stale-run-id","resultRef":"synthetic:rehearsal/stale-run"}},
+  "C1.w2": {"from":"A.w1","set":{"correlation.cycle":2,"resultRef":"synthetic:rehearsal/C1.w2"}},
+  "C1.w3": {"from":"A.w1","set":{"correlation.cycle":3,"resultRef":"synthetic:rehearsal/C1.w3"}},
+  "goodWrite1": {"from":"A.w2","set":{"correlation.cycle":1,"resultRef":"synthetic:rehearsal/good-write-1"}},
+  "D.outside": {"from":"goodWrite1","set":{"changedPaths":["synthetic/src/feature.py","synthetic/outside/Makefile"],"resultRef":"synthetic:rehearsal/D.outside"}},
+  "D.material": {"from":"goodWrite1","set":{"materialChange":{"kind":"scope","description":"synthetic: scope must widen to a new package"},"resultRef":"synthetic:rehearsal/D.material"}}
+ },
+ "receipts": {
+  "recW1": {"schema":"earnest.milestone-dispatch.v1","correlation":{"runId":"<RUN_ID>","milestoneId":"synthetic-rehearsal-m1","phase":"write","cycle":1},"mode":"write","assignee":{"lead":"synthetic-writer","session":"synthetic-session-writer","branch":"synthetic/writer-branch"},"adopted":false}
+ },
+ "derivedReceipts": {
+  "recRep2": {"from":"recW1","set":{"correlation.cycle":2,"mode":"repair","adopted":true}},
+  "recRep3": {"from":"recW1","set":{"correlation.cycle":3,"mode":"repair","adopted":true}},
+  "recRv1": {"from":"recW1","set":{"correlation.phase":"review","correlation.cycle":1,"mode":"review","assignee":{"lead":"synthetic-reviewer","session":"synthetic-session-reviewer","branch":"synthetic/reviewer-branch"}}},
+  "recRv2": {"from":"recW1","set":{"correlation.phase":"review","correlation.cycle":2,"mode":"review","assignee":{"lead":"synthetic-reviewer","session":"synthetic-session-reviewer","branch":"synthetic/reviewer-branch"},"adopted":true}},
+  "recRep2NotAdopted": {"from":"recRep2","set":{"adopted":false}},
+  "recRep2AdoptedMissing": {"from":"recRep2","set":{"adopted":"$unset"}},
+  "recRv2NotAdopted": {"from":"recRv2","set":{"adopted":false}}
+ },
+ "scenarios": {
+  "A": {
+   "goal": "write fail -> repair -> blocking review -> repair -> fixed review -> rehearsal",
+   "steps": [
+    {"k":"start"},
+    {"k":"receipt","use":"recW1"},
+    {"k":"answer","use":"staleCycle","exp":{"route":"rewait","reasonsMatch":"stale/wrong-run/wrong-attempt","invalidReports":1,"noNewDispatch":true}},
+    {"k":"server","op":"pause the run (workflow-level only, no stop_lead)","exp":"PLANNED: run paused; staff untouched"},
+    {"k":"server","op":"submit A.w1 while paused","exp":"PLANNED: conflict/rejected, assess not run, still parked on awaitReport"},
+    {"k":"server","op":"resume the run","exp":"PLANNED: returns to waiting on awaitReport; NO automatic re-dispatch (dispatch step count stays 1)"},
+    {"k":"answer","use":"A.w1","exp":{"route":"dispatch","nextMode":"repair","nextCycle":2,"repairs":1,"repairFailingIds":["synthetic-lint"]}},
+    {"k":"receipt","use":"recRep2"},
+    {"k":"answer","use":"A.w2","exp":{"route":"dispatch","nextMode":"review","nextCycle":1}},
+    {"k":"receipt","use":"recRv1"},
+    {"k":"answer","use":"A.r1","exp":{"route":"dispatch","nextMode":"repair","nextCycle":3,"repairs":2,"repairFindingIds":["synthetic-f1"]}},
+    {"k":"receipt","use":"recRep3"},
+    {"k":"answer","use":"A.w3","exp":{"route":"dispatch","nextMode":"review","nextCycle":2,"ledgerFindingDisposition":{"synthetic-f1":"open"}}},
+    {"k":"receipt","use":"recRv2"},
+    {"k":"answer","use":"A.r2","exp":{"route":"finalize","status":"rehearsal"}},
+    {"k":"result","exp":{"goalCompletion":false,"status":"rehearsal","finalSha":"W3","counters":{"repairs":2,"invalidReports":1,"writeCycle":3,"reviewCycle":2},"findingDispositions":{"synthetic-f1":"fixed"}}}
+   ]
+  },
+  "adoptedCase": {
+   "goal": "repair receipt without adopted:true is rejected",
+   "steps": [
+    {"k":"start"},
+    {"k":"receipt","use":"recW1"},
+    {"k":"answer","use":"A.w1","exp":{"route":"dispatch","nextMode":"repair","nextCycle":2,"repairs":1}},
+    {"k":"receipt","use":"recRep2NotAdopted","exp":{"rejectedMatch":"must adopt the existing bound assignment"}},
+    {"k":"receipt","use":"recRep2AdoptedMissing","exp":{"rejectedMatch":"must adopt the existing bound assignment"}},
+    {"k":"receipt","use":"recRep2"},
+    {"k":"server","op":"cancel this throwaway run afterwards","exp":"status cancelled"}
+   ],
+   "extra": "second-review duplicate: at A's second review receipt, recRv2NotAdopted must be rejected the same way."
+  },
+  "B": {
+   "goal": "cancel while waiting; late answer rejected (PLANNED, server-only)",
+   "steps": [
+    {"k":"start"},
+    {"k":"receipt","use":"recW1"},
+    {"k":"server","op":"cancel the run while parked on awaitReport","exp":"PLANNED: status cancelled; finalize does NOT run"},
+    {"k":"server","op":"submit goodWrite1 as a late answer","exp":"PLANNED: rejected (run is cancelled, no open checkpoint); no assess output"}
+   ]
+  },
+  "C1": {
+   "goal": "repair cap exhausted (maxRepairs 2)",
+   "steps": [
+    {"k":"start"},
+    {"k":"receipt","use":"recW1"},
+    {"k":"answer","use":"A.w1","exp":{"route":"dispatch","nextMode":"repair","nextCycle":2,"repairs":1}},
+    {"k":"receipt","use":"recRep2"},
+    {"k":"answer","use":"C1.w2","exp":{"route":"dispatch","nextMode":"repair","nextCycle":3,"repairs":2}},
+    {"k":"receipt","use":"recRep3"},
+    {"k":"answer","use":"C1.w3","exp":{"route":"finalize","status":"exhausted"}},
+    {"k":"result","exp":{"goalCompletion":false,"status":"exhausted","counters":{"repairs":2}}}
+   ]
+  },
+  "C2": {
+   "goal": "invalid-report cap (maxInvalidReports 2) -> blocked",
+   "steps": [
+    {"k":"start"},
+    {"k":"receipt","use":"recW1"},
+    {"k":"answer","use":"staleCycle","exp":{"route":"rewait","invalidReports":1}},
+    {"k":"answer","use":"staleRun","exp":{"route":"rewait","invalidReports":2}},
+    {"k":"answer","use":"staleCycle","exp":{"route":"finalize","status":"blocked","blockerMatch":"invalid-report cap","invalidReports":3}},
+    {"k":"result","exp":{"goalCompletion":false,"status":"blocked","counters":{"invalidReports":3}}}
+   ]
+  },
+  "D": {
+   "goal": "out-of-scope / materialChange -> needs_approval; then SEPARATE plan-approval run (not run here)",
+   "steps": [
+    {"k":"start"},
+    {"k":"receipt","use":"recW1"},
+    {"k":"answer","use":"D.outside","exp":{"route":"finalize","status":"needs_approval","outsidePaths":["synthetic/outside/Makefile"]}},
+    {"k":"result","exp":{"goalCompletion":false,"status":"needs_approval","outsidePaths":["synthetic/outside/Makefile"]}}
+   ],
+   "variantMaterial": {
+    "note": "new run, same start; answer D.material instead",
+    "steps": [{"k":"start"},{"k":"receipt","use":"recW1"},{"k":"answer","use":"D.material","exp":{"route":"finalize","status":"needs_approval","materialKind":"scope"}},{"k":"result","exp":{"goalCompletion":false,"status":"needs_approval","materialKind":"scope"}}]
+   },
+   "planApproval": {
+    "workflow": "plan-approval",
+    "source": "node_modules/@osolmaz/pi-workflows/dist/builtins/plan-approval.workflow.js:82-98 (input), :40-81 (policy); src/builtins/...ts:111,165",
+    "input": {"task":"synthetic rehearsal of the harness needs_approval gate; approves NOTHING","plan":{"synthetic":true,"summary":"synthetic rehearsal-only plan; no real work"},"planDigest":"synthetic:rehearsal-digest-not-a-real-plan","approval":{"mode":"required","audience":"operator","maxReplans":1}},
+    "expected": ["PLANNED: parks on node approve (humanDecision); required mode has no timeout auto-continue","PLANNED: a model/Manager answer MUST be rejected; do NOT forge one","human answers via Pi channel /workflow answer: continue | stop | replan(instructions)"]
+   }
+  }
+ }
+}

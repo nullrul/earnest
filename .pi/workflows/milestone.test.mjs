@@ -1,0 +1,1346 @@
+// Tests for milestone.workflow.ts. Run: node --test .pi/workflows/milestone.test.mjs
+// Uses only the public @osolmaz/pi-workflows entry point (PI_WORKFLOWS_DIR overrides the install path),
+// a temporary SQLite database for engine cases, and clearly SYNTHETIC fixtures (never a real human receipt).
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const PKG = process.env.PI_WORKFLOWS_DIR ?? "/Users/rc/.pi/agent/npm/node_modules/@osolmaz/pi-workflows";
+const lib = await import(pathToFileURL(join(PKG, "dist/workflows/index.js")).href);
+const def = await lib.loadWorkflowFile(fileURLToPath(new URL("./milestone.workflow.ts", import.meta.url)));
+const dbDir = mkdtempSync(join(tmpdir(), "earnest-milestone-test-"));
+let dbN = 0;
+const newDb = () => join(dbDir, `state-${dbN++}.sqlite`);
+
+// ------------------------------------------------------------------ fixtures (SYNTHETIC)
+const sha = (c) => c.repeat(40);
+const BASE = sha("a");
+const W1 = sha("b");
+const W2 = sha("c");
+const WT = "/synthetic/worktree";
+const BDD = { id: "bdd-1", argv: ["uv", "run", "pytest", "tests/bdd"], cwd: WT };
+const LINT = { id: "lint", kind: "lint", argv: ["make", "lint"], cwd: WT };
+const REG = { id: "regression", kind: "regression", argv: ["make", "test"], cwd: WT };
+const WRITER = { lead: "lead-w", session: "sess-w", branch: "feat/writer" };
+const REVIEWER = { lead: "lead-r", session: "sess-r", branch: "review/reader" };
+/** Current Herdsman Manager tool surface (H-R3); stop_lead is a Manager action outside the dispatch step. */
+const DISPATCH_TOOLS = ["list_staff", "inspect_staff", "read_staff_transcript", "message_staff", "delegate_project", "resume_project"];
+
+const rawInput = (over = {}) => ({
+  schema: "earnest.milestone-run.v1",
+  milestoneId: "m-test",
+  approvedPlan: {
+    ref: "fixture:synthetic-test-only/plan",
+    digest: "sha256:fixture",
+    approval: { provenance: "human", decisionRef: "fixture:synthetic-test-only/decision", approvedAt: "2026-01-01T00:00:00Z" },
+  },
+  managerAttestation: { validatedBy: "fixture-manager", approvalReceiptChecked: true, resultRefsChecked: true },
+  scope: { writer: { branch: WRITER.branch, worktree: WT }, paths: ["packages/earnest/src", "docs/"] },
+  baseSha: BASE,
+  gates: { bdd: [BDD], checks: [LINT, REG] },
+  ...over,
+});
+const rehearsalInput = (over = {}) =>
+  rawInput({
+    rehearsal: true,
+    approvedPlan: { ...rawInput().approvedPlan, ref: "synthetic:plan", approval: { ...rawInput().approvedPlan.approval, decisionRef: "synthetic:decision" } },
+    ...over,
+  });
+
+let refN = 0;
+const ref = () => `fixture:synthetic-test-only/result-${refN++}`;
+const att = { validatedBy: "fixture-manager", resultRefsChecked: true };
+
+/** Drives the pure nodes the way the engine would: dispatch.validate -> awaitReport answer -> assess. */
+class Sim {
+  constructor(input, runId = "run-1") {
+    this.runId = runId;
+    this.input = def.input(input);
+    this.rawInput = structuredClone(input);
+    this.outputs = {};
+    this.results = {};
+  }
+  ctx() {
+    // Sim.rawCtx: nodes see the raw start input, as the live server runner persists it (H-R4)
+    return { input: Sim.rawCtx ? this.rawInput : this.input, outputs: this.outputs, results: this.results, state: { runId: this.runId }, signal: new AbortController().signal };
+  }
+  get next() {
+    return this.outputs.assess?.next ?? { action: "dispatch", phase: "write", cycle: 1, mode: "write" };
+  }
+  get corr() {
+    return { runId: this.runId, milestoneId: this.input.milestoneId, phase: this.next.phase, cycle: this.next.cycle };
+  }
+  /** A repair or second review reuses the bound Lead, so the receipt must say it adopted it. */
+  get bound() {
+    const l = this.outputs.assess?.ledger;
+    return this.next.mode === "repair" ? Boolean(l?.writer) : this.next.mode === "review" ? Boolean(l?.reviewer) : false;
+  }
+  receipt(assignee, over = {}) {
+    return { schema: "earnest.milestone-dispatch.v1", correlation: this.corr, mode: this.next.mode, assignee, adopted: this.bound, ...over };
+  }
+  dispatch(assignee, over = {}) {
+    const v = def.nodes.dispatch.validate(this.receipt(assignee, over), this.ctx());
+    this.outputs.dispatch = v;
+    this.results.dispatch = { outcome: "ok" };
+    return v;
+  }
+  answer(report) {
+    this.outputs.awaitReport = report;
+    const a = def.nodes.assess.run(this.ctx());
+    this.outputs.assess = a;
+    return a;
+  }
+  finalize() {
+    return def.nodes.finalize.run(this.ctx());
+  }
+}
+
+const baseReport = (sim, role, over = {}) => ({
+  schema: "earnest.milestone-report.v1",
+  correlation: sim.corr,
+  resultRef: ref(),
+  reporter: { branch: role === "writer" ? WRITER.branch : REVIEWER.branch, role },
+  status: "done",
+  managerAttestation: { ...att },
+  ...(sim.input.rehearsal ? { synthetic: true } : {}),
+  trackedClean: true,
+  trackedChanges: [],
+  untrackedPreserved: true,
+  untrackedDisclosed: [".pi-herdsman/notes.md"],
+  limitations: [],
+  ...over,
+});
+const cmd = (g, over = {}) => ({ id: g.id, argv: g.argv, cwd: g.cwd, exitCode: 0, where: "local", logRef: `fixture:log/${g.id}`, testedSha: W1, ...over });
+const RED_SHA = sha("d");
+const redEntry = (o = {}) => ({
+  id: BDD.id,
+  argv: BDD.argv,
+  cwd: WT,
+  exitCode: 1,
+  failureKind: "behavior",
+  expectedFailure: "AssertionError: feature missing before the change",
+  logRef: "fixture:log/red",
+  redSha: RED_SHA,
+  chronology: `redSha ${RED_SHA.slice(0, 7)} is the earlier test-only commit; testedSha is its descendant with the implementation`,
+  ...o,
+});
+const writerReport = (sim, over = {}) => {
+  const testedSha = over.testedSha ?? W1;
+  return baseReport(sim, "writer", {
+    testedSha,
+    changedPaths: ["packages/earnest/src/x.py"],
+    red: [redEntry()],
+    commands: [BDD, LINT, REG].map((g) => cmd(g, { testedSha })),
+    gates: [{ id: BDD.id, exitCode: 0, result: "pass" }],
+    findings: [],
+    ...over,
+  });
+};
+/** Findings default to the reviewed sha, as a real reviewer must report them. */
+const reviewReport = (sim, over = {}) => {
+  const testedSha = over.testedSha ?? W1;
+  const findings = (over.findings ?? []).map((f) => ({ reviewSha: testedSha, ...f }));
+  return baseReport(sim, "reviewer", { testedSha, changedPaths: [], ...over, findings });
+};
+
+/** Sim already past a first good writer report and dispatched to the reviewer. */
+function atReview(input = rawInput(), runId) {
+  const sim = new Sim(input, runId);
+  sim.dispatch(WRITER);
+  const a = sim.answer(writerReport(sim));
+  assert.equal(a.route, "dispatch");
+  assert.equal(a.next.phase, "review");
+  sim.dispatch(REVIEWER);
+  return sim;
+}
+const atWrite = (input = rawInput()) => {
+  const sim = new Sim(input);
+  sim.dispatch(WRITER);
+  return sim;
+};
+const reasonsOf = (a) => a.reasons.join(" | ");
+
+// ------------------------------------------------------------------ input
+test("input: valid input normalises with default limits and trimmed scope", () => {
+  const i = def.input(rawInput());
+  assert.deepEqual(i.limits, { maxRepairs: 2, maxInvalidReports: 2 });
+  assert.deepEqual(i.scope.paths, ["packages/earnest/src", "docs"]);
+  assert.equal(i.rehearsal, false);
+  assert.deepEqual(def.input(rawInput({ limits: { maxRepairs: 3, maxInvalidReports: 0 } })).limits, { maxRepairs: 3, maxInvalidReports: 0 });
+});
+
+test("input: repeated leading ./ scope normalization is idempotent", () => {
+  const x = rawInput({ scope: { ...rawInput().scope, paths: ["././docs/"] } });
+  assert.deepEqual(def.input(def.input(x)), def.input(x));
+  assert.deepEqual(def.input(x).scope.paths, ["docs"]);
+});
+
+test("input: rejections", () => {
+  const approved = rawInput().approvedPlan;
+  const cases = {
+    "non-human provenance": rawInput({ approvedPlan: { ...approved, approval: { ...approved.approval, provenance: "model" } } }),
+    "missing approval time": rawInput({ approvedPlan: { ...approved, approval: { ...approved.approval, approvedAt: "yesterday-ish" } } }),
+    "bad base sha": rawInput({ baseSha: "abc" }),
+    "duplicate ids": rawInput({ gates: { bdd: [BDD], checks: [{ ...LINT, id: BDD.id }] } }),
+    "over-cap repairs": rawInput({ limits: { maxRepairs: 4 } }),
+    "over-cap invalid reports": rawInput({ limits: { maxInvalidReports: 4 } }),
+    "non-integer limit": rawInput({ limits: { maxRepairs: 1.5 } }),
+    "relative worktree": rawInput({ scope: { writer: { branch: "b", worktree: "rel/wt" }, paths: ["a"] } }),
+    "empty scope": rawInput({ scope: { writer: { branch: "b", worktree: WT }, paths: [] } }),
+    "escaping scope path": rawInput({ scope: { writer: { branch: "b", worktree: WT }, paths: ["../x"] } }),
+    "no manager attestation": rawInput({ managerAttestation: undefined }),
+    "attestation not checked": rawInput({ managerAttestation: { validatedBy: "m", approvalReceiptChecked: true, resultRefsChecked: false } }),
+    "no bdd gates": rawInput({ gates: { bdd: [], checks: [LINT] } }),
+    "no checks": rawInput({ gates: { bdd: [BDD], checks: [] } }),
+    "bad check kind": rawInput({ gates: { bdd: [BDD], checks: [{ ...LINT, kind: "style" }] } }),
+    "relative gate cwd": rawInput({ gates: { bdd: [{ ...BDD, cwd: "rel" }], checks: [LINT] } }),
+    "wrong schema": rawInput({ schema: "other" }),
+    "synthetic approval outside rehearsal": rawInput({ approvedPlan: { ...approved, ref: "synthetic:plan" } }),
+  };
+  for (const [name, value] of Object.entries(cases)) assert.throws(() => def.input(value), /Invalid milestone input/, name);
+  assert.throws(() => def.input("nope"), /Invalid milestone input/);
+  assert.doesNotThrow(() => def.input(rehearsalInput()));
+});
+
+// ------------------------------------------------------------------ graph
+test("graph: definition validates, node kinds are restricted, bounds are explicit", () => {
+  lib.validateWorkflowDefinition(def);
+  assert.deepEqual(Object.fromEntries(Object.entries(def.nodes).map(([k, n]) => [k, n.nodeType])), {
+    dispatch: "agent",
+    awaitReport: "checkpoint",
+    assess: "compute",
+    finalize: "compute",
+  });
+  assert.equal(def.includes, undefined);
+  assert.equal(def.nodes.awaitReport.timeoutMs, null);
+  assert.equal(def.nodes.awaitReport.humanDecision, undefined);
+  assert.deepEqual(def.nodes.dispatch.allowedTools, DISPATCH_TOOLS);
+  assert.equal(def.nodes.dispatch.timeoutMs, 15 * 60_000);
+  assert.equal(def.nodes.assess.timeoutMs, 30_000);
+  assert.equal(def.nodes.finalize.timeoutMs, 30_000);
+  assert.equal(def.startAt, "dispatch");
+  const [R, I] = [3, 3]; // caps
+  const worst = 3 * (2 * R + 2) + 2 * (I + 1) + 1;
+  assert.ok(def.maxSteps >= worst, `maxSteps ${def.maxSteps} < worst case ${worst}`);
+  assert.equal(def.maxSteps, 50);
+});
+
+// ------------------------------------------------------------------ dispatch receipt / ownership
+test("dispatch receipt: accepted and normalised; prompt carries correlation and safeguards", () => {
+  const sim = new Sim(rawInput());
+  const prompt = def.nodes.dispatch.prompt(sim.ctx());
+  assert.ok(prompt.includes(JSON.stringify(sim.corr)));
+  for (const needle of ["list_staff", "stop_lead", "NEVER delete", "NONZERO", "different identity", "managerAttestation", "needs_approval", "never repeats side effects", "Do NOT wait"]) {
+    assert.ok(prompt.includes(needle), `prompt missing ${needle}`);
+  }
+  const v = sim.dispatch(WRITER);
+  assert.deepEqual(v.assignee, WRITER);
+  assert.equal(v.adopted, false);
+});
+
+test("dispatch receipt: wrong run / phase / cycle / mode / branch / shape rejected", () => {
+  const sim = new Sim(rawInput());
+  const bad = (over, re) => assert.throws(() => def.nodes.dispatch.validate(sim.receipt(WRITER, over), sim.ctx()), re);
+  bad({ correlation: { ...sim.corr, runId: "other-run" } }, /another run\/phase\/cycle/);
+  bad({ correlation: { ...sim.corr, cycle: 2 } }, /another run\/phase\/cycle/);
+  bad({ correlation: { ...sim.corr, phase: "review" } }, /another run\/phase\/cycle/);
+  bad({ correlation: { ...sim.corr, milestoneId: "other" } }, /another run\/phase\/cycle/);
+  bad({ mode: "review" }, /mode must be/);
+  bad({ schema: "x" }, /schema must be/);
+  bad({ assignee: { ...WRITER, branch: "someone/else" } }, /writer branch must be/);
+  bad({ assignee: { lead: "l", session: "", branch: WRITER.branch } }, /non-empty lead, session and branch/);
+  bad({ adopted: "yes" }, /adopted must be boolean/);
+  assert.throws(() => def.nodes.dispatch.validate("garbage", sim.ctx()), /rejected/);
+});
+
+test("dispatch receipt: writer identity and reviewer independence are enforced across cycles", () => {
+  const sim = atReview();
+  // reviewer equal to the writer in any one dimension is rejected
+  for (const clash of [{ ...REVIEWER, lead: WRITER.lead }, { ...REVIEWER, session: WRITER.session }, { ...REVIEWER, branch: WRITER.branch }]) {
+    assert.throws(() => def.nodes.dispatch.validate(sim.receipt(clash), sim.ctx()), /reviewer must differ|reviewer must not use/);
+  }
+  // the writer identity is bound after the first accepted writer report
+  const rep = new Sim(rawInput());
+  rep.dispatch(WRITER);
+  rep.answer(writerReport(rep, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.equal(rep.next.mode, "repair");
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt({ ...WRITER, session: "sess-other" }), rep.ctx()), /writer identity changed/);
+  assert.doesNotThrow(() => rep.dispatch(WRITER, { adopted: true }));
+});
+
+test("dispatch receipt: a bound reviewer cannot be swapped on a later review", () => {
+  const sim = atReview();
+  sim.answer(reviewReport(sim, { findings: [{ id: "f1", severity: "blocking", category: "logic", location: "x.py:1", disposition: "open", rationale: "wrong" }] }));
+  assert.equal(sim.next.mode, "repair");
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  assert.equal(sim.next.mode, "review");
+  assert.throws(() => def.nodes.dispatch.validate(sim.receipt({ lead: "lead-r2", session: "sess-r2", branch: "review/other" }), sim.ctx()), /reviewer identity changed/);
+});
+
+// ------------------------------------------------------------------ happy path
+test("pass: green writer evidence -> review; clean review -> verified_candidate with goalCompletion false", () => {
+  const sim = atWrite();
+  const a = sim.answer(writerReport(sim));
+  assert.equal(a.route, "dispatch");
+  assert.deepEqual(a.next, { action: "dispatch", phase: "review", cycle: 1, mode: "review" });
+  assert.equal(a.ledger.lastTestedSha, W1);
+  assert.deepEqual(a.ledger.writer, WRITER);
+  sim.dispatch(REVIEWER);
+  const wait = def.nodes.awaitReport.run(sim.ctx());
+  assert.deepEqual(wait.expectedCorrelation, sim.corr);
+  assert.deepEqual(wait.halt.staffStopTarget, REVIEWER);
+  assert.equal(wait.halt.mustHaltOnPauseOrCancel, true);
+  const r = sim.answer(
+    reviewReport(sim, { findings: [{ id: "n1", severity: "non-blocking", category: "style", location: "x.py:2", disposition: "deferred", rationale: "cosmetic, tracked" }] }),
+  );
+  assert.equal(r.route, "finalize");
+  assert.equal(r.next.status, "verified_candidate");
+  const out = sim.finalize();
+  assert.equal(out.schema, "earnest.milestone-result.v1");
+  assert.equal(out.status, "verified_candidate");
+  assert.equal(out.goalCompletion, false);
+  assert.equal(out.finalSha, W1);
+  assert.equal(out.dispatchUncertain, false);
+  assert.deepEqual(out.assignees.writer, WRITER);
+  assert.deepEqual(out.assignees.reviewer, REVIEWER);
+  assert.deepEqual(out.halt.staffStopTarget, REVIEWER);
+  assert.equal(out.evidenceRefs.length, 2);
+  assert.equal(out.attestations.approval.provenance, "human");
+  assert.equal(out.attestations.input.approvalReceiptChecked, true);
+  assert.equal(out.attestations.reports.length, 2);
+  assert.deepEqual(out.evidence.ci, []);
+  assert.deepEqual(out.untrackedDisclosed, [".pi-herdsman/notes.md"]);
+  assert.ok(out.managerActions.some((m) => m.includes("stop_lead")));
+  assert.ok(out.limitations.some((l) => l.includes("Cancellation")));
+});
+
+// ------------------------------------------------------------------ safeguard 1: clean / untracked
+test("clean: tracked changes, missing preservation claim, or a dishonest clean claim are rejected", () => {
+  const cases = {
+    "trackedClean false": { trackedClean: false },
+    "trackedClean true with tracked changes": { trackedChanges: ["packages/earnest/src/x.py"] },
+    "clean:false indication": { clean: false },
+    "trackedChanges missing": { trackedChanges: undefined },
+    "untracked preservation not claimed": { untrackedPreserved: undefined },
+    "untracked list missing": { untrackedDisclosed: undefined },
+  };
+  for (const [name, over] of Object.entries(cases)) {
+    const sim = atWrite();
+    const a = sim.answer(writerReport(sim, over));
+    assert.equal(a.route, "rewait", name);
+    assert.match(reasonsOf(a), /tracked content must be unchanged|untrackedPreserved|untrackedDisclosed/, name);
+  }
+  const sim = atReview();
+  assert.equal(sim.answer(reviewReport(sim, { trackedClean: false })).route, "rewait");
+});
+
+test("clean: disclosed untracked files are preserved, not rejected, and reach the result", () => {
+  const sim = atWrite();
+  sim.answer(writerReport(sim, { untrackedDisclosed: [".pi-herdsman/a.md", "notes/b.txt"] }));
+  assert.deepEqual(sim.outputs.assess.ledger.untrackedDisclosed, [".pi-herdsman/a.md", "notes/b.txt"]);
+  sim.dispatch(REVIEWER);
+  sim.answer(reviewReport(sim, { untrackedDisclosed: ["notes/c.txt"] }));
+  assert.deepEqual(sim.finalize().untrackedDisclosed, [".pi-herdsman/a.md", "notes/b.txt", "notes/c.txt"]);
+  assert.ok(def.nodes.dispatch.prompt(atWrite().ctx()).includes("NEVER delete, clean, stash or reset untracked files"));
+});
+
+// ------------------------------------------------------------------ safeguard 2: red / green
+test("red evidence: missing, zero, null, non-behavior, same/malformed sha, bad chronology or wrong gate is rejected", () => {
+  const cases = {
+    "no red": [{ red: [] }, /red/i],
+    "red absent": [{ red: undefined }, /red/i],
+    "zero exit": [{ red: [redEntry({ exitCode: 0 })] }, /NONZERO/],
+    "null exit": [{ red: [redEntry({ exitCode: null })] }, /NONZERO/],
+    "string exit": [{ red: [redEntry({ exitCode: "1" })] }, /NONZERO/],
+    "vague reason": [{ red: [redEntry({ expectedFailure: "failed" })] }, /expectedFailure/],
+    "no logRef": [{ red: [redEntry({ logRef: "" })] }, /logRef/],
+    "not a BDD argv": [{ red: [redEntry({ argv: ["echo", "hi"] })] }, /exact id, argv and cwd/],
+    "wrong cwd": [{ red: [redEntry({ cwd: "/elsewhere" })] }, /exact id, argv and cwd/],
+    "wrong gate id": [{ red: [redEntry({ id: "other-gate" })] }, /exact id, argv and cwd/],
+    "malformed redSha": [{ red: [redEntry({ redSha: "abc123" })] }, /40-hex sha of an EARLIER commit/],
+    "missing redSha": [{ red: [redEntry({ redSha: undefined })] }, /40-hex sha of an EARLIER commit/],
+    "identical sha": [{ red: [redEntry({ redSha: W1, chronology: `redSha ${W1.slice(0, 7)} equals the tested commit here` })] }, /must differ from the final testedSha/],
+    "no chronology": [{ red: [redEntry({ chronology: undefined })] }, /chronology/],
+    "chronology omits the sha": [{ red: [redEntry({ chronology: "ran before the implementation was written, honest" })] }, /chronology/],
+    "startup failure": [{ red: [redEntry({ failureKind: "startup" })] }, /failureKind/],
+    "import failure": [{ red: [redEntry({ failureKind: "import" })] }, /failureKind/],
+    "collection failure": [{ red: [redEntry({ failureKind: "collection" })] }, /failureKind/],
+    "no failureKind": [{ red: [redEntry({ failureKind: undefined })] }, /failureKind/],
+  };
+  for (const [name, [over, re]] of Object.entries(cases)) {
+    const sim = atWrite();
+    const a = sim.answer(writerReport(sim, over));
+    assert.equal(a.route, "rewait", name);
+    assert.match(reasonsOf(a), re, name);
+  }
+  // one valid behavior run is enough even next to a second red entry for another file's gate-less run
+  const ok = atWrite();
+  assert.equal(ok.answer(writerReport(ok, { red: [redEntry(), redEntry({ id: "extra", argv: ["x"], redSha: sha("e"), chronology: `redSha ${sha("e").slice(0, 7)} also came before the final commit` })] })).route, "dispatch");
+  // a red run at the base commit is a legitimate earlier commit
+  const atBase = atWrite();
+  assert.equal(atBase.answer(writerReport(atBase, { red: [redEntry({ redSha: BASE, chronology: `redSha ${BASE.slice(0, 7)} is baseSha, before the change` })] })).route, "dispatch");
+  // a writer that produced no commit is rejected
+  const noCommit = atWrite();
+  const n = noCommit.answer(writerReport(noCommit, { testedSha: BASE, commands: [BDD, LINT, REG].map((g) => cmd(g, { testedSha: BASE })) }));
+  assert.match(reasonsOf(n), /equals baseSha/);
+});
+
+test("green evidence: missing, CI-only, argv/cwd mismatch, other sha, bad gates[] -> rewait", () => {
+  const all = (fn) => [BDD, LINT, REG].map((g, i) => fn(g, i));
+  const cases = {
+    "missing check": { commands: [cmd(BDD), cmd(LINT)], re: /regression has no command evidence/ },
+    "CI-only": { commands: all((g) => cmd(g, { where: g === REG ? "ci" : "local" })), re: /CI-only/ },
+    "argv mismatch": { commands: all((g) => cmd(g, g === LINT ? { argv: ["make", "lint-lite"] } : {})), re: /argv\/cwd differs/ },
+    "cwd mismatch": { commands: all((g) => cmd(g, g === LINT ? { cwd: "/elsewhere" } : {})), re: /argv\/cwd differs/ },
+    "other sha": { commands: all((g) => cmd(g, g === REG ? { testedSha: W2 } : {})), re: /final testedSha/ },
+    "no logRef": { commands: all((g) => cmd(g, g === REG ? { logRef: "" } : {})), re: /logRef/ },
+    "gates disagree": { gates: [{ id: BDD.id, exitCode: 0, result: "fail" }], re: /disagrees/ },
+    "gates missing": { gates: [], re: /no entry for BDD gate/ },
+  };
+  for (const [name, { re, ...over }] of Object.entries(cases)) {
+    const sim = atWrite();
+    const a = sim.answer(writerReport(sim, over));
+    assert.equal(a.route, "rewait", name);
+    assert.match(reasonsOf(a), re, name);
+  }
+});
+
+test("non-zero or null required exit -> repair (not rewait); cap -> exhausted", () => {
+  for (const code of [1, null]) {
+    const sim = atWrite();
+    const a = sim.answer(
+      writerReport(sim, { commands: [BDD, LINT, REG].map((g) => cmd(g, g === REG ? { exitCode: code } : {})), gates: [{ id: BDD.id, exitCode: 0, result: "pass" }] }),
+    );
+    assert.equal(a.route, "dispatch", String(code));
+    assert.equal(a.next.mode, "repair");
+    assert.equal(a.next.cycle, 2);
+    assert.equal(a.ledger.repairs, 1);
+    assert.deepEqual(a.next.repairContext.failingCommands.map((f) => f.id), ["regression"]);
+  }
+  const sim = atWrite(rawInput({ limits: { maxRepairs: 1 } }));
+  const failing = (s) => writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: 1 })), gates: [{ id: BDD.id, exitCode: 1, result: "fail" }] });
+  assert.equal(sim.answer(failing(sim)).route, "dispatch");
+  sim.dispatch(WRITER);
+  const end = sim.answer(failing(sim));
+  assert.equal(end.route, "finalize");
+  assert.equal(end.next.status, "exhausted");
+  const out = sim.finalize();
+  assert.equal(out.status, "exhausted");
+  assert.equal(out.goalCompletion, false);
+  assert.equal(out.counters.repairs, 1);
+});
+
+// ------------------------------------------------------------------ correlation / duplicates / caps
+test("stale, wrong-run, wrong-attempt, duplicate and wrong-SHA reports -> rewait; invalid cap -> blocked", () => {
+  const sim = atWrite();
+  const stale = [
+    writerReport(sim, { correlation: { ...sim.corr, cycle: 9 } }),
+    writerReport(sim, { correlation: { ...sim.corr, runId: "old-run" } }),
+    writerReport(sim, { correlation: { ...sim.corr, phase: "review" } }),
+    writerReport(sim, { correlation: undefined }),
+  ];
+  const a1 = sim.answer(stale[0]);
+  assert.equal(a1.route, "rewait");
+  assert.match(reasonsOf(a1), /stale\/wrong-run\/wrong-attempt/);
+  assert.deepEqual(a1.next, { action: "rewait", phase: "write", cycle: 1, mode: "write" });
+  assert.equal(a1.ledger.invalidReports, 1);
+  const a2 = sim.answer(stale[1]);
+  assert.equal(a2.route, "rewait");
+  const a3 = sim.answer(stale[2]); // third invalid with default cap 2 -> blocked
+  assert.equal(a3.route, "finalize");
+  assert.equal(a3.next.status, "blocked");
+  assert.match(a3.next.blocker, /invalid-report cap/);
+  assert.equal(sim.finalize().status, "blocked");
+
+  // after a rewait the same expected correlation is still accepted
+  const ok = new Sim(rawInput());
+  ok.dispatch(WRITER);
+  assert.equal(ok.answer(writerReport(ok, { correlation: { ...ok.corr, runId: "x" } })).route, "rewait");
+  assert.equal(ok.answer(writerReport(ok)).route, "dispatch");
+});
+
+test("duplicate resultRef and wrong-SHA review are rejected", () => {
+  const sim = atWrite();
+  const first = writerReport(sim);
+  sim.answer(first);
+  sim.dispatch(REVIEWER);
+  const dup = sim.answer(reviewReport(sim, { resultRef: first.resultRef }));
+  assert.equal(dup.route, "rewait");
+  assert.match(reasonsOf(dup), /duplicate resultRef/);
+  const wrong = sim.answer(reviewReport(sim, { testedSha: W2 }));
+  assert.equal(wrong.route, "rewait");
+  assert.match(reasonsOf(wrong), /pin the writer's final testedSha/);
+  const good = sim.answer(reviewReport(sim));
+  assert.equal(good.next.status, "verified_candidate");
+});
+
+test("assess never throws on garbage answers", () => {
+  for (const junk of [undefined, null, 5, "{{", "[]", [], {}, { schema: "earnest.milestone-report.v1" }, '{"schema":"earnest.milestone-report.v1","correlation":null}']) {
+    const sim = atWrite();
+    const a = sim.answer(junk);
+    assert.equal(a.route, "rewait", String(junk));
+  }
+  // a JSON string answer is parsed
+  const sim = atWrite();
+  assert.equal(sim.answer(JSON.stringify(writerReport(sim))).route, "dispatch");
+  // internal failure fails closed instead of throwing
+  const broken = def.nodes.assess.run({ input: undefined, outputs: {}, results: {}, state: { runId: "r" }, signal: new AbortController().signal });
+  assert.equal(broken.route, "finalize");
+  assert.equal(broken.next.status, "blocked");
+});
+
+// ------------------------------------------------------------------ findings / review
+test("blocking finding -> repair; dispositions are mandatory for non-blocking findings", () => {
+  const blocking = { id: "b1", severity: "blocking", category: "logic", location: "x.py:9", disposition: "open", rationale: "off by one" };
+  const sim = atReview();
+  const a = sim.answer(reviewReport(sim, { findings: [blocking] }));
+  assert.equal(a.route, "dispatch");
+  assert.equal(a.next.mode, "repair");
+  assert.deepEqual(a.next.repairContext.reviewFindings.map((f) => f.id), ["b1"]);
+  // repair, then a fixed blocking finding no longer blocks
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  assert.equal(sim.next.cycle, 2);
+  assert.equal(sim.next.mode, "review");
+  sim.dispatch(REVIEWER);
+  const done = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...blocking, disposition: "fixed" }] }));
+  assert.equal(done.next.status, "verified_candidate");
+  assert.equal(sim.finalize().finalSha, W2);
+
+  const nb = { id: "n1", severity: "non-blocking", category: "style", location: "x.py:1", rationale: "meh" };
+  for (const [name, f] of Object.entries({ "no disposition": nb, "open non-blocking": { ...nb, disposition: "open" }, "unknown disposition": { ...nb, disposition: "later" }, "no rationale": { ...nb, disposition: "deferred", rationale: "" } })) {
+    const s = atReview();
+    const r = s.answer(reviewReport(s, { findings: [f] }));
+    assert.equal(r.route, "rewait", name);
+    assert.match(reasonsOf(r), /findings\[0\]/, name);
+  }
+  const s = atReview();
+  assert.equal(s.answer(reviewReport(s, { findings: [{ ...nb, disposition: "accepted" }] })).next.status, "verified_candidate");
+});
+
+test("repair cap counts review-driven repairs too; review rounds stay <= repairs + 1", () => {
+  const sim = atReview(rawInput({ limits: { maxRepairs: 1 } }));
+  const blocking = (id) => [{ id, severity: "blocking", category: "c", location: "l", disposition: "open", rationale: "r" }];
+  assert.equal(sim.answer(reviewReport(sim, { findings: blocking("b1") })).next.mode, "repair");
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  sim.dispatch(REVIEWER);
+  const end = sim.answer(reviewReport(sim, { testedSha: W2, findings: [...blocking("b1"), ...blocking("b2")] }));
+  assert.equal(end.next.status, "exhausted");
+  const c = sim.finalize().counters;
+  assert.equal(c.repairs, 1);
+  assert.ok(c.reviewCycle <= c.repairs + 1);
+});
+
+// ------------------------------------------------------------------ MUST1: review context + findings reconciliation
+const B1 = { id: "b1", severity: "blocking", category: "logic", location: "x.py:9", disposition: "open", rationale: "off by one" };
+/** Review 1 finds blocker b1; the writer repairs on W2; the sim is now dispatched to the SAME reviewer for review 2. */
+function atSecondReview() {
+  const sim = atReview();
+  assert.equal(sim.answer(reviewReport(sim, { findings: [B1] })).next.mode, "repair");
+  sim.dispatch(WRITER);
+  // the writer claims b1 fixed; that claim must not clear it
+  assert.equal(sim.answer(writerReport(sim, { testedSha: W2, findings: [{ ...B1, disposition: "fixed", rationale: "writer says fixed" }] })).next.mode, "review");
+  sim.dispatch(REVIEWER);
+  return sim;
+}
+
+test("review context: prompt carries evidence, logRefs, changedPaths, findings, repair context and the verification commands", () => {
+  const sim = atSecondReview();
+  const prompt = def.nodes.dispatch.prompt(sim.ctx());
+  for (const needle of [
+    "fixture:log/red", "fixture:log/lint", "packages/earnest/src/x.py", '"b1"', "off by one", "reviewFindings",
+    `git diff --name-only ${BASE}..${W2}`, `git diff ${BASE}..${W2}`, "git merge-base --is-ancestor",
+    "MUST explicitly disposition EVERY prior blocking finding", "audit trail",
+  ]) assert.ok(prompt.includes(needle), `review prompt missing ${needle}`);
+  const c = def.nodes.awaitReport.run(sim.ctx());
+  assert.deepEqual(c.priorBlockingFindingIds, ["b1"]);
+  assert.equal(c.reviewContext.testedSha, W2);
+  assert.deepEqual(c.reviewContext.writerChangedPaths, ["packages/earnest/src/x.py"]);
+  assert.ok(c.reviewContext.writerEvidence.red.length > 0 && c.reviewContext.repairContexts.length === 1);
+  // write-phase checkpoint carries no review context
+  assert.equal(def.nodes.awaitReport.run(atWrite().ctx()).reviewContext, null);
+});
+
+test("findings: a writer 'fixed' claim never clears a blocker; the trail keeps both reports", () => {
+  const sim = atSecondReview();
+  const l = sim.outputs.assess.ledger;
+  assert.equal(l.findings.find((f) => f.id === "b1").disposition, "open");
+  assert.deepEqual(l.findingTrail.map((f) => [f.id, f.by, f.disposition]), [["b1", "reviewer", "open"], ["b1", "writer", "fixed"]]);
+});
+
+test("findings: an empty second review is rejected while a prior blocker exists", () => {
+  const sim = atSecondReview();
+  const a = sim.answer(reviewReport(sim, { testedSha: W2, findings: [] }));
+  assert.equal(a.route, "rewait");
+  assert.match(reasonsOf(a), /prior blocking finding b1 is not dispositioned/);
+  assert.equal(a.ledger.findings.find((f) => f.id === "b1").disposition, "open");
+});
+
+test("findings: an unknown or wrong id does not stand in for the prior id", () => {
+  const sim = atSecondReview();
+  const a = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...B1, id: "b9", disposition: "fixed" }] }));
+  assert.equal(a.route, "rewait");
+  assert.match(reasonsOf(a), /prior blocking finding b1 is not dispositioned/);
+  const ok = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...B1, id: "b9", disposition: "fixed" }, { ...B1, disposition: "fixed" }] }));
+  assert.equal(ok.next.status, "verified_candidate");
+});
+
+test("findings: a downgraded, accepted, deferred, wrong-reviewSha or reviewSha-less prior blocker is rejected for exactly one reason", () => {
+  for (const [name, f, re] of [
+    ["downgraded", { ...B1, severity: "non-blocking", disposition: "fixed" }, /cannot be downgraded/],
+    ["accepted", { ...B1, disposition: "accepted" }, /open or fixed/],
+    ["deferred", { ...B1, disposition: "deferred" }, /open or fixed/],
+    ["wrong reviewSha", { ...B1, disposition: "fixed", reviewSha: W1 }, /reviewSha must equal/],
+    ["no reviewSha", { ...B1, disposition: "fixed", reviewSha: undefined }, /reviewSha must equal/],
+  ]) {
+    const sim = atSecondReview();
+    // reviewReport defaults reviewSha to the reviewed sha; only the reviewSha cases override it
+    const a = sim.answer(reviewReport(sim, { testedSha: W2, findings: [f] }));
+    assert.equal(a.route, "rewait", name);
+    assert.equal(a.reasons.length, 1, `${name}: ${reasonsOf(a)}`);
+    assert.match(reasonsOf(a), re, name);
+  }
+});
+
+test("findings: explicitly resolved blocker clears via a fresh review; still-open one repairs again; trail is append-only", () => {
+  const sim = atSecondReview();
+  const done = sim.answer(reviewReport(sim, { testedSha: W2, findings: [{ ...B1, disposition: "fixed", rationale: "verified fixed at W2 in diff" }] }));
+  assert.equal(done.next.status, "verified_candidate");
+  const out = sim.finalize();
+  assert.equal(out.findings.find((f) => f.id === "b1").disposition, "fixed");
+  assert.equal(out.findings.find((f) => f.id === "b1").reviewSha, W2);
+  assert.deepEqual(out.findingTrail.map((f) => f.disposition), ["open", "fixed", "fixed"]);
+  assert.deepEqual(out.findingTrail.map((f) => f.by), ["reviewer", "writer", "reviewer"]);
+  assert.equal(out.repairContexts.length, 1);
+
+  const still = atSecondReview();
+  const r = still.answer(reviewReport(still, { testedSha: W2, findings: [{ ...B1, disposition: "open", rationale: "still wrong" }] }));
+  assert.equal(r.next.mode, "repair");
+  assert.deepEqual(r.next.repairContext.reviewFindings.map((f) => f.id), ["b1"]);
+});
+
+// ------------------------------------------------------------------ SHOULD1: reviewer edits never blame the writer
+test("review: claimed edits are rejected before scope handling and leave the writer ledger untouched", () => {
+  for (const changedPaths of [["Makefile"], ["packages/earnest/src/y.py"], ["Makefile", "packages/earnest/src/x.py"]]) {
+    const sim = atReview();
+    const before = JSON.stringify(sim.outputs.assess.ledger);
+    const a = sim.answer(reviewReport(sim, { changedPaths }));
+    assert.equal(a.route, "rewait", JSON.stringify(changedPaths));
+    assert.notEqual(a.next.status, "needs_approval");
+    assert.equal(a.next.outsidePaths, undefined);
+    assert.match(reasonsOf(a), /reviewer is read-only/);
+    assert.deepEqual(a.ledger.changedPaths, ["packages/earnest/src/x.py"], "writer path ledger untouched");
+    assert.deepEqual(a.ledger.writer, WRITER);
+    assert.equal(JSON.stringify({ ...a.ledger, invalidReports: 0, rejections: [], history: [] }), JSON.stringify({ ...JSON.parse(before), invalidReports: 0, rejections: [], history: [] }));
+  }
+  // even with a materialChange attached, a reviewer edit claim is not accepted as a material change
+  const sim = atReview();
+  assert.equal(sim.answer(reviewReport(sim, { changedPaths: ["Makefile"], materialChange: { kind: "scope", description: "also edited Makefile" } })).route, "rewait");
+  // a missing changedPaths is rejected too
+  const m = atReview();
+  assert.equal(m.answer(reviewReport(m, { changedPaths: undefined })).route, "rewait");
+});
+
+// ------------------------------------------------------------------ SHOULD3: pause / resume / adoption
+test("pause/resume: halt and prompts name stop_lead (session) and resume_project (branch); no duplicate delegation", () => {
+  const sim = atWrite();
+  const c = def.nodes.awaitReport.run(sim.ctx());
+  assert.deepEqual(c.halt.staffStopTarget, WRITER);
+  assert.deepEqual(c.halt.staffResumeTarget, { branch: WRITER.branch });
+  const text = c.safeguards.join("\n");
+  for (const needle of ["stop_lead on the EXACT assignee.session", "resume_project the EXACT owned assignee.branch", "Never delegate_project a new Lead for a correlation that already has an assignment", "CANCEL: no automatic resume", "list_staff/inspect_staff", "preserves the worktree and reports"]) {
+    assert.ok(text.includes(needle), `safeguards missing ${needle}`);
+  }
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Call list_staff FIRST"));
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("Never create a second Lead for that branch"));
+  const fin = atReview();
+  fin.answer(reviewReport(fin));
+  const out = fin.finalize();
+  assert.deepEqual(out.halt.staffResumeTarget, { branch: REVIEWER.branch });
+  assert.ok(out.managerActions.some((m) => m.includes("Never auto-resume after cancel")));
+});
+
+test("adoption: a repair or second review that delegates a duplicate Lead (adopted:false) is rejected; adopt is accepted", () => {
+  const rep = new Sim(rawInput());
+  rep.dispatch(WRITER);
+  rep.answer(writerReport(rep, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.equal(rep.next.mode, "repair");
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt(WRITER, { adopted: false }), rep.ctx()), /must adopt the existing bound assignment/);
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt(WRITER, { adopted: undefined }), rep.ctx()), /must adopt/);
+  assert.equal(rep.dispatch(WRITER, { adopted: true }).adopted, true);
+  // first-time dispatches may be fresh delegations
+  assert.equal(new Sim(rawInput()).dispatch(WRITER, { adopted: false }).adopted, false);
+  const rv = atSecondReview();
+  assert.equal(rv.outputs.dispatch.adopted, true);
+  const sim = atReview();
+  sim.answer(reviewReport(sim, { findings: [B1] }));
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  assert.throws(() => def.nodes.dispatch.validate(sim.receipt(REVIEWER, { adopted: false }), sim.ctx()), /must adopt the existing bound assignment/);
+});
+
+// ------------------------------------------------------------------ COULD
+test("could: synthetic prefix is case-insensitive; CI evidence is retained separately and never a local pass", () => {
+  const real = atWrite();
+  assert.match(reasonsOf(real.answer(writerReport(real, { resultRef: "SYNTHETIC:r1" }))), /synthetic resultRef/);
+  assert.match(reasonsOf(real.answer(writerReport(real, { resultRef: " Synthetic:r2" }))), /synthetic resultRef/);
+  const approved = rawInput().approvedPlan;
+  assert.throws(() => def.input(rawInput({ approvedPlan: { ...approved, ref: "Synthetic:plan" } })), /synthetic approval references/);
+
+  const sim = atWrite();
+  const ciRun = cmd(REG, { where: "ci", logRef: "fixture:ci/regression" });
+  assert.equal(sim.answer(writerReport(sim, { commands: [BDD, LINT, REG].map((g) => cmd(g)).concat([ciRun]) })).route, "dispatch");
+  assert.deepEqual(sim.outputs.assess.ledger.evidence.ci.map((c) => c.logRef), ["fixture:ci/regression"]);
+  assert.ok(sim.outputs.assess.ledger.evidence.commands.every((c) => c.where === "local"));
+  sim.dispatch(REVIEWER);
+  sim.answer(reviewReport(sim));
+  assert.deepEqual(sim.finalize().evidence.ci.map((c) => c.where), ["ci"]);
+  // CI-only still cannot satisfy the gate
+  const ciOnly = atWrite();
+  assert.match(reasonsOf(ciOnly.answer(writerReport(ciOnly, { commands: [cmd(BDD), cmd(LINT), ciRun] }))), /CI-only/);
+});
+
+// ------------------------------------------------------------------ approval / scope / blocked
+test("out-of-scope paths and materialChange end needs_approval", () => {
+  const sim = atWrite();
+  const a = sim.answer(writerReport(sim, { changedPaths: ["packages/earnest/src/x.py", "Makefile"] }));
+  assert.equal(a.route, "finalize");
+  assert.equal(a.next.status, "needs_approval");
+  assert.deepEqual(a.next.outsidePaths, ["Makefile"]);
+  const out = sim.finalize();
+  assert.equal(out.status, "needs_approval");
+  assert.ok(out.managerActions.some((m) => m.includes("plan-approval") && m.includes("required")));
+  assert.equal(out.goalCompletion, false);
+
+  for (const kind of ["plan", "scope", "bdd"]) {
+    const s = atWrite();
+    const r = s.answer(writerReport(s, { materialChange: { kind, description: "needs a different approach" } }));
+    assert.equal(r.next.status, "needs_approval", kind);
+    assert.equal(s.finalize().materialChange.kind, kind);
+  }
+  const s = atWrite();
+  assert.equal(s.answer(writerReport(s, { materialChange: { kind: "other", description: "x" } })).route, "rewait");
+  const rv = atReview();
+  assert.equal(rv.answer(reviewReport(rv, { changedPaths: ["packages/earnest/src/x.py"] })).route, "rewait"); // reviewer is read-only
+  const rv2 = atReview();
+  assert.equal(rv2.answer(reviewReport(rv2, { materialChange: { kind: "plan", description: "plan is wrong" } })).next.status, "needs_approval");
+});
+
+test("blocked reports (Lead or Manager-authored) finalize blocked; Manager cannot claim done", () => {
+  const sim = atWrite();
+  const a = sim.answer(baseReport(sim, "writer", { status: "blocked", blocker: "tool crashed" }));
+  assert.equal(a.next.status, "blocked");
+  assert.equal(a.next.blocker, "tool crashed");
+  const m = atWrite();
+  const blocked = m.answer({ ...baseReport(m, "manager", { status: "blocked", blocker: "Lead died; evidence herdsman:inspect/123" }), reporter: { branch: "manager", role: "manager" } });
+  assert.equal(blocked.next.status, "blocked");
+  const m2 = atWrite();
+  assert.equal(m2.answer({ ...writerReport(m2), reporter: { branch: "manager", role: "manager" } }).route, "rewait");
+  const m3 = atWrite();
+  assert.equal(m3.answer(baseReport(m3, "writer", { status: "blocked" })).route, "rewait"); // blocker text required
+});
+
+test("reporter identity: wrong role, wrong branch and self-review are rejected; attestation is required", () => {
+  const w = atWrite();
+  assert.equal(w.answer(baseReport(w, "reviewer", { ...writerReport(w), reporter: { branch: REVIEWER.branch, role: "reviewer" } })).route, "rewait");
+  const w2 = atWrite();
+  assert.equal(w2.answer(writerReport(w2, { reporter: { branch: "someone/else", role: "writer" } })).route, "rewait");
+  const self = atReview();
+  const a = self.answer(reviewReport(self, { reporter: { branch: WRITER.branch, role: "reviewer" } }));
+  assert.equal(a.route, "rewait");
+  assert.match(reasonsOf(a), /dispatched assignee branch|not independent/);
+  const noAtt = atWrite();
+  const r = noAtt.answer(writerReport(noAtt, { managerAttestation: undefined }));
+  assert.equal(r.route, "rewait");
+  assert.match(reasonsOf(r), /managerAttestation/);
+  const unchecked = atWrite();
+  assert.equal(unchecked.answer(writerReport(unchecked, { managerAttestation: { validatedBy: "m", resultRefsChecked: false } })).route, "rewait");
+});
+
+// ------------------------------------------------------------------ rehearsal
+test("rehearsal: synthetic marking required; never verified_candidate", () => {
+  const sim = new Sim(rehearsalInput());
+  sim.dispatch(WRITER);
+  assert.ok(def.nodes.dispatch.prompt(sim.ctx()).includes("do NOT delegate"));
+  const unmarked = writerReport(sim);
+  delete unmarked.synthetic;
+  assert.match(reasonsOf(sim.answer(unmarked)), /synthetic:true/);
+  assert.equal(sim.answer(writerReport(sim)).route, "dispatch");
+  sim.dispatch(REVIEWER);
+  const r = sim.answer(reviewReport(sim));
+  assert.equal(r.next.status, "rehearsal");
+  const out = sim.finalize();
+  assert.equal(out.status, "rehearsal");
+  assert.notEqual(out.status, "verified_candidate");
+  assert.equal(out.rehearsal, true);
+  assert.equal(out.goalCompletion, false);
+  assert.ok(out.limitations.some((l) => l.includes("synthetic")));
+  assert.ok(out.managerActions.some((m) => m.includes("Synthetic rehearsal")));
+
+  // a real run refuses synthetic-marked reports and synthetic refs
+  const real = atWrite();
+  assert.match(reasonsOf(real.answer(writerReport(real, { synthetic: true }))), /only allowed in rehearsal/);
+  assert.match(reasonsOf(real.answer(writerReport(real, { resultRef: "synthetic:r1" }))), /synthetic resultRef/);
+});
+
+// ------------------------------------------------------------------ finalize / dispatch uncertainty
+test("finalize: failed or timed-out dispatch -> blocked with dispatchUncertain and the exact assignee context", () => {
+  for (const outcome of ["failed", "timed_out"]) {
+    const sim = new Sim(rawInput());
+    sim.results.dispatch = { outcome, error: "boom" };
+    const first = sim.finalize();
+    assert.equal(first.status, "blocked", outcome);
+    assert.equal(first.dispatchUncertain, true);
+    assert.match(first.blocker, /list_staff\/inspect_staff before ANY retry/);
+    assert.equal(first.halt.staffStopTarget, null);
+    assert.equal(first.halt.staffResumeTarget, null);
+    assert.deepEqual(first.halt.uncertainTarget, { phase: "write", cycle: 1, correlation: { runId: "run-1", milestoneId: "m-test", phase: "write", cycle: 1 } });
+    // after an earlier accepted writer cycle the known identity stays visible, but is never guessed as the stop target
+    const later = atWrite();
+    later.answer(writerReport(later));
+    later.results.dispatch = { outcome };
+    delete later.outputs.dispatch;
+    const out = later.finalize();
+    assert.equal(out.dispatchUncertain, true);
+    assert.deepEqual(out.assignees.writer, WRITER);
+    assert.equal(out.halt.staffStopTarget, null, "no blind stop of the writer");
+    assert.equal(out.halt.staffResumeTarget, null);
+    assert.deepEqual(out.halt.uncertainTarget.correlation, { runId: "run-1", milestoneId: "m-test", phase: "review", cycle: 1 });
+    assert.ok(!JSON.stringify(out.halt).includes(WRITER.session) && !JSON.stringify(out.halt).includes(WRITER.branch), "halt must not name the writer");
+    const act = out.managerActions[0];
+    for (const needle of ["UNCERTAIN DISPATCH", "do NOT blind-stop", "list_staff then inspect_staff", "uncertainTarget.correlation", "stop only"].map((n) => n.replace("stop only", "stop_lead only that exact session"))) {
+      assert.ok(act.includes(needle), `managerActions[0] missing ${needle}`);
+    }
+    assert.ok(!act.includes(WRITER.session));
+  }
+  // a normal (certain) result keeps the exact receipt target and has no uncertainTarget
+  const ok = atReview();
+  ok.answer(reviewReport(ok));
+  const done = ok.finalize();
+  assert.deepEqual(done.halt.staffStopTarget, REVIEWER);
+  assert.equal(done.halt.uncertainTarget, undefined);
+});
+
+// ------------------------------------------------------------------ S-N1 / C-3: bound-Lead reuse vs first delegation
+test("prompt: the FIRST review and FIRST write may delegate_project a new Lead", () => {
+  const first = new Sim(rawInput());
+  const w = def.nodes.dispatch.prompt(first.ctx());
+  assert.ok(w.includes(`Otherwise delegate_project with branch ${WRITER.branch}`));
+  assert.ok(!w.includes("ALREADY-BOUND"));
+  const rv = atReview(); // writer bound, reviewer not yet dispatched: rebuild the first-review prompt
+  const firstReview = new Sim(rawInput());
+  firstReview.dispatch(WRITER);
+  firstReview.answer(writerReport(firstReview));
+  const p = def.nodes.dispatch.prompt(firstReview.ctx());
+  assert.ok(p.includes("first review: delegate_project a NEW independent Lead"));
+  assert.ok(p.includes("Otherwise delegate_project ONE new independent read-only review Lead"));
+  assert.ok(p.includes(JSON.stringify(WRITER)), "names the writer it must differ from");
+  assert.ok(!p.includes("ALREADY-BOUND") && !p.includes("NEVER delegate_project for an already-bound"));
+  assert.ok(rv);
+});
+
+test("prompt: second review and repair name the bound identity, forbid delegate_project, require adopted:true", () => {
+  const second = atSecondReview();
+  const rv = def.nodes.dispatch.prompt(second.ctx());
+  for (const needle of [JSON.stringify(REVIEWER), REVIEWER.branch, REVIEWER.session, "ALREADY-BOUND REVIEW Lead", "message_staff", `resume_project its EXACT branch ${REVIEWER.branch} ONLY if it was stopped`, "adopted:true", "NEVER delegate_project for an already-bound reviewer"]) {
+    assert.ok(rv.includes(needle), `second-review prompt missing ${needle}`);
+  }
+  assert.ok(!rv.includes("a SEPARATE read-only REVIEW Lead (first review"));
+  const repair = new Sim(rawInput());
+  repair.dispatch(WRITER);
+  repair.answer(writerReport(repair, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.equal(repair.next.mode, "repair");
+  const rp = def.nodes.dispatch.prompt(repair.ctx());
+  for (const needle of [JSON.stringify(WRITER), "ALREADY-BOUND WRITER Lead", "message_staff", `resume_project its EXACT branch ${WRITER.branch} ONLY if it was stopped`, "adopted:true", "NEVER delegate_project for an already-bound writer"]) {
+    assert.ok(rp.includes(needle), `repair prompt missing ${needle}`);
+  }
+  // the bound step reuses the exact session and never delegates
+  assert.ok(rp.includes(`message_staff on session ${WRITER.session}`));
+  assert.ok(rp.includes(`call resume_project with branch ${WRITER.branch} ONLY if that Lead was stopped`));
+  assert.ok(rp.includes("NEVER delegate_project here"));
+  assert.ok(!rp.includes("Otherwise delegate_project"));
+});
+
+test("guidance: resume_project is branch-only everywhere; task text goes via message_staff", () => {
+  const sim = atSecondReview();
+  const texts = [def.nodes.dispatch.prompt(sim.ctx()), def.nodes.awaitReport.run(sim.ctx()).safeguards.join("\n"), def.nodes.awaitReport.run(sim.ctx()).halt.instructions, sim.finalize().managerActions.join("\n")];
+  for (const t of texts) {
+    assert.ok(!/resume_project[^.;]*(with the task|session)/i.test(t.replace(/resume_project takes a branch only, no task, no session/g, "").replace(/resume_project takes a branch; stop_lead takes the session/g, "")), "resume_project must not be described as taking a task or session");
+    assert.ok(!t.includes("delegate_project (or resume_project"));
+  }
+  assert.ok(texts[0].includes("resume_project takes a branch only, no task, no session"));
+  assert.ok(texts[3].includes("branch only; task text goes via message_staff"));
+  assert.ok(texts[1].includes("resume_project takes a branch"));
+});
+
+test("resume ownership: awaitReport content names the exact assignee and never re-dispatches by itself", () => {
+  const sim = atWrite();
+  const c = def.nodes.awaitReport.run(sim.ctx());
+  assert.deepEqual(c.assignee, WRITER);
+  assert.deepEqual(c.expectedReporter, { role: "writer", identity: WRITER });
+  assert.ok(c.safeguards.some((s) => s.includes("stop_lead") && s.includes("RESUME: never re-dispatches")));
+  const rejected = sim.answer(writerReport(sim, { trackedClean: false }));
+  const again = def.nodes.awaitReport.run({ ...sim.ctx(), outputs: { ...sim.outputs, assess: rejected } });
+  assert.equal(again.rejectionsRemaining, 1);
+  assert.ok(again.lastRejection.length > 0);
+});
+
+// ------------------------------------------------------------------ H-R2: every node output is strict JSON
+/** The engine rejects outputs that do not survive a JSON round-trip (e.g. undefined properties). */
+const strictJson = (o, label) => assert.deepStrictEqual(JSON.parse(JSON.stringify(o)), o, `${label}: output is not strict JSON`);
+/** Check every node output a Sim can produce at its current state. */
+function roundTripAll(sim, label) {
+  // the engine only runs awaitReport when assess routed to dispatch/rewait
+  if (sim.outputs.assess?.route !== "finalize") strictJson(def.nodes.awaitReport.run(sim.ctx()), `${label} awaitReport`);
+  if (sim.outputs.assess) strictJson(sim.outputs.assess, `${label} assess`);
+  strictJson(sim.finalize(), `${label} finalize`);
+}
+const BLOCKING = (id = "b1") => ({ id, severity: "blocking", category: "c", location: "l", disposition: "open", rationale: "r" });
+
+const ROUTES = {
+  "rewait": () => { const s = atWrite(); s.answer(writerReport(s, { trackedClean: false })); return s; },
+  "dispatch review": () => { const s = atWrite(); s.answer(writerReport(s)); return s; },
+  "dispatch repair (failing command)": () => { const s = atWrite(); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 1 : 0 })) })); return s; },
+  "dispatch repair (review finding)": () => { const s = atReview(); s.answer(reviewReport(s, { findings: [BLOCKING()] })); return s; },
+  "finalize verified_candidate": () => { const s = atReview(); s.answer(reviewReport(s)); return s; },
+  "finalize rehearsal": () => { const s = atReview(rehearsalInput()); s.answer(reviewReport(s)); return s; },
+  "finalize blocked (blocked report)": () => { const s = atWrite(); s.answer(baseReport(s, "writer", { status: "blocked", blocker: "tool crashed" })); return s; },
+  "finalize blocked (manager report)": () => { const s = atWrite(); s.answer({ ...baseReport(s, "manager", { status: "blocked", blocker: "Lead died" }), reporter: { branch: "manager", role: "manager" } }); return s; },
+  "finalize blocked (invalid cap)": () => { const s = atWrite(); for (let i = 0; i < 3; i++) s.answer("junk"); return s; },
+  "finalize blocked (assess internal error)": () => { const s = atWrite(); s.outputs.assess = def.nodes.assess.run({ ...s.ctx(), input: undefined }); return s; },
+  "finalize exhausted": () => { const s = atWrite(rawInput({ limits: { maxRepairs: 0 } })); s.answer(writerReport(s, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: 1 })), gates: [{ id: BDD.id, exitCode: 1, result: "fail" }] })); return s; },
+  "finalize needs_approval (outside paths)": () => { const s = atWrite(); s.answer(writerReport(s, { changedPaths: ["Makefile"] })); return s; },
+  "finalize needs_approval (writer material)": () => { const s = atWrite(); s.answer(writerReport(s, { materialChange: { kind: "scope", description: "wider scope needed" } })); return s; },
+  "finalize needs_approval (reviewer material)": () => { const s = atReview(); s.answer(reviewReport(s, { materialChange: { kind: "plan", description: "plan is wrong" } })); return s; },
+};
+
+test("strict JSON: assess and finalize outputs round-trip on every route", () => {
+  const routes = ROUTES;
+  for (const [name, build] of Object.entries(routes)) roundTripAll(build(), name);
+  // sanity: the routes really covered what they claim
+  const statuses = ["verified_candidate", "rehearsal", "blocked", "exhausted", "needs_approval"].map((st) => Object.entries(routes).filter(([n, b]) => n.includes(st) || (st === "blocked" && n.includes("blocked")) ).length);
+  assert.ok(statuses.every((n) => n >= 1));
+  assert.equal(routes["finalize needs_approval (outside paths)"]().outputs.assess.next.status, "needs_approval");
+  assert.equal(routes["finalize needs_approval (writer material)"]().outputs.assess.next.status, "needs_approval");
+  assert.equal(routes["finalize exhausted"]().outputs.assess.next.status, "exhausted");
+});
+
+test("strict JSON: finalize on uncertain dispatch, dispatch receipts, awaitReport content and every stage round-trip", () => {
+  for (const outcome of ["failed", "timed_out"]) {
+    const s = new Sim(rawInput());
+    s.results.dispatch = { outcome, error: "boom" };
+    strictJson(s.finalize(), `uncertain ${outcome}`);
+    const l = atWrite();
+    l.answer(writerReport(l));
+    l.results.dispatch = { outcome };
+    delete l.outputs.dispatch;
+    strictJson(l.finalize(), `uncertain-late ${outcome}`);
+  }
+  // receipts for first write, repair, first review, second review
+  const sim = new Sim(rawInput());
+  strictJson(sim.dispatch(WRITER), "receipt write");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await write");
+  sim.answer(writerReport(sim, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  strictJson(sim.outputs.assess, "assess->repair");
+  strictJson(sim.dispatch(WRITER, { adopted: true }), "receipt repair");
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  strictJson(sim.dispatch(REVIEWER), "receipt first review");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await review");
+  sim.answer(reviewReport(sim, { testedSha: W2, findings: [BLOCKING()] }));
+  strictJson(sim.outputs.assess, "assess->repair(review)");
+  strictJson(sim.dispatch(WRITER, { adopted: true }), "receipt repair 2");
+  sim.answer(writerReport(sim, { testedSha: sha("e"), commands: [BDD, LINT, REG].map((g) => cmd(g, { testedSha: sha("e") })) }));
+  strictJson(sim.dispatch(REVIEWER, { adopted: true }), "receipt second review");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await second review");
+  strictJson(def.nodes.dispatch.prompt(sim.ctx()), "prompt");
+  const rw = sim.answer(reviewReport(sim, { testedSha: sha("e"), findings: [] }));
+  assert.equal(rw.route, "rewait");
+  strictJson(rw, "assess rewait (missing prior id)");
+  strictJson(def.nodes.awaitReport.run(sim.ctx()), "await after rewait");
+  strictJson(sim.answer(reviewReport(sim, { testedSha: sha("e"), findings: [{ ...BLOCKING(), disposition: "fixed" }] })), "assess pass");
+  strictJson(sim.finalize(), "finalize pass");
+});
+
+// ------------------------------------------------------------------ engine (scripted executor, temp database)
+const parseDispatch = (prompt) => ({
+  corr: JSON.parse(/Correlation for this dispatch \(every report must echo it exactly\): (\{.*\})/.exec(prompt)[1]),
+  mode: /, mode "(\w+)"/.exec(prompt)[1],
+});
+const identityFor = (mode) => (mode === "review" ? REVIEWER : WRITER);
+const receiptFor = (prompt, adopted = false) => {
+  const { corr, mode } = parseDispatch(prompt);
+  return { schema: "earnest.milestone-dispatch.v1", correlation: corr, mode, assignee: identityFor(mode), adopted };
+};
+const engineFor = (executor) => new lib.WorkflowEngine({ executor, databasePath: newDb() });
+const goodExecutor = (seen = []) => ({
+  enforcesToolAllowlist: true,
+  async runAgentStep(request) {
+    // a repair, or a second review, reuses the bound Lead: it is adopted, never re-delegated
+    const mode = parseDispatch(request.prompt).mode;
+    const adopted = mode === "repair" || (mode === "review" && seen.some((r) => parseDispatch(r.prompt).mode === "review"));
+    seen.push(request);
+    const accepted = await request.accept(receiptFor(request.prompt, adopted));
+    if (!accepted.ok) throw new Error(accepted.error);
+    return { output: accepted.value };
+  },
+});
+
+test("engine: accepted dispatch parks the run waiting on the no-timeout checkpoint", async () => {
+  const seen = [];
+  const { state } = await engineFor(goodExecutor(seen)).run(def, rawInput());
+  assert.equal(state.status, "waiting");
+  assert.equal(state.waitingOn, "awaitReport");
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].contract.allowedTools, DISPATCH_TOOLS);
+  assert.equal(state.outputs.dispatch.assignee.branch, WRITER.branch);
+  assert.equal(state.outputs.dispatch.correlation.runId, state.runId);
+});
+
+test("engine: a bad receipt is rejected, then a good one is accepted", async () => {
+  const errors = [];
+  const executor = {
+    enforcesToolAllowlist: true,
+    async runAgentStep(request) {
+      const good = receiptFor(request.prompt);
+      const bad = await request.accept({ ...good, correlation: { ...good.correlation, runId: "someone-elses-run" } });
+      errors.push(bad.ok ? "accepted?!" : bad.error);
+      const ok = await request.accept(good);
+      if (!ok.ok) throw new Error(ok.error);
+      return { output: ok.value };
+    },
+  };
+  const { state } = await engineFor(executor).run(def, rawInput());
+  assert.match(errors[0], /Dispatch receipt rejected: .*another run\/phase\/cycle/);
+  assert.equal(state.status, "waiting");
+});
+
+test("engine: an executor without allowlist enforcement cannot run the dispatch step", async () => {
+  const { state } = await engineFor({ async runAgentStep() { throw new Error("must not run"); } })
+    .run(def, rawInput())
+    .catch((e) => ({ state: { status: "threw", error: String(e) } }));
+  assert.notEqual(state.status, "waiting");
+});
+
+test("engine: dispatch timeout routes to finalize as blocked dispatchUncertain", async () => {
+  const fast = lib.defineWorkflow({ ...def, nodes: { ...def.nodes, dispatch: { ...def.nodes.dispatch, timeoutMs: 50 } } });
+  const executor = {
+    enforcesToolAllowlist: true,
+    runAgentStep: (_request, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")))),
+  };
+  const { state } = await engineFor(executor).run(fast, rawInput());
+  assert.equal(state.status, "completed");
+  assert.equal(state.results.dispatch.outcome, "timed_out");
+  assert.equal(state.finalOutput.status, "blocked");
+  assert.equal(state.finalOutput.dispatchUncertain, true);
+  assert.equal(state.finalOutput.goalCompletion, false);
+  assert.match(state.finalOutput.blocker, /^dispatchUncertain: dispatch step timed_out/);
+  assert.equal(state.error, undefined);
+  assert.equal(state.steps.at(-1).nodeId, "finalize");
+});
+
+test("engine: cancel while dispatching ends cancelled", async () => {
+  let started;
+  const running = new Promise((r) => (started = r));
+  const executor = {
+    enforcesToolAllowlist: true,
+    runAgentStep: (_request, signal) =>
+      new Promise((_resolve, reject) => {
+        started();
+        signal.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")));
+      }),
+  };
+  const engine = engineFor(executor);
+  const run = engine.run(def, rawInput());
+  await running;
+  engine.cancel();
+  const { state } = await run;
+  assert.equal(state.status, "cancelled");
+});
+
+// Not testable in-process: engine.resumeRun refuses a run whose status is "waiting" (store.js prepareRunResume);
+// resuming a parked checkpoint, pause/resume, checkpoint answers and the human approval path go through the
+// workflow server. They are covered by the Manager rehearsal smoke (A-D), not here.
+
+/** Replace only the checkpoint with scripted answers (a human/Manager answer needs the server). */
+function scriptedRun(answers, input, executor = goodExecutor(), base = def) {
+  const queue = [...answers];
+  const scripted = lib.defineWorkflow({
+    ...base,
+    nodes: { ...base.nodes, awaitReport: lib.compute({ run: (ctx) => queue.shift()(ctx) }) },
+  });
+  return engineFor(executor).run(scripted, input);
+}
+const next = (ctx) => ctx.outputs.assess?.next ?? { phase: "write", cycle: 1 };
+const reportFor = (ctx, role, over = {}) => {
+  const n = next(ctx);
+  const sim = { corr: { runId: ctx.state.runId, milestoneId: ctx.input.milestoneId, phase: n.phase, cycle: n.cycle }, input: ctx.input };
+  return role === "writer" ? writerReport(sim, over) : reviewReport(sim, over);
+};
+
+test("engine: repair loop end to end -> verified_candidate within the step bound", async () => {
+  const failingWrite = (ctx) => reportFor(ctx, "writer", { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 1 : 0 })) });
+  const blocking = [{ id: "b1", severity: "blocking", category: "logic", location: "x.py:1", disposition: "open", rationale: "wrong" }];
+  const answers = [
+    failingWrite, // repair 1
+    (ctx) => reportFor(ctx, "writer"),
+    (ctx) => reportFor(ctx, "reviewer", { findings: blocking }), // repair 2
+    (ctx) => reportFor(ctx, "writer", { testedSha: W2 }),
+    (ctx) => reportFor(ctx, "reviewer", { testedSha: W2, findings: [{ ...blocking[0], disposition: "fixed", rationale: "verified fixed at W2" }] }),
+  ];
+  const seen = [];
+  const { state } = await scriptedRun(answers, rawInput(), goodExecutor(seen));
+  assert.equal(state.status, "completed", state.error);
+  assert.equal(state.finalOutput.status, "verified_candidate");
+  assert.equal(state.finalOutput.goalCompletion, false);
+  assert.equal(state.finalOutput.finalSha, W2);
+  assert.equal(state.finalOutput.counters.repairs, 2);
+  assert.deepEqual(seen.map((r) => parseDispatch(r.prompt).mode), ["write", "repair", "review", "repair", "review"]);
+  assert.ok(state.steps.length <= def.maxSteps);
+});
+
+test("engine: invalid reports rewait up to the cap, then block", async () => {
+  const stale = (ctx) => ({ ...reportFor(ctx, "writer"), correlation: { ...next(ctx), runId: "old" } });
+  const { state } = await scriptedRun([stale, stale, stale], rawInput());
+  assert.equal(state.status, "completed");
+  assert.equal(state.finalOutput.status, "blocked");
+  assert.equal(state.finalOutput.counters.invalidReports, 3);
+  const dispatches = state.steps.filter((s) => s.nodeId === "dispatch").length;
+  assert.equal(dispatches, 1, "a rewait must not re-dispatch");
+});
+
+test("engine: rehearsal end to end ends rehearsal, never verified_candidate", async () => {
+  const answers = [(ctx) => reportFor(ctx, "writer"), (ctx) => reportFor(ctx, "reviewer")];
+  const { state } = await scriptedRun(answers, rehearsalInput());
+  assert.equal(state.finalOutput.status, "rehearsal");
+});
+
+test("engine H-R2: needs_approval via outside paths and via materialChange completes (no JSON round-trip failure)", async () => {
+  for (const [name, over] of [["outside", { changedPaths: ["Makefile"] }], ["material", { materialChange: { kind: "scope", description: "wider scope needed" } }]]) {
+    const { state } = await scriptedRun([(ctx) => reportFor(ctx, "writer", over)], rawInput());
+    assert.equal(state.status, "completed", `${name}: ${state.error}`);
+    assert.equal(state.finalOutput.status, "needs_approval", name);
+    assert.equal(state.finalOutput.goalCompletion, false);
+    strictJson(state.finalOutput, name);
+  }
+  const rv = await scriptedRun([(ctx) => reportFor(ctx, "writer"), (ctx) => reportFor(ctx, "reviewer", { materialChange: { kind: "plan", description: "plan is wrong" } })], rawInput());
+  assert.equal(rv.state.status, "completed", rv.state.error);
+  assert.equal(rv.state.finalOutput.status, "needs_approval");
+});
+
+// ------------------------------------------------------------------ H-R3: current Herdsman Manager tool contract
+test("H-R3 allowlist: dispatch allows exactly the current Herdsman Manager tools, in order, and never stop_lead", () => {
+  assert.deepStrictEqual(def.nodes.dispatch.allowedTools, DISPATCH_TOOLS);
+  assert.ok(!def.nodes.dispatch.allowedTools.includes("stop_lead"));
+});
+
+test("H-R3 tool names: every prompt, safeguard, halt and result text uses only current Herdsman tool names", () => {
+  const OLD = new RegExp(["list", "inspect", "message", "delegate", "resume", "stop"].map((t) => "staff" + "_" + t).join("|"));
+  const sims = [new Sim(rawInput()), atWrite(), atReview(), atSecondReview(), new Sim(rehearsalInput())];
+  for (const sim of sims) {
+    const texts = [def.nodes.dispatch.prompt(sim.ctx()), JSON.stringify(def.nodes.awaitReport.run(sim.ctx())), JSON.stringify(sim.finalize())];
+    for (const t of texts) assert.ok(!OLD.test(t), `obsolete tool name in: ${t.match(OLD)?.[0]}`);
+  }
+  const unc = new Sim(rawInput());
+  unc.results.dispatch = { outcome: "failed" };
+  assert.ok(!OLD.test(JSON.stringify(unc.finalize())));
+  assert.ok(unc.finalize().managerActions[0].includes("list_staff then inspect_staff"));
+  assert.ok(unc.finalize().managerActions.some((m) => m.includes("stop_lead")));
+});
+
+test("H-R3 first write: list_staff first; an existing owner of scope.writer.branch gets message_staff with adopted:false, else delegate_project", () => {
+  const sim = new Sim(rawInput());
+  const p = def.nodes.dispatch.prompt(sim.ctx());
+  const first = p.indexOf("1. Call list_staff FIRST");
+  assert.ok(first >= 0);
+  for (const needle of [
+    `If a Lead already owns branch ${WRITER.branch}, give it the task below with message_staff on that Lead's EXACT session`,
+    "adopted:false (this is the first dispatch of this correlation, not a bound reuse)",
+    `Otherwise delegate_project with branch ${WRITER.branch}`,
+    "resume_project takes a branch only and carries no task",
+  ]) assert.ok(p.indexOf(needle) > first, `first-write prompt missing ${needle}`);
+  assert.ok(!p.includes("NEVER delegate_project here"));
+  // the branch comes from input, never a hard-coded value
+  const other = new Sim(rawInput({ scope: { writer: { branch: "herdsman/work-other", worktree: WT }, paths: ["src"] } }));
+  assert.ok(def.nodes.dispatch.prompt(other.ctx()).includes("If a Lead already owns branch herdsman/work-other"));
+  // an existing branch owner (a pre-existing Lead, not yet bound to this run) is accepted with adopted:false
+  const owner = { lead: "Lead-existing-owner", session: "sess-existing-owner", branch: WRITER.branch };
+  const v = sim.dispatch(owner, { adopted: false });
+  assert.deepEqual(v.assignee, owner);
+  assert.equal(v.adopted, false);
+  // rehearsal makes no real staff calls
+  const rh = def.nodes.dispatch.prompt(new Sim(rehearsalInput()).ctx());
+  assert.ok(rh.includes("REHEARSAL: do NOT delegate or start any Lead"));
+  assert.ok(!rh.includes("1. Call list_staff FIRST"));
+});
+
+test("H-R3 receipts: first write and first review accept adopted:false; repair and later review require adopted:true", () => {
+  assert.equal(new Sim(rawInput()).dispatch(WRITER, { adopted: false }).adopted, false);
+  const fr = new Sim(rawInput());
+  fr.dispatch(WRITER);
+  fr.answer(writerReport(fr));
+  assert.equal(fr.dispatch(REVIEWER, { adopted: false }).adopted, false);
+  const rep = new Sim(rawInput());
+  rep.dispatch(WRITER);
+  rep.answer(writerReport(rep, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) }));
+  assert.throws(() => def.nodes.dispatch.validate(rep.receipt(WRITER, { adopted: false }), rep.ctx()), /must adopt the existing bound assignment/);
+  const sim = atReview();
+  sim.answer(reviewReport(sim, { findings: [B1] }));
+  sim.dispatch(WRITER);
+  sim.answer(writerReport(sim, { testedSha: W2 }));
+  assert.throws(() => def.nodes.dispatch.validate(sim.receipt(REVIEWER, { adopted: false }), sim.ctx()), /must adopt the existing bound assignment/);
+  // second-review prompt reuses the exact bound reviewer and never delegates
+  const rp = def.nodes.dispatch.prompt(sim.ctx());
+  assert.ok(rp.includes(`message_staff on session ${REVIEWER.session}`) && rp.includes(`resume_project with branch ${REVIEWER.branch} ONLY if that Lead was stopped`) && rp.includes("NEVER delegate_project here"));
+});
+
+// ------------------------------------------------------------------ H-R4: real blocked finalization (raw persisted input)
+// Sanitized fixture shaped like live run ad39f6db: the start input has NO `rehearsal` key (the server runner hands nodes
+// the raw persisted input, not the normalized one), limits 3/3, one BDD gate plus six checks, bound writer and reviewer,
+// and a reviewer report with status "blocked" that also carries findings. No real run data is copied here.
+const CHECKS6 = [LINT, REG, { id: "bdd-stage", kind: "regression", argv: ["uv", "run", "pytest", "tests/stage"], cwd: WT }, { id: "bdd-trace", kind: "regression", argv: ["uv", "run", "pytest", "tests/trace"], cwd: WT }, { id: "docs-lint", kind: "lint", argv: ["make", "docs-lint"], cwd: WT }, { id: "build", kind: "build", argv: ["make", "build"], cwd: WT }];
+const realRaw = () => {
+  const r = rawInput({ gates: { bdd: [BDD], checks: CHECKS6 }, limits: { maxRepairs: 3, maxInvalidReports: 3 }, scope: { writer: { branch: WRITER.branch, worktree: WT }, paths: ["packages/earnest/src", "packages/earnest/tests", "docs"] } });
+  assert.equal("rehearsal" in r, false);
+  return r;
+};
+const ALL7 = [BDD, ...CHECKS6];
+const realFindings = () => [
+  { id: "C1-001", severity: "blocking", category: "test", location: "tests/unit/test_plan.py:1708", disposition: "open", rationale: "pin is wrong" },
+  { id: "C1-002", severity: "non-blocking", category: "docs", location: "docs/x.md:1", disposition: "deferred", rationale: "later" },
+  { id: "C1-003", severity: "non-blocking", category: "style", location: "src/a.py:2", disposition: "accepted", rationale: "fine" },
+];
+const reviewerBlocked = (simLike, over = {}) => ({
+  ...reviewReport(simLike, { commands: [cmd(LINT)], findings: realFindings(), ...over }),
+  status: "blocked",
+  blocker: "reviewer could not complete: evidence log missing",
+});
+const withRawCtx = (fn) => {
+  Sim.rawCtx = true;
+  try {
+    return fn();
+  } finally {
+    Sim.rawCtx = false;
+  }
+};
+
+test("H-R4 real-shaped: reviewer-blocked finalize on the raw persisted input round-trips as strict JSON", () => {
+  withRawCtx(() => {
+    const sim = new Sim(realRaw(), "20261014T205642791Z-milestone-fixture");
+    strictJson(sim.dispatch(WRITER, { adopted: false }), "receipt write");
+    strictJson(def.nodes.awaitReport.run(sim.ctx()), "await write");
+    const a1 = sim.answer(writerReport(sim, { commands: ALL7.map((g) => cmd(g)), untrackedDisclosed: [".pi-herdsman/a.md", ".pi-herdsman/b.json"] }));
+    assert.equal(a1.next.mode, "review", reasonsOf(a1));
+    strictJson(a1, "assess write");
+    strictJson(sim.dispatch(REVIEWER, { adopted: false }), "receipt review");
+    strictJson(def.nodes.awaitReport.run(sim.ctx()), "await review");
+    const a2 = sim.answer(reviewerBlocked(sim));
+    assert.equal(a2.route, "finalize");
+    assert.equal(a2.next.status, "blocked");
+    strictJson(a2, "assess blocked");
+    const out = sim.finalize();
+    strictJson(out, "finalize blocked (real-shaped)");
+    assert.equal(out.status, "blocked");
+    assert.equal(out.rehearsal, false, "absent rehearsal key means a real run");
+    assert.equal(out.goalCompletion, false);
+    assert.deepEqual(out.assignees.writer, WRITER);
+    assert.deepEqual(out.assignees.reviewer, REVIEWER);
+    assert.deepEqual(out.halt.staffStopTarget, REVIEWER);
+    assert.deepEqual(out.history, ["write#1: writer evidence accepted", "review#1: blocked"]);
+  });
+});
+
+test("H-R4 every route into finalize round-trips with the raw persisted input (rehearsal and limits keys absent)", () => {
+  withRawCtx(() => {
+    for (const [name, build] of Object.entries(ROUTES)) {
+      const sim = build();
+      roundTripAll(sim, `raw ${name}`);
+      const out = sim.finalize();
+      assert.equal(typeof out.rehearsal, "boolean", name);
+      if (!name.includes("internal error")) assert.ok(!String(out.blocker ?? "").includes("assessInternalError"), `${name}: ${out.blocker}`);
+    }
+    for (const outcome of ["failed", "timed_out"]) {
+      const s = new Sim(rawInput());
+      s.results.dispatch = { outcome, error: "boom" };
+      strictJson(s.finalize(), `raw uncertain ${outcome}`);
+      const late = atReview();
+      late.results.dispatch = { outcome };
+      delete late.outputs.dispatch;
+      strictJson(late.finalize(), `raw uncertain-late ${outcome}`);
+    }
+    // the raw scope path "docs/" is normalized before scope checks
+    const s = atWrite();
+    assert.equal(s.answer(writerReport(s, { changedPaths: ["docs/x.md"] })).next.mode, "review");
+    // reviewer-blocked from the write phase and from the review phase
+    const w = atWrite();
+    w.answer(baseReport(w, "writer", { status: "blocked", blocker: "cannot run" }));
+    strictJson(w.finalize(), "raw writer blocked");
+    const r = atReview();
+    r.answer(reviewerBlocked(r));
+    strictJson(r.finalize(), "raw reviewer blocked");
+  });
+});
+
+test("H-R4 engine: reviewer-blocked finalize completes when nodes receive the raw start input", async () => {
+  const { input: _normalizer, ...rawRunner } = def; // the live runner hands nodes the raw persisted input
+  const answers = [(ctx) => reportFor(ctx, "writer", { commands: ALL7.map((g) => cmd(g)) }), (ctx) => reviewerBlocked({ corr: reportFor(ctx, "reviewer").correlation, input: ctx.input })];
+  const { state } = await scriptedRun(answers, realRaw(), goodExecutor(), lib.defineWorkflow(rawRunner));
+  assert.equal(state.status, "completed", state.error);
+  assert.equal(state.finalOutput.status, "blocked");
+  assert.equal(state.finalOutput.rehearsal, false);
+  strictJson(state.finalOutput, "engine raw finalize");
+});
+
+test("H-R4 reviewer contract: completed review with open blockers is done -> repair; blocked means the review could not complete", () => {
+  const text = def.nodes.awaitReport.run(atReview().ctx()).safeguards.join("\n") + def.nodes.dispatch.prompt(atReview().ctx());
+  for (const needle of ['a COMPLETED review reports status:"done"', 'status:"blocked" ONLY when the review could NOT be completed', "never report an incomplete review as findings"]) {
+    assert.ok(text.includes(needle), `reviewer contract missing: ${needle}`);
+  }
+  const done = atReview();
+  assert.equal(done.answer(reviewReport(done, { findings: [BLOCKING("c1")] })).next.mode, "repair");
+  const blocked = atReview();
+  const b = blocked.answer(reviewerBlocked(blocked));
+  assert.equal(b.next.status, "blocked");
+  assert.match(b.next.blocker, /could not complete/);
+});
+
+test("H-R4 nits: first-review adoption, resume before message, inspect_staff by session, rehearsal makes no staff calls", () => {
+  // (1) an already-existing FIRST-review assignment is adopted:true; a new one is adopted:false; both validate
+  const fr = new Sim(rawInput());
+  fr.dispatch(WRITER);
+  fr.answer(writerReport(fr));
+  const p = def.nodes.dispatch.prompt(fr.ctx());
+  assert.ok(p.includes("reuse it with message_staff and submit adopted:true"));
+  assert.ok(p.includes("Otherwise delegate_project ONE new independent read-only review Lead with the task below and submit adopted:false"));
+  assert.equal(def.nodes.dispatch.validate(fr.receipt(REVIEWER, { adopted: true }), fr.ctx()).adopted, true);
+  assert.equal(def.nodes.dispatch.validate(fr.receipt(REVIEWER, { adopted: false }), fr.ctx()).adopted, false);
+  // (2) a stopped bound Lead is resumed BEFORE it is messaged
+  for (const sim of [atSecondReview(), (() => { const r = atWrite(); r.answer(writerReport(r, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) })); return r; })()]) {
+    const bp = def.nodes.dispatch.prompt(sim.ctx());
+    const step = bp.slice(bp.indexOf("1. Call list_staff FIRST"));
+    assert.ok(step.indexOf("call resume_project with branch") < step.indexOf("message_staff on session"), "step: resume before message");
+    assert.ok(bp.indexOf("first resume_project its EXACT branch") < bp.indexOf("then send the task text with message_staff"), "target: resume before message");
+  }
+  assert.throws(() => { const r = atWrite(); r.answer(writerReport(r, { commands: [BDD, LINT, REG].map((g) => cmd(g, { exitCode: g === LINT ? 2 : 0 })) })); def.nodes.dispatch.validate(r.receipt(WRITER, { adopted: false }), r.ctx()); }, /must adopt the existing bound assignment \(adopted:true via list_staff, resume_project by exact branch only if stopped, then message_staff\)/);
+  // (3) inspect_staff takes a session: inspect each candidate session from list_staff
+  const unc = new Sim(rawInput());
+  unc.results.dispatch = { outcome: "failed" };
+  assert.ok(unc.finalize().managerActions[0].includes("inspect_staff({session}) each candidate session from list_staff"));
+  // (4) rehearsal: no staff tool call of any kind
+  assert.ok(def.nodes.dispatch.prompt(new Sim(rehearsalInput()).ctx()).includes("make NO staff tool call of any kind"));
+  // (6) a new writer branch starts from baseSha
+  assert.ok(def.nodes.dispatch.prompt(new Sim(rawInput()).ctx()).includes(`(base ${BASE} if the branch is new)`));
+});
+
+test("H-R4 rehearsal files: guide and fixtures use only current Herdsman tool names", async () => {
+  const { readFileSync } = await import("node:fs");
+  const OLD = new RegExp(["list", "inspect", "message", "delegate", "resume", "stop"].map((t) => "staff" + "_" + t).join("|"));
+  for (const f of ["rehearsal/guide.md", "rehearsal/inputs.json"]) {
+    const t = readFileSync(fileURLToPath(new URL(`./${f}`, import.meta.url)), "utf8");
+    assert.ok(!OLD.test(t), `${f}: ${t.match(OLD)?.[0]}`);
+  }
+});
