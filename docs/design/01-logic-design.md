@@ -1132,6 +1132,7 @@ place of `req`.
   is voided; a body that changes at that revision after a counting approval
   names it raises `unbumped-change`, and a held hash that no counting approval
   names is no baseline.
+  A partly voided unit-end row keeps every revision it lists frozen while any listed stage's approval survives.
 - Alternatives considered: git blame on the prose files; a separate accept
   step for agent-created spec and plan items.
 - Rationale: a hash catches the silent edit that would let code and item drift
