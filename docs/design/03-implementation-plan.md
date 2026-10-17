@@ -24,7 +24,7 @@ flowchart LR
   M4 --> M5
   M4 --> M6["M6 calibration_gate"]
   classDef done fill:#d4edda,stroke:#2e7d32
-  class M1,M2 done
+  class M1,M2,M2b done
 ```
 
 M1 and M2 are the foundation. M1 fixes the index and the SARIF output that
