@@ -6,72 +6,37 @@ import re
 import pytest
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from tests.sarif import PLAN_FILE, RECORD, REQUIREMENTS, SHARD, git_output, located, rows, run_earnest, sarif_run, write
+from tests.sarif import (
+    PLAN_FILE,
+    RECORD,
+    REQUIREMENTS,
+    SHARD,
+    append_block,
+    approval_text,
+    git_output,
+    header,
+    intent_plan,
+    located,
+    printed_hash,
+    read,
+    record,
+    results,
+    run_earnest,
+    sarif_run,
+    write,
+)
 
 
 scenarios("stage_status.feature")
 
 STATE = f"{RECORD}/aidlc-state.md"
-UNSUPPORTED = "earnest: unsupported route: units-generation is on the route, so per-unit stages"
-HASH_LINE = re.compile(r"^assessment (\S+): (sha256:[0-9a-f]{64}) \((?:done|not done)\)$", re.MULTILINE)
 ROW = re.compile(r"^- \[.\] (\S+) — (EXECUTE|SKIP)")
 SKIPPED_EXECUTE_ROW = re.compile(r"^- \[S\] (\S+) — EXECUTE", re.MULTILINE)
-
-
-@pytest.fixture
-def memory():
-    """What a scenario remembers between steps: the stage, hash and bodies of its first stage check, a jump's target."""
-    return {}
-
-
-def read(repo, path):
-    return (repo / path).read_text(encoding="utf-8")
-
-
-def block(event, timestamp, fields=()):
-    """Return one audit block as AI-DLC writes it: a heading, Timestamp, Event, the fields, then the rule line."""
-    heading = event.replace("_", " ").title()
-    lines = [f"## {heading}", f"**Timestamp**: {timestamp}", f"**Event**: {event}"]
-    lines += [f"**{name}**: {value}" for name, value in fields]
-    return "\n".join([*lines, "---"]) + "\n"
-
-
-def append_block(repo, event, timestamp, fields=()):
-    write(repo, SHARD, read(repo, SHARD) + block(event, timestamp, fields))
 
 
 def with_mark(row, mark):
     """Return a Stage Progress row with its checkbox mark replaced."""
     return f"- [{mark}]{row[5:]}"
-
-
-def intent_plan(run):
-    """Return the one intent's plan from the SARIF log of a `plan` run."""
-    return sarif_run(run.stdout)["properties"]["plan"]["intents"][0]
-
-
-def approval_text(stage):
-    """Return a stage's approval as the tables write it: `current, human` for a current approval, else the bare word."""
-    by = stage["approvedBy"]
-    return f"current, {by}" if stage["approval"] == "current" and by else stage["approval"]
-
-
-def printed_hash(run):
-    match = HASH_LINE.search(run.stderr)
-    assert match, run.stderr
-    return match.group(2)
-
-
-def record(repo):
-    return json.loads(read(repo, ".earnest/assessment.json"))
-
-
-def header(repo, stage):
-    return record(repo)["runs"][f"{RECORD}/{stage}"]
-
-
-def results(run):
-    return sarif_run(run.stdout)["results"]
 
 
 def messages(run, rule):
@@ -91,16 +56,6 @@ def maintainer_repository(fixture_repo, name):
     repo = fixture_repo(name)
     assert "**Event**: GATE_APPROVED" in read(repo, SHARD)
     return repo
-
-
-@given(parsers.parse('the coding agent has run earnest check --stage "{stage}"'))
-def agent_has_run_stage_check(repo, memory, stage):
-    run = run_earnest(repo, "check", "--stage", stage)
-    assert run.returncode != 2, run.stderr  # the run happened: a missing command or a refusal exits 2
-    header(repo, stage)  # and the record holds that stage's run header
-    memory["stage"] = stage
-    memory.setdefault("hash", printed_hash(run))
-    memory.setdefault("bodies", record(repo)["bodies"])
 
 
 @given("the repo maintainer's change is committed on a task branch")
@@ -239,36 +194,12 @@ def audit_jump_skip(repo, slug):
     write(repo, STATE, state.replace(f"- [x] {slug} — EXECUTE", f"- [S] {slug} — EXECUTE"))
 
 
-@given(parsers.parse('the state file marks "{slug}" as EXECUTE and not skipped'))
-def execute_stage(repo, slug):
-    state = read(repo, STATE)
-    old = f"- [S] {slug} — SKIP: not in bugfix scope"
-    assert old in state
-    write(repo, STATE, state.replace(old, f"- [ ] {slug} — EXECUTE: needed"))
-
-
 # The commands.
-
-
-@when("the coding agent runs earnest plan", target_fixture="run")
-def agent_runs_plan(repo):
-    return run_earnest(repo, "plan")
 
 
 @when("the coding agent runs earnest plan twice", target_fixture="runs")
 def agent_runs_plan_twice(repo):
     return [run_earnest(repo, "plan"), run_earnest(repo, "plan")]
-
-
-@when("the coding agent runs earnest check", target_fixture="run")
-def agent_runs_check(repo):
-    return run_earnest(repo, "check")
-
-
-@when(parsers.parse('the coding agent runs earnest check --stage "{stage}"'), target_fixture="run")
-def agent_runs_stage_check(repo, memory, stage):
-    memory["stage"] = stage
-    return run_earnest(repo, "check", "--stage", stage)
 
 
 @when(parsers.parse('the coding agent runs earnest check --stage "{stage}" twice'), target_fixture="runs")
@@ -280,36 +211,12 @@ def agent_runs_stage_check_twice(repo, memory, stage):
 # What the plan prints.
 
 
-@then("the plan lists these stages in route order:")
-def plan_lists_stages(run, datatable):
-    actual = [(stage["stage"], stage["status"], approval_text(stage)) for stage in intent_plan(run)["stages"]]
-    assert actual == [(row["stage"], row["status"], row["approval"]) for row in rows(datatable)]
-
-
-@then(parsers.parse('the frontier is "{stage}"'))
-def frontier_is(run, stage):
-    assert intent_plan(run)["frontier"] == stage
-
-
-@then("the plan lists these tasks:")
-def plan_lists_tasks(run, datatable):
-    actual = [(task["id"], task["status"]) for task in intent_plan(run)["tasks"]]
-    assert actual == [(row["task"], row["status"]) for row in rows(datatable)]
-
-
 @then("the plan lists neither the initialization stages nor the stages skipped by scope or by an audited skip")
 def plan_omits_stages(run):
     skipped = {"inception/reverse-engineering", "inception/units-generation"}
     skipped |= {"operation/deployment-pipeline", "operation/deployment-execution"}
     stages = [stage["stage"] for stage in intent_plan(run)["stages"]]
     assert [stage for stage in stages if stage.startswith("initialization/") or stage in skipped] == []
-
-
-@then(parsers.re(r'the plan lists "(?P<first>[^"]+)"(?: and "(?P<second>[^"]+)")? among the stages'))
-def plan_lists_stage(run, first, second):
-    stages = [stage["stage"] for stage in intent_plan(run)["stages"]]
-    assert first in stages
-    assert second is None or second in stages
 
 
 @then(parsers.parse('the plan does not list "{stage}"'))
@@ -332,20 +239,10 @@ def typed_status_is_not_read(repo, run, stage, status):
     assert {entry["stage"]: entry["status"] for entry in intent_plan(run)["stages"]}[stage] == status
 
 
-@then(parsers.parse('"{stage}" has the approval "{approval}"'))
-def stage_has_approval(run, stage, approval):
-    assert {entry["stage"]: approval_text(entry) for entry in intent_plan(run)["stages"]}[stage] == approval
-
-
 @then("the repository is unchanged")
 def repository_unchanged(repo, run):
     assert json.loads(run.stdout)["version"] == "2.1.0"  # the plan ran and printed its log
     assert git_output(repo, "status", "--porcelain", "--untracked-files=all") == ""
-
-
-@then("no assessment record exists")
-def no_record(repo):
-    assert not (repo / ".earnest").exists()
 
 
 # What a check prints and records.
@@ -359,40 +256,6 @@ def unplanned_finding_names_item(run, item):
 @then(parsers.parse('the cycle finding lists "{cycle}"'))
 def cycle_finding_lists_cycle(run, cycle):
     assert any(cycle in text for text in messages(run, "earnest/cycle"))
-
-
-@then("the summary prints the assessment hash")
-def summary_prints_hash(run):
-    printed_hash(run)
-
-
-@then('the SARIF log gives the same hash and the stage status "not done"')
-def sarif_gives_hash_and_status(run):
-    assessment = sarif_run(run.stdout)["properties"]["assessment"]
-    assert assessment["hash"] == printed_hash(run)
-    assert assessment["status"] == "not done"
-
-
-@then(parsers.parse('the run header for "{stage}" in the assessment record holds:'))
-def run_header_holds(repo, run, stage, datatable):
-    held = header(repo, stage)
-    for row in rows(datatable):
-        field, value = row["field"], row["value"]
-        actual = held[field]
-        if field == "commit":
-            value = git_output(repo, "rev-parse", "HEAD").strip()
-        elif field == "hash":
-            value = printed_hash(run)
-        elif field == "dirty":
-            value = value == "true"
-        elif field in {"layers", "items"}:
-            actual = ", ".join(actual)
-        assert actual == value, field
-
-
-@then("Git lists no new file")
-def git_lists_no_new_file(repo):
-    assert git_output(repo, "ls-files", "--others", "--exclude-standard") == ""
 
 
 @then("both runs print the same assessment hash")
@@ -469,17 +332,3 @@ def route_mismatch_finding(repo, run, slug):
     text = found[0]["message"]["text"]
     assert slug in text
     assert "STAGE_SKIPPED" in text
-
-
-# Exit codes and the refusal.
-
-
-@then(parsers.parse("the {command} exits with code 2, with empty stdout"))
-def exits_with_code_two(run, command):
-    assert command in {"plan", "check"}
-    assert (run.returncode, run.stdout) == (2, "")
-
-
-@then("stderr is one line that names the unsupported per-unit route")
-def stderr_names_unsupported_route(run):
-    assert run.stderr.splitlines() == [UNSUPPORTED]

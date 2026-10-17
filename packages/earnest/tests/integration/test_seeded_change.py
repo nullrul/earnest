@@ -1,4 +1,6 @@
-"""Integration: the seeded-change fixture holds the seeds and the overlay that the stage_status scenarios read."""
+"""Integration: the seeded-change fixture holds the seeds, the overlay and the units variant that the scenarios read."""
+
+from pathlib import Path
 
 from earnest.index import MARKDOWN, Source, build_index, split_lines
 from tests.sarif import PLAN_FILE, RECORD, REQUIREMENTS, SHARD, git_output
@@ -105,3 +107,69 @@ def test_state_and_audit_files_hold_no_item_id_tag_or_near_miss(fixture_repo):
     ]
     index = build_index(sources)
     assert (index.items, index.links, index.near_misses) == ((), (), ())
+
+
+# The units variant: the base files with the intent's record directory taken from the `units/` overlay.
+
+UNITS = f"{RECORD}/inception/units-generation/unit-of-work.md"
+
+
+def test_base_copy_leaves_the_units_directory_out(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    assert not (repo / "units").exists()
+    assert "units/" not in git_output(repo, "ls-files")
+
+
+def test_units_variant_replaces_only_the_record_directory(units_repo):
+    repo = units_repo()
+    files = git_output(repo, "ls-files").split()
+    assert not (repo / RECORD / "construction" / "code-generation").exists()
+    assert [path for path in files if path.endswith("aidlc-state.md")] == [STATE]
+    assert [path for path in files if not path.startswith(RECORD)] == ["src/checkout/auth.py", "tests/test_auth.py"]
+    assert not any("FUTURE-FORMAT" in path or path.startswith(("units/", "change/")) for path in files)
+
+
+def test_units_requirements_are_a_byte_copy_of_the_base():
+    fixture = Path(__file__).parents[1] / "fixtures" / "seeded-change"
+    assert (fixture / "units" / REQUIREMENTS).read_bytes() == (fixture / REQUIREMENTS).read_bytes()
+
+
+def test_units_bookkeeping_and_table_hold_no_item_tag_or_near_miss(units_repo):
+    repo = units_repo()
+    table = "\n".join(lines_of(repo, UNITS)[:7])
+    texts = [
+        (STATE, (repo / STATE).read_text(encoding="utf-8")),
+        (SHARD, (repo / SHARD).read_text(encoding="utf-8")),
+    ]
+    sources = [Source(path, MARKDOWN, split_lines(text)) for path, text in [*texts, (UNITS, table)]]
+    index = build_index(sources)
+    assert (index.items, index.links, index.near_misses) == ((), (), ())
+
+
+def test_units_fixture_lines_sit_where_the_scenarios_read_them(units_repo):
+    repo = units_repo()
+    state = lines_of(repo, STATE)
+    assert state[19] == "- [x] units-generation — EXECUTE: two units"
+    assert "- [x] code-generation — EXECUTE: always" in state
+    assert "| u1 | - | [x] | [x] | [x] |" in state
+    units = lines_of(repo, UNITS)
+    assert [units[n - 1] for n in (3, 5, 6, 10, 14, 16, 20, 21)] == [
+        "| Unit ID | Directory | Responsibility |",
+        "| U1 | u1-limiter | Count failed logins and lock the member out |",
+        "| U2 | u2-notice | Tell a locked-out member when to try again |",
+        "`unit~u1~1`",
+        "Delivers: req~rate-limit~1",
+        "`unit~u2~1`",
+        "Delivers: req~lockout-notice~1",
+        "Depends: unit~u1~1",
+    ]
+    assert units[6] == ""  # the table ends at line 6, so a row added after it lands at line 7
+    for directory, item in (("u1-limiter", "`dsn~window-counter~1`"), ("u2-notice", "`dsn~notice-text~1`")):
+        assert lines_of(repo, f"{RECORD}/construction/{directory}/functional-design/functional-spec.md")[2] == item
+    assert lines_of(repo, REQUIREMENTS)[12] == "`req~audit-log~1`"
+    shard = (repo / SHARD).read_text(encoding="utf-8")
+    assert shard.count("**Event**: GATE_APPROVED") == 3
+    assert (
+        "**Unit**: u1\n**Gate Scope**: per-stage\n**Gate Stages**: functional-design\n**Attempt Generation**: 1\n"
+        in shard
+    )

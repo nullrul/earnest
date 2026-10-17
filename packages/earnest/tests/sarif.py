@@ -1,6 +1,7 @@
-"""Helpers the tests share: the one run in a SARIF log, the earnest command, Git, a data table as rows, and the seeded paths."""
+"""Helpers the tests share: SARIF runs, the earnest command, Git, data tables, the seeded paths, audit rows and the record."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ RECORD = "aidlc/spaces/default/intents/260926-checkout"  # the intent directory 
 SHARD = f"{RECORD}/audit/fixture-a1b2c3d4.md"
 REQUIREMENTS = f"{RECORD}/inception/requirements-analysis/requirements.md"
 PLAN_FILE = f"{RECORD}/construction/code-generation/code-generation-plan.md"
+HASH_LINE = re.compile(r"^assessment (\S+): (sha256:[0-9a-f]{64}) \((?:done|not done)\)$", re.MULTILINE)
 
 
 def sarif_run(text):
@@ -45,3 +47,48 @@ def write(repo, path, text):
 def git_output(repo, *args):
     """Return what `git args` prints in repo; a failing Git raises."""
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout
+
+
+def read(repo, path):
+    return (repo / path).read_text(encoding="utf-8")
+
+
+def block(event, timestamp, fields=()):
+    """Return one audit block as AI-DLC writes it: a heading, Timestamp, Event, the fields, then the rule line."""
+    heading = event.replace("_", " ").title()
+    lines = [f"## {heading}", f"**Timestamp**: {timestamp}", f"**Event**: {event}"]
+    lines += [f"**{name}**: {value}" for name, value in fields]
+    return "\n".join([*lines, "---"]) + "\n"
+
+
+def append_block(repo, event, timestamp, fields=()):
+    write(repo, SHARD, read(repo, SHARD) + block(event, timestamp, fields))
+
+
+def intent_plan(run):
+    """Return the one intent's plan from the SARIF log of a `plan` run."""
+    return sarif_run(run.stdout)["properties"]["plan"]["intents"][0]
+
+
+def approval_text(stage):
+    """Return a stage's approval as the tables write it: `current, human` for a current approval, else the bare word."""
+    by = stage["approvedBy"]
+    return f"current, {by}" if stage["approval"] == "current" and by else stage["approval"]
+
+
+def printed_hash(run):
+    match = HASH_LINE.search(run.stderr)
+    assert match, run.stderr
+    return match.group(2)
+
+
+def record(repo):
+    return json.loads(read(repo, ".earnest/assessment.json"))
+
+
+def header(repo, stage):
+    return record(repo)["runs"][f"{RECORD}/{stage}"]
+
+
+def results(run):
+    return sarif_run(run.stdout)["results"]

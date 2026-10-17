@@ -128,8 +128,9 @@ record directory from the path, runs
 `findings_count` as JSON with exit code 0. AI-DLC reads only the sensor's JSON,
 so the script sets `pass` to true when `earnest check` exits
 0 and to false when it exits 1 or 2. The script passes a bare slug and derives
-no unit; M2b of `03` widens it to derive the unit from `output_path` and pass
-`<phase>/<unit>/<slug>`, since a per-unit stage's bare slug is ambiguous. Every
+no unit; M7 of `03` widens it to derive the unit directory from `output_path`
+and pass `<phase>/<unit directory>/<slug>`, since a per-unit stage's bare slug
+is ambiguous. Every
 stage in the mapping table whose artifacts carry items, and the Build and Test stage, lists
 `earnest` in its `sensors:` frontmatter in place of `traceability` and
 `upstream-coverage`. The fork keeps the `sensors` ceremony on under every
@@ -163,6 +164,10 @@ assessment hash in the stage's latest run header; `Items`, the stage's item ids
 with their revisions, such as `req~login-rate-limit~2`; and `Approved By`,
 `human` or `automatic`. The fork adds them at the `GATE_APPROVED` emit site of
 the approve path, and AI-DLC's audit validator accepts the three field names.
+For per-unit stages M7 of `03` also writes the three fields and `Unit`, the
+unit's name by the id rule, at the team gates' emit sites in `aidlc-state.ts`
+and `core/tools/aidlc-unit.ts`, and `Unit` on the solo approve path, which
+upstream writes without one.
 The transition reads the hash and the items from
 the run header that the sensor's `earnest check --stage` run wrote to the
 assessment record, and the fork's approve transition confirms before approving
@@ -449,7 +454,7 @@ rest are Earnest's.
 | `earnest/gap` | error | an item lacks a child its `Needs:` requires |
 | `earnest/unplanned` | warning | a `req` is delivered by no task |
 | `earnest/cycle` | error | the plan's dependency graph has a cycle |
-| `earnest/route-mismatch` | error | a stage row of the state file's Stage Progress that is marked EXECUTE carries the skipped mark with no counting `STAGE_SKIPPED` row, or a Stage Progress row, or the section itself, that Earnest cannot read; the message names the stage and the audit row that is missing, or the line Earnest cannot read. The finding reaches no stage |
+| `earnest/route-mismatch` | error | a stage row of the state file's Stage Progress that is marked EXECUTE carries the skipped mark with no counting `STAGE_SKIPPED` row, or a Stage Progress row, or the section itself, that Earnest cannot read; the message names the stage and the audit row that is missing, or the line Earnest cannot read. On a units route it is also a unit table, table row or `unit` item that the join of Per-unit stages and units cannot use. A Stage Progress finding reaches no stage; a unit-table finding counts against Units Generation |
 | `earnest/out-of-task` | warning | a changed region lies outside what the current task delivers; the message offers the three exits |
 | `earnest/override-expired` | warning | an `Override:` line names a revision other than the item's current one |
 | `earnest/override-drift` | warning | the region an override covers changed since the override's commit; the judge reruns and both verdicts show |
@@ -476,7 +481,7 @@ Status is recomputed from the graph on every run.
 | Item | Done when |
 | --- | --- |
 | `task` | every `Delivers:` id resolves at its current revision, each delivered `req` is at trace level evidenced, and each delivered `dsn` is traced (an `impl` covers it) |
-| `unit` | every unit it depends on is done, and every task in its `code-generation-plan.md` is done |
+| `unit` | a unit-table row gives its directory, it is resolved in unit order (see Per-unit stages and units), every unit it depends on is done, and its `code-generation-plan.md` holds a task and every task in it is done |
 
 A feature's `stest` going green is checked at the Build and Test stage, which
 runs once across the completed unit work.
@@ -506,12 +511,9 @@ or SKIP. The route is the rows marked EXECUTE outside the Initialization phase,
 in the order the rows stand, less each stage that a counting `STAGE_SKIPPED` row
 in the audit log skips (see Frontier and position). Initialization's stages hold
 no approval gate, so they are not on the route. A stage's id is its phase and
-slug, such as `inception/requirements-analysis`. A route that holds
-`units-generation` has per-unit stages, which M2b of `03` adds (see
-Open questions): `earnest plan` and `earnest check --stage` stop with a message
-that names the unsupported route when the selected or only intent has it, and
-plain `earnest check` places that intent's findings as in a run with no plan and
-leaves it out of `properties.plan`. Earnest reads the route as configuration. It
+slug, such as `inception/requirements-analysis`; a route that holds
+`units-generation` also has per-unit stages (see Per-unit stages and units).
+Earnest reads the route as configuration. It
 never reads the checkbox marks as status; it compares a skipped mark on an
 EXECUTE row with the audit log, and such a row with no `STAGE_SKIPPED` row,
 like a Stage Progress row or section it cannot read, raises
@@ -544,8 +546,8 @@ stage: a BACKWARD jump resets its target and every later row of the state
 file's Stage Progress that is marked EXECUTE, skipped marks included, a REDO
 jump resets its target, and a FORWARD jump resets none. A stage's approval is
 the latest counting row for it, unless a counting `GATE_REJECTED` row for the
-stage follows it, which leaves the stage with none. A row that carries `Unit`,
-`Gate Scope` or `Gate Stages` belongs to a team's per-unit gate and is not read.
+stage follows it, which leaves the stage with none. On a stage that is not
+per-unit, a row that carries `Unit`, `Gate Scope` or `Gate Stages` is not read.
 An approval is current when the item ids and revisions its `Items` field names
 match the stage's current ones; a row without an `Items` field is current and
 never goes stale. Rows that do not count, and earlier rows, are history and
@@ -561,19 +563,24 @@ out-of-task finding counts against the current task:
   is a regression: the approval still names the stage's current revisions, so
   the frontier stays where it is, and the stage reads not done until the agent
   fixes the finding.
-- **current**: the finding lies in the frontier stage, its current unit or the
-  current task. It is in scope, and it is the agent's work now.
+- **current**: the finding lies in the frontier stage, its unit's frontier
+  stage or the current task. It is in scope, and it is the agent's work now.
 - **ahead**: the stage comes after the frontier. The finding has SARIF level
   note, its message names the stage where the work is expected, such as
-  "expected at construction/u1/code-generation", and the agent takes no action
-  on it.
+  "expected at construction/u1-checkout/code-generation", and the agent takes
+  no action on it.
 
 A plan finding counts against the stage whose artifacts hold the plan items it
 is about, as a `gap` counts against the stage whose artifacts hold the missing
 child's type. `earnest/unplanned` counts against the Code Generation stage
 whose unit delivers the requirement, or against the first Code Generation stage
-on the route when no unit does; a route without a Code Generation stage holds
-no tasks, so it raises no `earnest/unplanned` finding. The rule reads the route
+on the route when no unit does; on a route that holds `units-generation` it
+counts instead against the Code Generation stage of the lowest-named unit with
+a valid row of the unit table that delivers the requirement, else of the
+lowest-named unit with a valid row, and against Units Generation when no unit
+has a valid row (see Per-unit stages and units); a route without a Code
+Generation stage, read before the per-unit expansion, holds no tasks, so it
+raises no `earnest/unplanned` finding. The rule reads the route
 and needs no task to exist. `earnest/cycle` counts against the stage that holds
 the items in the cycle, is located at the id line of the first item of the cycle
 in id order, and its message lists the cycle as
@@ -585,7 +592,7 @@ there fails the check (see Command surface) and the `earnest` sensor at each
 gate until it is fixed. It names no stage. Such findings include an orphaned
 or near-miss tag, which covers nothing a task delivers; a malformed id, which
 resolves to no item; and every finding of a run with no plan, where no Stage
-Progress gives a route, or the route is unsupported, and so no stage exists.
+Progress gives a route, and so no stage exists.
 
 At the start of an intent the frontier is the first stage on the route, so
 only that stage's work reads as current and everything further along reads as
@@ -609,6 +616,81 @@ since moved to a new revision raises `outdated` at level note (see Findings),
 located at each such item;
 the approval stops being current, so the stage becomes the frontier again and
 waits for a fresh approval.
+
+### Per-unit stages and units
+
+On a route that holds `units-generation`, Earnest reads by raw read the first
+table outside a code fence in `inception/units-generation/unit-of-work.md`
+whose header holds `Unit ID` and `Directory`. A row's unit name is its
+`Unit ID` by the id rule, a name of the grammar; its directory is one path
+segment of lower-case letters, digits and hyphens that names no Stage Progress
+slug. A row that cannot be read, repeats an earlier row's name or directory, or
+names no `unit` item, and a `unit` item that no row names, raises
+`earnest/route-mismatch` at its line, in the Units Generation stage; a table
+that is missing, a symlink or unreadable raises it at the state file's
+`units-generation` row. A row that raises one stands for no unit. Unit Progress
+is never read.
+
+Unit order ranks every `unit` item in the intent's record directory. A
+`Depends:` entry of a unit counts when it names, by type and name, a `unit`
+item there; any other entry is unknown, and an entry naming a task or another
+intent's unit raises no finding of its own. Earnest repeatedly takes, among the
+units not yet taken that have no unknown entry and depend only on taken units,
+the one with the lowest name, compared by code point (`u10` before `u2`). A
+unit Earnest never takes, one on a dependency cycle, with an unknown entry or
+depending on such a unit, is unresolved; the unresolved units follow the taken
+ones in name order, and none of them is done. `properties.plan` lists units in
+unit order and tasks by id. Each EXECUTE row on the route whose slug is
+`functional-design`, `nfr-requirements`, `nfr-design`, `infrastructure-design`
+or `code-generation`, upstream's `for_each: unit-of-work` set, stands in place
+once for each unit a row joins, in unit order, as
+`<phase>/<unit directory>/<slug>`, and for no stage when no row joins a unit.
+Unit order sets the order of the route's per-unit stages and of the unit list,
+and so which per-unit stage the route's frontier names; each unit's lane is
+unchanged by it, and no finding's stage or position depends on it, because the
+`gap` and `unplanned` fallbacks choose by lowest lexical unit name, not by
+route order. The route rule reads the route before this expansion, and
+every file under `<phase>/<directory>/<slug>/` of such a row is in the
+evaluated tree, so an unusable table drops no need and no file.
+
+A gate row speaks for a per-unit stage only through a `Unit` equal to a unit's
+name. With no `Gate Scope`, or `per-stage`, and a `Gate Stages` absent or equal
+to its `Stage`, it speaks for that unit's stage of its `Stage`. A `unit-end` row
+whose `Gate Stages`, split as `Items` is, lists its `Stage` and only per-unit
+stages on that unit's route speaks for each of them, and is current when its
+`Items` are the items of all of them. Any other row, `unit-merge` included,
+approves nothing. A unit's generation is the highest `Attempt Generation`, a
+whole number of at most nine digits and 0 when absent, on its structurally
+counting approval and rejection rows (per-stage or unit-end; unit-merge and
+non-counting scopes do not raise the maximum, and an unknown `Unit` has no
+maximum unit); an approval below it, or whose value is no whole number,
+approves nothing, and such a value raises no generation. A counting rejection
+voids what it would approve, else its `Stage` for its unit, or for every unit
+when its `Unit` names none; no generation discounts it. Upstream's solo approve
+path writes no `Unit`, so before M7 of `03` it approves no per-unit stage. A
+`STAGE_SKIPPED` row carrying `Unit`, `Gate Scope` or `Gate Stages` skips
+nothing, and restarts and jumps void rows by slug for every unit.
+
+A unit's lane is the route less the other units' per-unit stages; its frontier
+is the first stage on its lane without a current approval. A finding in a
+per-unit stage takes its position from its unit's frontier, any other from the
+route's, so one unit's error never reads ahead because another unit's frontier
+sits earlier, and a stage after the per-unit stages reads ahead until every
+unit's are approved. A `gap` whose producing stage is per-unit counts against
+that stage of the unit whose stage holds the item, else of the lowest-named
+unit with a valid row that delivers it, else of the lowest-named unit with a
+valid row; `unplanned` counts against the Code Generation of the lowest-named
+unit with a valid row that delivers the requirement, else of the lowest-named
+unit with a valid row. Names compare by code point. A unit with no row, or
+whose row is invalid, owns no fallback. With no unit with a valid row both
+count against Units Generation.
+
+A `--stage` run of a stage ahead of its unit's frontier reports that unit's
+errors there as notes and can exit 0, so a `unit-end` gate that fires its
+sensor at its final stage is not shown safe before M7 of `03` (see Open
+questions). A `Directory` edit changes no item body, so it neither stales the
+Units Generation approval nor raises `unbumped-change`; per-unit approvals go
+stale through their `Items`.
 
 ### Process vocabulary
 
@@ -1221,16 +1303,9 @@ the `GATE_APPROVED` row only on an approval.
 
 `--intent` names the intent's record directory; without it `--stage` uses the
 one record directory that holds an `aidlc-state.md`, and exits 2 when there is
-none or more than one. `--stage` takes `<phase>/<slug>` or a bare slug that is
-unique on the route. `earnest plan` lists every intent. A route that holds a
-`units-generation` stage (any per-unit construction) is an unsupported intent:
-`earnest plan` and `earnest check --stage` print one stderr line,
-`earnest: unsupported route: units-generation is on the route, so per-unit stages`,
-and exit 2 when the selected or only intent is unsupported (M2b of `03` adds
-the support). On an unsupported intent plain `earnest check` places that
-intent's findings as in a run with no plan (position current, no stage) and
-omits that intent's `properties.plan` entry; a repository that also holds
-supported intents lists those in `earnest plan`.
+none or more than one. `--stage` takes `<phase>/<slug>`,
+`<phase>/<unit directory>/<slug>` for a per-unit stage, or a bare slug that is
+unique on the route. `earnest plan` lists every intent.
 
 The exit code is 0 when no error-level finding sits at position behind or
 current, 1 when one does, and 2 when the command cannot run (`earnest plan`
@@ -1238,8 +1313,7 @@ and `earnest check` alike): Git cannot answer, a file or the record cannot be
 read or written, the record is corrupt or newer, `.earnest` or the record is a symlink, `--intent` names a record
 directory that does not exist, `--stage` is ambiguous (no intent given and
 no record or several records, or a bare slug that several route stages share) or names a
-stage that is not on the route, or the selected intent's route holds per-unit
-stages, or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
+stage that is not on the route, or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
 and maintainers run `earnest check` on
 demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the
@@ -1273,8 +1347,11 @@ CI job reads it as it stands.
   order, each with its `stage`, `status` (`done` or `not done`), `approval`
   (`current`, `outdated` or `none`) and `approvedBy` (`human`, `automatic` or
   null); the `frontier` (null when every stage has a current approval); and
-  `tasks` and `units`, each sorted by the pair id and status, with the
-  `status` of each. A run with `--stage` also carries `properties.assessment`:
+  `tasks`, sorted by the pair id and status, and `units`, in unit order (see
+  Per-unit stages and units), with the `status` of each, and each unit's
+  `directory` (null without a table row) and `frontier` (null when its lane has
+  no stage without a current approval). A run with `--stage` also carries
+  `properties.assessment`:
   `stage`, `hash`, `status` and `reasons`, where `reasons` counts the
   error-level findings against the stage and its tasks that are not done, and
   names its approval.
@@ -1419,7 +1496,7 @@ status, and the frontier run entirely on the local repository.
 | Whether the gate or the approve transition refuses a run header with `dirty` true | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the hold on an artifact that changes during a sensor run, and the check in `approve` that artifacts are unchanged since the sensor ran | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
-| Per-unit support, milestone `unit_status`: per-unit stage ids `<phase>/<unit>/<slug>`, expansion from the state file's Unit Progress, a team's unit-scoped gate rows and their emit sites (the team gates of `aidlc-state.ts` and the gate of `aidlc-unit.ts`), unit status, the join from the unit-DAG name that `Unit` carries to the unit directory of Stages and to the unit tables of `unit-of-work.md`, and the route and approvals of a units intent without a Unit Progress table, whose approval rows carry no `Unit` | maintainer | before the task plan of milestone `unit_status` of `03-implementation-plan.md` |
+| Per-unit fork work, milestone `aidlc_fork`: how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit` | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | The task's base commit, which the out-of-task check diffs against | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | How `task/<name>-…` splits a branch such as `task/add-limiter-window` when task names hold hyphens: the longest task name that is a prefix followed by `-`, or a fixed suffix form | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | When the coverage map of the Impact rule is taken, and where the map is stored; the record keeps only its commit | maintainer | before milestone `task_change` of `03-implementation-plan.md` |

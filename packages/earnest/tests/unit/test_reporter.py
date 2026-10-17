@@ -214,14 +214,18 @@ def test_summary_lists_stages_frontier_and_hash():
 
 
 def test_summary_lists_tasks_and_units_with_their_status():
-    entry = {**PLAN["intents"][0], "frontier": None, "units": [{"id": "unit~a~1", "status": "not done"}]}
+    unit = {"id": "unit~a~1", "status": "not done", "directory": None, "frontier": None}
+    entry = {**PLAN["intents"][0], "frontier": None, "units": [unit]}
     lines = reporter.summary([], {}, Run(commit="abc", plan={"intents": [entry]})).splitlines()
     assert lines[4:8] == [
         "  frontier: none",
         "  task task~a~1: not done",
         "  task task~b~1: done",
-        "  unit unit~a~1: not done",
+        "  unit unit~a~1: not done, directory none, frontier none",
     ]
+    placed = {**unit, "directory": "a-dir", "frontier": "construction/a-dir/code-generation"}
+    lines = reporter.summary([], {}, Run(commit="abc", plan={"intents": [{**entry, "units": [placed]}]})).splitlines()
+    assert lines[7] == "  unit unit~a~1: not done, directory a-dir, frontier construction/a-dir/code-generation"
 
 
 def test_summary_states_a_missing_record():

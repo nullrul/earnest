@@ -8,9 +8,22 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from pytest_bdd import then
+from pytest_bdd import given, parsers, then, when
 
-from tests.sarif import located, rows, sarif_run, write
+from tests.sarif import (
+    RECORD,
+    approval_text,
+    git_output,
+    header,
+    intent_plan,
+    located,
+    printed_hash,
+    record,
+    rows,
+    run_earnest,
+    sarif_run,
+    write,
+)
 
 
 collect_ignore = ["fixtures"]  # fixture repositories are data, and their tests are not this package's
@@ -52,22 +65,37 @@ def _commit(repo: Path) -> Path:
     return repo
 
 
-def _leave_out_change(root: Path) -> Callable[[str, list[str]], list[str]]:
-    """Return a copytree ignore that leaves out the `change/` overlay at the top of the fixture at root."""
+def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:
+    """Return a copytree ignore that leaves out the given paths, relative to root, of the fixture at root."""
 
     def ignore(directory: str, names: list[str]) -> list[str]:
-        return ["change"] if Path(directory) == root and "change" in names else []
+        here = Path(directory).relative_to(root)
+        return [name for name in names if (here / name).as_posix() in paths]
 
     return ignore
 
 
 @pytest.fixture
 def fixture_repo(tmp_path: Path) -> Callable[[str], Path]:
-    """Return a builder that copies tests/fixtures/<name>, less its `change/` overlay, into tmp_path and commits it."""
+    """Return a builder that copies tests/fixtures/<name>, less its `change/` and `units/` overlays, and commits it."""
 
     def build(name: str) -> Path:
         repo = tmp_path / name
-        shutil.copytree(FIXTURES / name, repo, ignore=_leave_out_change(FIXTURES / name))
+        shutil.copytree(FIXTURES / name, repo, ignore=_leave_out(FIXTURES / name, "change", "units"))
+        return _commit(repo)
+
+    return build
+
+
+@pytest.fixture
+def units_repo(tmp_path: Path) -> Callable[[], Path]:
+    """Return a builder of seeded-change's units variant: the base files with the record taken from `units/aidlc/`."""
+
+    def build() -> Path:
+        source = FIXTURES / "seeded-change"
+        repo = tmp_path / "seeded-change"
+        shutil.copytree(source, repo, ignore=_leave_out(source, "change", "units", RECORD))
+        shutil.copytree(source / "units" / "aidlc", repo / "aidlc", dirs_exist_ok=True)
         return _commit(repo)
 
     return build
@@ -113,13 +141,26 @@ _COLUMNS = {
 }
 
 
-@then("the SARIF log holds exactly these findings:")
-def exact_findings(run, datatable):
+# The same, with the file relative to the intent's record; a result outside the record keeps its full path.
+_RECORD_COLUMNS = _COLUMNS | {"file": lambda result: located(result)[0].removeprefix(f"{RECORD}/")}
+
+
+def _exact(run, datatable, read_column):
     table = rows(datatable)
     columns = list(table[0])
     expected = [tuple(int(row[c]) if c == "line" else row[c] for c in columns) for row in table]
-    actual = [tuple(_COLUMNS[c](result) for c in columns) for result in sarif_run(run.stdout)["results"]]
+    actual = [tuple(read_column[c](result) for c in columns) for result in sarif_run(run.stdout)["results"]]
     assert sorted(actual, key=repr) == sorted(expected, key=repr)
+
+
+@then("the SARIF log holds exactly these findings:")
+def exact_findings(run, datatable):
+    _exact(run, datatable, _COLUMNS)
+
+
+@then("the SARIF log holds exactly these findings in the intent's record:")
+def exact_findings_in_record(run, datatable):
+    _exact(run, datatable, _RECORD_COLUMNS)
 
 
 @then("both runs write the same SARIF log")
@@ -138,3 +179,112 @@ def exits_zero(run):
 def exits_non_zero(run):
     assert run.returncode == 1, run.stderr
     assert sarif_run(run.stdout)["results"]
+
+
+# The steps the stage_status and unit_status features share.
+
+
+@pytest.fixture
+def memory():
+    """What a scenario remembers between steps: the stage, hash and bodies of its first stage check, a jump's target."""
+    return {}
+
+
+@given(parsers.parse('the coding agent has run earnest check --stage "{stage}"'))
+def agent_has_run_stage_check(repo, memory, stage):
+    run = run_earnest(repo, "check", "--stage", stage)
+    assert run.returncode != 2, run.stderr  # the run happened: a missing command or a refusal exits 2
+    header(repo, stage)  # and the record holds that stage's run header
+    memory["stage"] = stage
+    memory.setdefault("hash", printed_hash(run))
+    memory.setdefault("bodies", record(repo)["bodies"])
+
+
+@when("the coding agent runs earnest plan", target_fixture="run")
+def agent_runs_plan(repo):
+    return run_earnest(repo, "plan")
+
+
+@when("the coding agent runs earnest check", target_fixture="run")
+def agent_runs_check(repo):
+    return run_earnest(repo, "check")
+
+
+@when(parsers.parse('the coding agent runs earnest check --stage "{stage}"'), target_fixture="run")
+def agent_runs_stage_check(repo, memory, stage):
+    memory["stage"] = stage
+    return run_earnest(repo, "check", "--stage", stage)
+
+
+@then("the plan lists these stages in route order:")
+def plan_lists_stages(run, datatable):
+    actual = [(stage["stage"], stage["status"], approval_text(stage)) for stage in intent_plan(run)["stages"]]
+    assert actual == [(row["stage"], row["status"], row["approval"]) for row in rows(datatable)]
+
+
+@then(parsers.parse('the frontier is "{stage}"'))
+def frontier_is(run, stage):
+    assert intent_plan(run)["frontier"] == stage
+
+
+@then("the plan lists these tasks:")
+def plan_lists_tasks(run, datatable):
+    actual = [(task["id"], task["status"]) for task in intent_plan(run)["tasks"]]
+    assert actual == [(row["task"], row["status"]) for row in rows(datatable)]
+
+
+@then(parsers.re(r'the plan lists "(?P<first>[^"]+)"(?: and "(?P<second>[^"]+)")? among the stages'))
+def plan_lists_stage(run, first, second):
+    stages = [stage["stage"] for stage in intent_plan(run)["stages"]]
+    assert first in stages
+    assert second is None or second in stages
+
+
+@then(parsers.parse('"{stage}" has the approval "{approval}"'))
+def stage_has_approval(run, stage, approval):
+    assert {entry["stage"]: approval_text(entry) for entry in intent_plan(run)["stages"]}[stage] == approval
+
+
+@then("no assessment record exists")
+def no_record(repo):
+    assert not (repo / ".earnest").exists()
+
+
+@then("the summary prints the assessment hash")
+def summary_prints_hash(run):
+    printed_hash(run)
+
+
+@then('the SARIF log gives the same hash and the stage status "not done"')
+def sarif_gives_hash_and_status(run):
+    assessment = sarif_run(run.stdout)["properties"]["assessment"]
+    assert assessment["hash"] == printed_hash(run)
+    assert assessment["status"] == "not done"
+
+
+@then(parsers.parse('the run header for "{stage}" in the assessment record holds:'))
+def run_header_holds(repo, run, stage, datatable):
+    held = header(repo, stage)
+    for row in rows(datatable):
+        field, value = row["field"], row["value"]
+        actual = held[field]
+        if field == "commit":
+            value = git_output(repo, "rev-parse", "HEAD").strip()
+        elif field == "hash":
+            value = printed_hash(run)
+        elif field == "dirty":
+            value = value == "true"
+        elif field in {"layers", "items"}:
+            actual = ", ".join(actual)
+        assert actual == value, field
+
+
+@then("Git lists no new file")
+def git_lists_no_new_file(repo):
+    assert git_output(repo, "ls-files", "--others", "--exclude-standard") == ""
+
+
+@then(parsers.parse("the {command} exits with code 2, with empty stdout"))
+def exits_with_code_two(run, command):
+    assert command in {"plan", "check"}
+    assert (run.returncode, run.stdout) == (2, "")

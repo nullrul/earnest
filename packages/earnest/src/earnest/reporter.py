@@ -168,7 +168,11 @@ def _intent_lines(entry: Mapping[str, Any]) -> list[str]:
         lines.append(f"  {stage['stage']}: {stage['status']}, approval {approval}")
     lines.append(f"  frontier: {entry['frontier'] or 'none'}")
     lines.extend(f"  task {task['id']}: {task['status']}" for task in entry["tasks"])
-    lines.extend(f"  unit {unit['id']}: {unit['status']}" for unit in entry["units"])
+    lines.extend(
+        f"  unit {unit['id']}: {unit['status']}, directory {unit['directory'] or 'none'},"
+        f" frontier {unit['frontier'] or 'none'}"
+        for unit in entry["units"]
+    )
     return lines
 
 

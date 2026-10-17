@@ -92,14 +92,16 @@ earnest/
         broken-links/
         seeded-change/
           change/
+          units/
         calibration/
 ```
 
 `03` and `04` follow this document. A name in angle brackets stands for one
 file per module, language, flow or milestone. The units variant of
-`seeded-change` that M2b of `03` adds (a `units-generation` row on the route,
-Unit Progress, `Unit`-scoped approval rows) is a second history of the same
-directory, so the tree lists `seeded-change/` once.
+`seeded-change` that M2b of `03` adds (a units route, a `Unit ID` and
+`Directory` table, per-unit stages and future-format `Unit` rows) is a second
+history of the same directory, from its `units/` overlay, so the tree lists
+`seeded-change/` once.
 
 ## Fork delta
 
@@ -141,6 +143,7 @@ core/
     aidlc-sensor.ts                       changed
     aidlc-sensor-earnest.ts               new
     aidlc-state.ts                        changed
+    aidlc-unit.ts                         changed
     data/templates/
       <artifact>.md                       new
 tests/
@@ -186,7 +189,8 @@ tests/
   stage's artifacts are unchanged since the sensor ran; the Fork-delta path that
   holds those two checks is an open question of `01`. The unit gate's emit site
   (`core/tools/aidlc-unit.ts`) and the team gates of `aidlc-state.ts` join this
-  delta with M2b of `03`.
+  delta with M7 of `03`, which also writes `Unit`, by the id rule, on the solo
+  approve path's `GATE_APPROVED` row.
 - `core/tools/data/templates/<artifact>.md`: one template per artifact that the
   mapping table of `01` marks adapted, written in Earnest's item syntax.
   Upstream reserves this directory, holding only a `.gitkeep`, for
@@ -313,8 +317,9 @@ its line says "Owns", and each such rule has exactly one owner.
   scanner skips them; builds the route from Stage Progress and the counting
   `STAGE_SKIPPED` rows; orders the audit rows by timestamp, shard name and
   position; applies the attempt, jump and rejection rules of Frontier and
-  position to read each stage's approval; refuses a route that holds
-  `units-generation` (exit 2); and raises `earnest/route-mismatch`. Computes
+  position to read each stage's approval; reads the unit table and the
+  unit-scoped rows of Per-unit stages and units in `01`; and raises
+  `earnest/route-mismatch`. Computes
   each stage's status and reasons, `dirty`, and the assessment document of the
   Assessment hash section of `01`.
 - `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule.
@@ -347,12 +352,14 @@ its line says "Owns", and each such rule has exactly one owner.
 - `__init__.py`, and one in each test directory that holds Python: the package
   markers that ruff's `INP` rule asks for, which also keep test module names
   unique across tiers.
-- `conftest.py`: shared fixtures. It copies a fixture's files, less its
-  `change/` overlay, into `tmp_path` and commits them with `git` as a base
-  commit on `main`, and a separate step commits the overlay on a `task/…`
-  branch when there is one, because the record must be written between the two
-  commits. Steps that two or more features share live here too.
-- `sarif.py`: the SARIF helpers shared by the step module and the unit and
+- `conftest.py`: shared fixtures and the steps two or more features share. It
+  copies a fixture's files, less its `change/` and `units/` overlays, into
+  `tmp_path` and commits them with `git` as a base commit on `main`, and a
+  separate step commits the `change/` overlay on a `task/…` branch, because the
+  record must be written between the two commits. The units variant leaves out
+  the intent's record directory too and adds the `units/` overlay's in the same
+  commit.
+- `sarif.py`: the plain helpers shared by the step modules and the unit and
   integration tests.
 - `unit/test_<module>.py`: one test module per module of `src/earnest/`.
 - `unit/adapters/test_<language>.py`: one per host adapter.
@@ -546,8 +553,8 @@ Each decision refers to the tree in the File and directory tree section.
   `seeded-change`. Plain files keep each seeded defect in view at review, where
   a bundle holds it in binary and a generated fixture holds it in code. The
   units variant of `seeded-change` is a second history of the same files, built
-  by `conftest.py` from the same files plus a `units/` overlay, so it adds no
-  fixture directory.
+  by `conftest.py` from the same files with the intent's record directory taken
+  from a `units/` overlay, so it adds no fixture directory.
 
 ### L7 Where the assessment record lives
 
@@ -599,11 +606,10 @@ Each decision refers to the tree in the File and directory tree section.
 | Question | Owner | Resolved by |
 | --- | --- | --- |
 | The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts | maintainer | a revision of `01`, before the calibration gate runs |
-| The fork repository's name and owner; this repository is `cajias/earnest` | maintainer | creating the fork |
+| The fork repository's name and owner; this repository is `nullrul/earnest` | maintainer | creating the fork |
 | How the fork's sensor script finds the `earnest` command: an installed tool on the path, or a pinned invocation | maintainer | the milestone of `03` that wires the sensor |
 | `01` replaces each unit's `source-manifest.json`, and seven upstream tools read it: `aidlc-attest.ts`, `aidlc-construction-checkpoints.ts`, `aidlc-log.ts`, `aidlc-review-brief.ts`, `aidlc-state.ts`, `aidlc-swarm.ts` and `aidlc-swarm-checkpoints.ts` in `core/tools/`. Keep writing it as AI-DLC input that Earnest never counts as evidence, or extend the Fork delta to those tools? | maintainer | a revision of `01` |
 | Upstream artifacts the mapping table leaves unnamed: NFR Requirements' `scalability-requirements`, `reliability-requirements` and `tech-stack-decisions`, NFR Design's `scalability-design`, `reliability-design` and `logical-components`, and Build and Test's agent-written `cross-unit-traceability.md` | maintainer | a revision of `01` |
 | User Stories keeps AI-DLC's `traceability` sensor, which finds requirement ids in `requirements.md` by the pattern `FR\d+(?:\.\d+)?`, while the adapted file names them like `req~fr1-2~1`. Keep the AI-DLC id in each item's prose, or move User Stories to `earnest`? | maintainer | a revision of `01` |
 | Whether the fork holds the `earnest` sensor on through the per-intent `/aidlc --sensors off` and the `AIDLC_DISABLE_SENSORS=1` kill switch, which turn the sensors ceremony off under every scope | maintainer | a revision of `01` |
 | Which upstream tests pin the bundled sensor ids, the dispatcher routes or a stage's `sensors:` list, and so change with the Fork delta; a search names `t86-sensor-manifest-schema`, `t227-tool-entrypoint-exports`, `t230-dispatcher-routes` and `t349-gate-sensor-reachability` in `tests/unit/`, and `t48` may pin the `audit-format.md` table | maintainer | the first run of upstream's suite on the fork |
-| Whether the units variant of `seeded-change` is a second history built from a `units/` overlay, as L6 states, or a fourth fixture directory | maintainer | the task plan of M2b of `03` |
