@@ -142,6 +142,11 @@ def test_has_commit_tells_a_commit_from_an_unknown_sha(files_repo):
     assert not git.has_commit(repo, "--all")
 
 
+@pytest.mark.parametrize("commit", [None, 123, ["0" * 40]])
+def test_has_commit_is_false_for_a_commit_that_is_no_string(files_repo, commit):
+    assert not git.has_commit(files_repo({"a.md": "a\n"}), commit)  # a record edited by hand, read as no baseline
+
+
 def test_changed_lines_reads_modified_added_and_deleted_lines_as_hunks(files_repo):
     repo = files_repo({"a.py": "1\n2\n3\n4\n5\n6\n7\n8\n"})
     base = git.head_commit(repo)

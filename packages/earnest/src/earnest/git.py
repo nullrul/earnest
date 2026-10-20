@@ -83,9 +83,13 @@ def head_commit(root: Path) -> str:
     return _git(root, "rev-parse", "HEAD").strip()
 
 
-def has_commit(root: Path, sha: str) -> bool:
-    """Return whether sha, a hex string, names a commit the repository holds."""
-    return _SHA.fullmatch(sha) is not None and _maybe(root, "cat-file", "-e", f"{sha}^{{commit}}") is not None
+def has_commit(root: Path, sha: object) -> bool:
+    """Return whether sha, a hex string, names a commit the repository holds; anything that is no string names none."""
+    return (
+        isinstance(sha, str)
+        and _SHA.fullmatch(sha) is not None
+        and _maybe(root, "cat-file", "-e", f"{sha}^{{commit}}") is not None
+    )
 
 
 def changed_lines(

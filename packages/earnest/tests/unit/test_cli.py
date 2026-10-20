@@ -328,6 +328,22 @@ def test_a_current_task_line_naming_no_task_gives_no_task_change_and_one_line(fi
     ]
 
 
+def test_a_current_task_in_no_intent_gives_no_task_change_and_one_line(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    write(repo, "docs/loose.md", "# Loose\n\n`task~stray~1`\n")  # a task outside every intent's record directory
+    code, out, err = run(repo, monkeypatch, capsys, "check", "--task", "task~stray~1")
+    assert code == 0
+    log = sarif_run(out)
+    assert not {"earnest/out-of-task", "earnest/impact-degraded"} & {result["ruleId"] for result in log["results"]}
+    assert "impact" not in log["properties"]
+    assert [line for line in err.splitlines() if line.startswith("task change:")] == [
+        (
+            "task change: the current task task~stray~1 lies in no intent, so no approved stage check gives a baseline;"
+            " no out-of-task check and no impact"
+        )
+    ]
+
+
 def test_a_stage_check_of_another_stage_leaves_out_of_task_out(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
     record_baseline(repo)

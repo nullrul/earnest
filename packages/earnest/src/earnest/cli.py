@@ -9,7 +9,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from earnest import adapters, git, impact, plan, reporter, structural
-from earnest.index import Index, Source, build_index
+from earnest.index import Index, Item, Source, build_index
 from earnest.reporter import Finding, Run
 
 
@@ -167,13 +167,9 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
     task, reason = plan.current_task(plan.plan_tasks(analysis.index, world.intents), world.intents, option)
     if task is None:
         return _without_task_change(analysis, f"no current task, as {reason}")
-    # the built intent, as only it holds the approvals of the per-unit stages
-    holder = next(each.intent for each in analysis.plans if plan.inside(each.intent, task.path))
-    base = plan.change_baseline(holder, world.record.runs)
+    base, missing = _baseline(world, analysis, task)
     if base is None:
-        return _without_task_change(analysis, "no approved stage check is recorded")
-    if not git.has_commit(world.root, base):
-        return _without_task_change(analysis, f"the approved stage check's commit {base} is not in the repository")
+        return _without_task_change(analysis, missing)
     tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
     # a file deleted since the baseline is read whole as deleted lines, when the scanner would read its path
     gone = {path for path in git.deleted_files(world.root, base) if plan.scanned(world.intents, path)}
@@ -185,6 +181,19 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
     selection = impact.select(world.root, analysis.index, change, impact.read_map(world.root, base))
     found += plan.degraded_findings(analysis.plans, analysis.index, selection.degraded, selection.deleted)
     return replace(analysis, findings=[*analysis.findings, *found], run=replace(analysis.run, impact=selection.impact))
+
+
+def _baseline(world: _World, analysis: _Analysis, task: Item) -> tuple[str | None, str]:
+    """Return the change baseline of the task's intent, or None and why there is none."""
+    holder = next((each.intent for each in analysis.plans if plan.inside(each.intent, task.path)), None)
+    if holder is None:  # the baseline is per intent, and an existing task id is no usage error
+        return None, f"the current task {task.id} lies in no intent, so no approved stage check gives a baseline"
+    base = plan.change_baseline(holder, world.record.runs)  # the built intent holds the per-unit approvals
+    if base is None:
+        return None, "no approved stage check is recorded"
+    if not git.has_commit(world.root, base):
+        return None, f"the approved stage check's commit {base} is not in the repository"
+    return base, ""
 
 
 def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
