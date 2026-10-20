@@ -135,39 +135,6 @@ def _commit_all(repo, message="next"):
     git_output(repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
 
 
-def test_current_branch_names_the_checked_out_branch(files_repo):
-    repo = files_repo({"a.md": "a\n"})
-    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
-    assert git.current_branch(repo) == "task/add-limiter-window"
-
-
-def test_current_branch_is_none_on_a_detached_head(files_repo):
-    repo = files_repo({"a.md": "a\n"})
-    git_output(repo, "checkout", "-q", "--detach")
-    assert git.current_branch(repo) is None
-
-
-def test_default_branch_is_main_without_an_origin_head(files_repo):
-    assert git.default_branch(files_repo({"a.md": "a\n"})) == "main"
-
-
-def test_default_branch_follows_origin_head(files_repo):
-    repo = files_repo({"a.md": "a\n"})
-    head = git.head_commit(repo)
-    git_output(repo, "update-ref", "refs/remotes/origin/trunk", head)
-    git_output(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
-    assert git.default_branch(repo) == "refs/remotes/origin/trunk"
-
-
-def test_merge_base_is_the_fork_point_of_a_branch(files_repo):
-    repo = files_repo({"a.md": "a\n"})
-    base = git.head_commit(repo)
-    git_output(repo, "checkout", "-q", "-b", "task/x-y")
-    (repo / "a.md").write_text("b\n", encoding="utf-8")
-    _commit_all(repo)
-    assert git.merge_base(repo, "main") == base
-
-
 def test_has_commit_tells_a_commit_from_an_unknown_sha(files_repo):
     repo = files_repo({"a.md": "a\n"})
     assert git.has_commit(repo, git.head_commit(repo))

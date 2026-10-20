@@ -150,7 +150,7 @@ class Selection:
     """What impact selects for a change: the impact section, and each line that selected the full suite.
 
     `degraded` holds each changed line, as its file and line; `deleted` each deleted line, as its file, the line of the
-    work tree it was deleted at, and its line in the base commit.
+    work tree it was deleted at, and its line in the baseline commit.
     """
 
     impact: Impact
@@ -160,25 +160,20 @@ class Selection:
 
 @dataclass(frozen=True)
 class Change:
-    """A change since the task's base commit: its hunks, the base, and the hunks since the coverage map's commit.
-
-    Both sets of hunks keep their deletions. `map_at_base` says whether the coverage map was taken at the base.
-    """
+    """A change since the change baseline: its hunks, deletions kept, and the baseline, whose map impact reads."""
 
     hunks: Mapping[str, Sequence[Hunk]]
     base: str
-    since_map: Mapping[str, Sequence[Hunk]]
-    map_at_base: bool = True
 
 
 def select(root: Path, index: Index, change: Change, coverage: CoverageMap | None) -> Selection:
     """Select the tests a change impacts, by the Impact rule.
 
-    A changed line is seen through the line it was at the map's commit, by `change.since_map`, the hunks from that
-    commit to the work tree, and selects the tests whose contexts covered it. A line the map never saw selects every
+    The map is the baseline's, so a changed line is seen through the baseline line its hunk pairs it with, and selects
+    the tests whose contexts covered it. A line the map never saw selects every
     test whose tag names, on type and name, what a tag region holding the line names. A line in no tag region selects
-    the full suite, every test the map holds, and is degraded. A line deleted since the base selects the tests that
-    covered it in a map taken at the base; with no such data it selects the full suite and is degraded, at the line
+    the full suite, every test the map holds, and is degraded. A line deleted since the baseline selects the tests that
+    covered it in the map; with no such data it selects the full suite and is degraded, at the line
     of the work tree it was deleted at. The requirements are those the changed tag regions
     name, and what they cover up to the requirements, at their current revision; the features are the `feat` items
     above them.
@@ -190,14 +185,14 @@ def select(root: Path, index: Index, change: Change, coverage: CoverageMap | Non
     for path, hunks in sorted(change.hunks.items()):
         for hunk in hunks:
             for old in hunk.deleted_lines:
-                covered = coverage.get((path, old), ()) if coverage is not None and change.map_at_base else ()
+                covered = coverage.get((path, old), ()) if coverage is not None else ()
                 tests.update(covered)
                 if not covered:
                     deleted.append((path, max(hunk.new_start + max(hunk.new_count - 1, 0), 1), old))
         for line in sorted({line for hunk in hunks for line in hunk.new_lines}):
             keys = {region.target.key for region in index.regions_at(path, line)}
             named |= keys
-            seen = _seen(coverage, change.since_map.get(path, ()), path, line)
+            seen = _seen(coverage, hunks, path, line)
             if seen:
                 tests.update(seen)
             elif keys:

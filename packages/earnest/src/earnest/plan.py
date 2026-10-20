@@ -278,6 +278,7 @@ class Approval:
     """A stage's approval: the ids and revisions its row names (None without an `Items` field), who gave it, its hash.
 
     `scope` names the stages whose items together make the approval current, for a unit-end row; empty is its stage.
+    `at` is the row's place in audit order, the key of its event.
     """
 
     stage: str
@@ -285,6 +286,7 @@ class Approval:
     by: str | None
     digest: str | None
     scope: tuple[str, ...] = ()
+    at: tuple[str, str, int] = field(default=("", "", 0), compare=False)
 
 
 @dataclass(frozen=True)
@@ -739,7 +741,12 @@ def _unit_approval(
     by = event.fields.get("Approved By")
     scope = tuple(sorted(stage_ids[each] for each in _gate_keys(event, lanes)))
     return Approval(
-        stage_ids[key], items, by if by in {"human", "automatic"} else None, event.fields.get("Assessment Hash"), scope
+        stage_ids[key],
+        items,
+        by if by in {"human", "automatic"} else None,
+        event.fields.get("Assessment Hash"),
+        scope,
+        event.key,
     )
 
 
@@ -789,7 +796,8 @@ def _approval(stage: str, gates: Sequence[Event]) -> Approval | None:
     if any(other.name == "GATE_REJECTED" and other.key > event.key for other in mine):
         return None
     by = event.fields.get("Approved By")
-    return Approval(stage, items, by if by in {"human", "automatic"} else None, event.fields.get("Assessment Hash"))
+    by = by if by in {"human", "automatic"} else None
+    return Approval(stage, items, by, event.fields.get("Assessment Hash"), at=event.key)
 
 
 def _named(gates: Sequence[Event]) -> frozenset[str]:
@@ -1283,8 +1291,8 @@ def assessment_document(
     It holds the stage's items with their body hashes, the findings of the run that lie in the evaluated tree, as
     their rule, uri, line, subject and message, and the tree's digest. It holds no position, commit, timestamp, route
     or approval, and no approval note, which a fresh approval removes. Nor does it hold the findings of the task
-    change, `out-of-task` and `impact-degraded`, which follow the branch, the merge-base and the coverage map, so two
-    identical runs and a rebase keep the hash.
+    change, `out-of-task` and `impact-degraded`, which follow the current task, the change baseline and the coverage
+    map, so two identical runs and a rebase keep the hash.
     """
     state = next(each for each in plan.stages if each.stage == stage)
     inside = {each.path for each in tree}
@@ -1414,6 +1422,21 @@ def current_task(
     ((holder, value),) = marks
     found = _task_named([task for task in tasks if inside(holder, task.path)], value)
     return (found, None) if found is not None else (None, f"`{value}` names no task of its intent")
+
+
+def change_baseline(intent: Intent, runs: Mapping[str, RunHeader]) -> str | None:
+    """Return the change baseline of an intent: the commit of its last approved stage check, or None.
+
+    A stage counts when its approval, current or outdated, carries the `Assessment Hash` of the run header the record
+    holds for it, so the header is the one approved; the latest such approval row in audit order gives the commit.
+    """
+    claims = [
+        (approval.at, held.commit)
+        for stage, approval in intent.approvals.items()
+        for held in (runs.get(run_key(intent.directory, stage)),)
+        if held is not None and approval.digest is not None and approval.digest == held.digest
+    ]
+    return max(claims)[1] if claims else None
 
 
 def _task_named(tasks: Sequence[Item], text: str) -> Item | None:
@@ -1551,8 +1574,8 @@ def degraded_findings(
     """Return an `impact-degraded` note at each line that selected the full suite, placed as every finding is.
 
     A changed line sits at its own line; a deleted line at the line of the work tree it was deleted at, naming its
-    line in the base commit. A line in a stage artifact counts against that stage, at its position; a line of code or
-    tests reaches no stage.
+    line in the baseline commit. A line in a stage artifact counts against that stage, at its position; a line of code
+    or tests reaches no stage.
     """
     found = [
         Finding(path, line, "earnest/impact-degraded", f"{path}:{line}", reporter.DEGRADED) for path, line in places

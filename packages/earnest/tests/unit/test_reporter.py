@@ -507,7 +507,7 @@ def test_summary_says_the_full_suite_and_the_missing_map_when_impact_is_degraded
     lines = reporter.summary([], {}, Run(commit="abc", impact=unmapped)).splitlines()
     assert "  tests: the full suite" in lines
     assert "  degraded: yes" in lines
-    assert f"  coverage map: none for the base commit {'b' * 40}" in lines
+    assert f"  coverage map: none for the baseline commit {'b' * 40}" in lines
     assert sarif_run(reporter.sarif([], {}, Run(commit="abc", impact=unmapped)))["properties"]["impact"] == {
         "requirements": [],
         "features": [],

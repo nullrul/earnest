@@ -94,6 +94,8 @@ def state_file_names_task(repo, marked):
 def task_change_committed(repo, memory, commit_task_change):
     commit_task_change(repo, TASK_BRANCH)
     memory["head"] = git_output(repo, "rev-parse", "HEAD").strip()
+    # the state file's marker and the approval row stay uncommitted, so the listing at this step is the one to keep
+    memory["status"] = git_output(repo, "status", "--porcelain", "--untracked-files=all")
 
 
 @given("the coding agent's task change is left uncommitted on main")
@@ -214,7 +216,7 @@ def plan_lists_task(run, task, status):
 @then("the repository is unchanged since the task change")
 def unchanged_since_task_change(repo, memory):
     assert git_output(repo, "rev-parse", "HEAD").strip() == memory["head"]
-    assert git_output(repo, "status", "--porcelain", "--untracked-files=all") == ""
+    assert git_output(repo, "status", "--porcelain", "--untracked-files=all") == memory["status"]
 
 
 # The impact section.

@@ -9,7 +9,7 @@ from earnest.git import Hunk
 from earnest.index import MARKDOWN, Id, Index, Item, Link, Region, Source, build_index
 from earnest.index import digest as digest_of
 from earnest.plan import Approval, ChangedRegion, Event, Record, Row
-from earnest.reporter import Finding, Run
+from earnest.reporter import Finding, Run, RunHeader
 from tests.sarif import PLAN_FILE, write
 from tests.sarif import REQUIREMENTS as REQUIREMENTS_FILE
 
@@ -2680,7 +2680,7 @@ def test_a_deleted_line_that_selected_the_full_suite_is_degraded_where_it_was_an
         "inception/requirements-analysis",
         "note",
     )
-    assert "line 5 of the base commit" in found.message
+    assert "line 5 of the baseline commit" in found.message
     assert "impact selected the full suite" in found.message
 
 
@@ -2702,3 +2702,73 @@ def test_scanned_is_a_file_of_the_evaluated_tree_by_its_path_alone(fixture_repo)
     assert not plan.scanned(intents, "aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md")
     assert not plan.scanned(intents, "aidlc/spaces/default/intents/260926-checkout/aidlc-state.md")
     assert not plan.scanned(intents, "data/blob.bin")
+
+
+# The change baseline: the commit of the last approved stage check the record holds.
+
+GATE_REQ, GATE_CG = "inception/requirements-analysis", "construction/code-generation"
+
+
+def held_header(stage, digest, commit, dirty=False):
+    return RunHeader("r", stage, commit, dirty, "2026-09-26T12:00:00Z", ("trace",), None, None, (), "done", {}, digest)
+
+
+def baseline_intent(*rows):
+    """Return an intent whose audit holds one GATE_APPROVED row per (stage, hash, timestamp).
+
+    Its approvals are the latest row of each stage, as `plan.intent` reads them.
+    """
+    events = tuple(
+        Event((at, "a.md", number), "GATE_APPROVED", {"Stage": stage.rpartition("/")[2], "Assessment Hash": digest})
+        for number, (stage, digest, at) in enumerate(rows)
+    )
+    approvals = {}
+    for event, (stage, digest, _) in sorted(zip(events, rows, strict=True), key=lambda pair: pair[0].key):
+        approvals[stage] = Approval(stage, None, "human", digest, at=event.key)
+    return plan.Intent("r", "r/aidlc-state.md", (), tuple(approvals), approvals, frozenset(), (), events=events)
+
+
+def runs_of(*headers):
+    return {f"r/{each.stage}": each for each in headers}
+
+
+def test_the_baseline_is_the_commit_of_the_header_whose_hash_the_approval_row_carries():
+    intent = baseline_intent((GATE_REQ, "h1", "2026-09-26T12:00:00Z"))
+    assert plan.change_baseline(intent, runs_of(held_header(GATE_REQ, "h1", "c1"))) == "c1"
+
+
+def test_the_latest_approval_row_in_audit_order_gives_the_baseline_across_stages():
+    intent = baseline_intent((GATE_CG, "h2", "2026-09-27T12:00:00Z"), (GATE_REQ, "h1", "2026-09-26T12:00:00Z"))
+    runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h2", "c2"))
+    assert plan.change_baseline(intent, runs) == "c2"
+
+
+def test_a_later_stage_check_that_replaces_the_header_ends_that_stage_s_claim():
+    intent = baseline_intent((GATE_REQ, "h1", "2026-09-26T12:00:00Z"), (GATE_CG, "h2", "2026-09-27T12:00:00Z"))
+    runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h3", "c3"))
+    assert plan.change_baseline(intent, runs) == "c1"
+
+
+@pytest.mark.parametrize("digest", [None, "sha256:placeholder"])
+def test_a_row_without_the_header_s_hash_gives_no_baseline(digest):
+    intent = baseline_intent((GATE_REQ, digest, "2026-09-26T12:00:00Z"))
+    assert plan.change_baseline(intent, runs_of(held_header(GATE_REQ, "h1", "c1"))) is None
+
+
+def test_a_stage_without_a_held_header_or_an_approval_gives_no_baseline():
+    assert plan.change_baseline(baseline_intent((GATE_REQ, "h1", "2026-09-26T12:00:00Z")), {}) is None
+    assert plan.change_baseline(baseline_intent(), runs_of(held_header(GATE_REQ, "h1", "c1"))) is None
+
+
+def test_a_per_unit_stage_and_a_dirty_header_give_the_baseline_as_held():
+    stage = "construction/unit-a/code-generation"
+    intent = baseline_intent((stage, "h1", "2026-09-26T12:00:00Z"))
+    assert plan.change_baseline(intent, runs_of(held_header(stage, "h1", "c1", dirty=True))) == "c1"
+
+
+def test_the_stage_s_counting_row_gives_its_place_in_audit_order():
+    # a stage approved again with the same hash is at its latest row, after the other stage
+    rows = ((GATE_REQ, "h1", "2026-09-26T12:00:00Z"), (GATE_CG, "h2", "2026-09-27T12:00:00Z"))
+    intent = baseline_intent(*rows, (GATE_REQ, "h1", "2026-09-28T12:00:00Z"))
+    runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h2", "c2"))
+    assert plan.change_baseline(intent, runs) == "c1"

@@ -3,7 +3,7 @@
 import json
 
 from earnest import impact
-from tests.sarif import git_output, located, printed_hash, record, run_earnest
+from tests.sarif import git_output, located, printed_hash, record, record_baseline, run_earnest
 
 
 CODE_STAGE = "construction/code-generation"
@@ -46,34 +46,12 @@ def write_lines(repo, path, lines):
     (repo / path).write_text("\n".join(lines), encoding="utf-8")
 
 
-def test_a_map_taken_after_the_base_is_read_through_a_deletion_since_its_commit(fixture_repo):
-    repo = fixture_repo("seeded-change")
-    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
-    lines = lines_of(repo, AUTH)
-    lines[5] = "    return min(window, 5)"
-    lines.insert(5, "    # the window is capped")  # line 6 at A; the return moves to line 7
-    write_lines(repo, AUTH, lines)
-    commit_all(repo, "a")
-    assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
-    commit = git_output(repo, "rev-parse", "HEAD").strip()
-    assert record(repo)["coverage"] == {"commit": commit}
-    del lines[5]  # since A only a deletion; since the base only line 6 is modified
-    write_lines(repo, AUTH, lines)
-    done = run_earnest(repo, "check", *TASK)
-    impact_property = json.loads(done.stdout)["runs"][0]["properties"]["impact"]
-    assert impact_property == {
-        "requirements": ["req~rate-limit~1"],
-        "features": [],
-        # from the map's line 7, not the tags' choice for the line, which leaves test_audit_lockout out
-        "tests": ["tests/test_auth.py::test_audit_lockout", "tests/test_auth.py::test_count_failed_logins"],
-        "degraded": False,
-    }
+SHARD = "aidlc/spaces/default/intents/260926-checkout/audit/other.md"
 
 
-def test_a_line_deleted_since_the_base_selects_the_tests_the_map_at_the_base_saw_run_it(fixture_repo):
+def test_a_line_deleted_since_the_baseline_selects_the_tests_the_baseline_s_map_saw_run_it(fixture_repo):
     repo = fixture_repo("seeded-change")
-    assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
-    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
+    record_baseline(repo)
     lines = lines_of(repo, AUTH)
     del lines[10]  # `return "Try again later."`, which test_lockout_message runs
     write_lines(repo, AUTH, lines)
@@ -84,37 +62,36 @@ def test_a_line_deleted_since_the_base_selects_the_tests_the_map_at_the_base_saw
     assert "earnest/out-of-task" not in [result["ruleId"] for result in found["results"]]  # a deletion raises none
 
 
-def test_two_stage_checks_on_a_task_branch_give_the_same_hash_though_the_first_takes_the_map(fixture_repo):
-    repo = fixture_repo("seeded-change")
-    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
-    code = lines_of(repo, AUTH)
-    code[1:3] = ["def helper() -> int:", "    return 1"]  # in no tag region, and run only by a test
-    write_lines(repo, AUTH, code)
-    tests = lines_of(repo, "tests/test_auth.py")
-    tests[1] = "from checkout.auth import audit_lockout, count_failed_logins, helper, lockout_message"
-    tests[5] = "    assert count_failed_logins(3) == 3 * helper()"
-    write_lines(repo, "tests/test_auth.py", tests)
-    commit_all(repo, "helper")
-    first = run_earnest(repo, "check", "--stage", CODE_STAGE, *TASK)
-    second = run_earnest(repo, "check", "--stage", CODE_STAGE, *TASK)
-    degraded = [
-        [
-            result["locations"][0]["physicalLocation"]["region"]["startLine"]
-            for result in json.loads(run.stdout)["runs"][0]["results"]
-            if result["ruleId"] == "earnest/impact-degraded"
-            and result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == AUTH
-        ]
-        for run in (first, second)
+def degraded_lines(done):
+    return [
+        result["locations"][0]["physicalLocation"]["region"]["startLine"]
+        for result in json.loads(done.stdout)["runs"][0]["results"]
+        if result["ruleId"] == "earnest/impact-degraded"
+        and result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == AUTH
     ]
-    assert degraded == [[2, 3], [2]]  # the map the first run took sees line 3 run by a test
+
+
+def test_two_stage_checks_give_the_same_hash_though_only_the_first_reads_a_coverage_map(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    base = record_baseline(repo)
+    code = lines_of(repo, AUTH)
+    del code[10]  # `return "Try again later."`: the map saw test_lockout_message run it, so only its absence degrades
+    write_lines(repo, AUTH, code)
+    commit_all(repo, "delete")
+    first = run_earnest(repo, "check", "--stage", CODE_STAGE, *TASK)
+    for taken in (repo / ".earnest/coverage").glob(f"{base}*"):  # the baseline's map, which this test's check took
+        taken.unlink()
+    second = run_earnest(repo, "check", "--stage", CODE_STAGE, *TASK)
+    assert (degraded_lines(first), degraded_lines(second)) == ([], [10])
     assert printed_hash(first) == printed_hash(second)
 
 
-def test_a_file_deleted_since_the_base_is_read_by_impact_and_a_deleted_audit_shard_is_not(fixture_repo):
+def test_a_file_deleted_since_the_baseline_is_read_by_impact_and_a_deleted_audit_shard_is_not(fixture_repo):
     repo = fixture_repo("seeded-change")
-    assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
-    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
-    git_output(repo, "rm", "-q", AUTH, "aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md")
+    (repo / SHARD).write_text("# Other\n", encoding="utf-8")
+    commit_all(repo, "a second shard")
+    record_baseline(repo)
+    git_output(repo, "rm", "-q", AUTH, SHARD)
     found = json.loads(run_earnest(repo, "check", *TASK).stdout)["runs"][0]
     task_change = [
         (located(result), result["properties"].get("stage"), result["level"])

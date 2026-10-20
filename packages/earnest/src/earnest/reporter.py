@@ -92,7 +92,7 @@ class Finding:
 def deleted_message(line: int) -> str:
     """Return the message of an `impact-degraded` note at a deleted line with no coverage data."""
     return (
-        f"line {line} of the base commit was deleted here and no coverage data covers it, so impact selected the"
+        f"line {line} of the baseline commit was deleted here and no coverage data covers it, so impact selected the"
         " full suite: run every test"
     )
 
@@ -107,7 +107,7 @@ def out_of_task_message(task: str, tags: Sequence[str]) -> str:
 class Impact:
     """The impact section: the impacted requirements and features, the tests to run, and whether it is degraded.
 
-    `base` is the task's base commit and `mapped` whether a coverage map was read. With no map, a degraded impact
+    `base` is the change baseline and `mapped` whether a coverage map was read. With no map, a degraded impact
     selects the full suite as no test, and the summary says so.
     """
 
@@ -138,7 +138,7 @@ class Impact:
             f"  degraded: {'yes' if self.degraded else 'no'}",
         ]
         if not self.mapped:
-            lines.append(f"  coverage map: none for the base commit {self.base}")
+            lines.append(f"  coverage map: none for the baseline commit {self.base}")
         return lines
 
 

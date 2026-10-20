@@ -158,28 +158,30 @@ def _plan(world: _World) -> _Result:
 def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Analysis:
     """Add the task change: out-of-task findings when a current task is known, and the impact of the diff.
 
-    Both read the diff since the task's base commit, and run only with a current task; without one the summary says
-    so once, and with no changed line in the evaluated tree the analysis returns as it was.
+    Both read the diff since the change baseline, the commit of the current task's intent's last approved stage
+    check, and run only with a current task and a baseline; without either the summary says so once, and with no
+    changed line in the evaluated tree the analysis returns as it was. No Git branch is read.
     """
     if not world.intents:  # no plan, so no task to speak of: M1's output stays as it was
         return analysis
     task, reason = plan.current_task(plan.plan_tasks(analysis.index, world.intents), world.intents, option)
     if task is None:
         return _without_task_change(analysis, f"no current task, as {reason}")
-    default = git.default_branch(world.root)
-    try:
-        base = git.merge_base(world.root, default)
-    except git.GitError:  # no default branch, or an orphan branch: no base, so the check runs without the task change
-        name = default.removeprefix("refs/remotes/")
-        return _without_task_change(analysis, f"no base commit, as HEAD has no merge-base with {name}")
+    holder = next(each for each in world.intents if plan.inside(each, task.path))
+    base = plan.change_baseline(holder, world.record.runs)
+    if base is None:
+        return _without_task_change(analysis, "no approved stage check is recorded")
+    if not git.has_commit(world.root, base):
+        return _without_task_change(analysis, f"the approved stage check's commit {base} is not in the repository")
     tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
-    # a file deleted since the base is read whole as deleted lines, when the scanner would read its path
+    # a file deleted since the baseline is read whole as deleted lines, when the scanner would read its path
     gone = {path for path in git.deleted_files(world.root, base) if plan.scanned(world.intents, path)}
     changed = git.changed_lines(world.root, base, tree | gone, keep_deletions=True)  # a deletion has no region
     if not changed:
         return analysis
     found = plan.out_of_task(analysis.plans, analysis.index, task, changed, analysis.findings)
-    selection = _impact(world, analysis.index, impact.Change(changed, base, changed), tree)
+    change = impact.Change(changed, base)
+    selection = impact.select(world.root, analysis.index, change, impact.read_map(world.root, base))
     found += plan.degraded_findings(analysis.plans, analysis.index, selection.degraded, selection.deleted)
     return replace(analysis, findings=[*analysis.findings, *found], run=replace(analysis.run, impact=selection.impact))
 
@@ -187,19 +189,6 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
 def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
     note = f"task change: {reason}; no out-of-task check and no impact"
     return replace(analysis, run=replace(analysis.run, notes=(*analysis.run.notes, note)))
-
-
-def _impact(world: _World, index: Index, change: impact.Change, tree: set[str]) -> impact.Selection:
-    """Select the impact of a change against the coverage map the record names, remapped since its commit."""
-    commit = world.record.coverage.get("commit")
-    if not impact.is_commit(commit) or not git.has_commit(world.root, str(commit)):
-        return impact.select(world.root, index, change, None)
-    taken = str(commit)
-    coverage = impact.read_map(world.root, taken)
-    if coverage is not None and taken != change.base:
-        since_map = git.changed_lines(world.root, taken, tree, keep_deletions=True)
-        change = replace(change, since_map=since_map, map_at_base=False)
-    return impact.select(world.root, index, change, coverage)
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:

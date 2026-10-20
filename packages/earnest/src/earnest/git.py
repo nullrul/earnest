@@ -1,4 +1,4 @@
-"""Repository reader: the work tree's root, the files Git lists for it, its commit and branch, and what changed."""
+"""Repository reader: the work tree's root, the files Git lists for it, its commit, and what changed."""
 
 import re
 import shutil
@@ -9,7 +9,6 @@ from pathlib import Path
 
 
 _RECORD_DIRECTORY = ".earnest"
-_DEFAULT = "main"
 _HUNK = re.compile(r"@@ -([0-9]+)(?:,([0-9]+))? \+([0-9]+)(?:,([0-9]+))? @@")
 _SHA = re.compile(r"[0-9a-f]{4,64}")
 
@@ -82,23 +81,6 @@ def changes(root: Path) -> list[str]:
 def head_commit(root: Path) -> str:
     """Return the full sha of the commit HEAD names."""
     return _git(root, "rev-parse", "HEAD").strip()
-
-
-def current_branch(root: Path) -> str | None:
-    """Return the short name of the branch HEAD names, or None on a detached HEAD."""
-    name = _maybe(root, "symbolic-ref", "--quiet", "--short", "HEAD")
-    return name.strip() if name else None
-
-
-def default_branch(root: Path) -> str:
-    """Return the branch `refs/remotes/origin/HEAD` names, as a full ref, or `main` when it is not set."""
-    name = _maybe(root, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD")
-    return name.strip() if name else _DEFAULT
-
-
-def merge_base(root: Path, branch: str) -> str:
-    """Return the full sha of the merge-base of HEAD with branch."""
-    return _git(root, "merge-base", "HEAD", branch).strip()
 
 
 def has_commit(root: Path, sha: str) -> bool:

@@ -92,3 +92,13 @@ def header(repo, stage):
 
 def results(run):
     return sarif_run(run.stdout)["results"]
+
+
+def record_baseline(repo, stage="inception/requirements-analysis"):
+    """Record a change baseline: a stage check of stage, then its approval at the gate carrying that header's hash."""
+    done = run_earnest(repo, "check", "--stage", stage)
+    assert done.returncode != 2, done.stderr
+    held = header(repo, stage)
+    fields = [("Stage", stage.split("/")[-1]), ("Assessment Hash", held["hash"]), ("Approved By", "human")]
+    append_block(repo, "GATE_APPROVED", "2026-09-27T12:00:00Z", fields)
+    return held["commit"]

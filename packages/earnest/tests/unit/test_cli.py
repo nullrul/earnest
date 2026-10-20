@@ -8,7 +8,7 @@ import sys
 import pytest
 
 from earnest import cli
-from tests.sarif import PLAN_FILE, RECORD, located, sarif_run, write
+from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
 
 
 CHECK = [sys.executable, "-c", "import sys; from earnest.cli import main; sys.exit(main(['check']))"]
@@ -330,6 +330,7 @@ def test_a_current_task_line_naming_no_task_gives_no_task_change_and_one_line(fi
 
 def test_a_stage_check_of_another_stage_leaves_out_of_task_out(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
+    record_baseline(repo)
     mark(repo, "task~add-limiter~1")
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     _, out, _ = run(repo, monkeypatch, capsys, "check")
@@ -340,6 +341,7 @@ def test_a_stage_check_of_another_stage_leaves_out_of_task_out(fixture_repo, mon
 
 def test_without_a_current_task_line_only_the_task_option_names_the_task(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
+    record_baseline(repo)
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     _, out, _ = run(repo, monkeypatch, capsys, "check")
     assert "earnest/out-of-task" not in [result["ruleId"] for result in sarif_run(out)["results"]]
@@ -355,6 +357,7 @@ def test_a_repository_without_a_plan_prints_no_task_change_line(files_repo, monk
 
 def test_a_changed_audit_shard_or_state_file_raises_no_out_of_task(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
+    record_baseline(repo)
     for path in (f"{RECORD}/audit/fixture-a1b2c3d4.md", f"{RECORD}/aidlc-state.md", f"{RECORD}/audit/new.md"):
         target = repo / path
         write(repo, path, (target.read_text(encoding="utf-8") if target.exists() else "") + "\nmore\n")
@@ -364,20 +367,25 @@ def test_a_changed_audit_shard_or_state_file_raises_no_out_of_task(fixture_repo,
 
 def test_a_current_task_with_no_changed_line_prints_no_impact(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
+    record_baseline(repo)
     _, out, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
     assert "impact" not in sarif_run(out)["properties"]
     assert "impact:" not in err.splitlines()
 
 
-def test_a_record_naming_no_commit_as_its_map_reads_as_no_map(fixture_repo, monkeypatch, capsys):
+def test_impact_reads_the_baseline_s_map_alone_not_the_map_the_record_names_last(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
-    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
-    held = json.loads((repo / ".earnest/assessment.json").read_text(encoding="utf-8"))
-    held["coverage"] = {"commit": "../../outside"}
-    (repo / ".earnest/assessment.json").write_text(json.dumps(held), encoding="utf-8")
+    base = record_baseline(repo)
+    for taken in (repo / ".earnest/coverage").glob(f"{base}*"):  # the baseline's map, which this test's check took
+        taken.unlink()
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "later", "--no-verify"], cwd=repo, check=True, env=_identity()
+    )
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")  # a map at a later commit
+    assert record_of(repo)["coverage"]["commit"] not in {None, base}
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     _, _, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
-    assert any(line.startswith("  coverage map: none for the base commit") for line in err.splitlines())
+    assert f"  coverage map: none for the baseline commit {base}" in err.splitlines(), err
 
 
 # The map a stage check takes, or the reason it takes none.
@@ -428,26 +436,41 @@ def _identity():
     }
 
 
-NO_BASE = "task change: no base commit, as HEAD has no merge-base with main; no out-of-task check and no impact"
+NO_BASELINE = "task change: no approved stage check is recorded; no out-of-task check and no impact"
 
 
-def test_a_task_branch_without_a_default_branch_drops_the_task_change_with_one_note(fixture_repo, monkeypatch, capsys):
+def test_no_approved_stage_check_drops_the_task_change_with_one_note(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
-    subprocess.run(["git", "branch", "-q", "-m", "main", "task/add-limiter-window"], cwd=repo, check=True)
+    run(repo, monkeypatch, capsys, "check", "--stage", "inception/requirements-analysis")  # checked, never approved
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     code, out, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
     assert code == 0
     rules = [result["ruleId"] for result in sarif_run(out)["results"]]
     assert not {"earnest/out-of-task", "earnest/impact-degraded"} & set(rules)
     assert "impact" not in sarif_run(out)["properties"]
-    assert err.splitlines().count(NO_BASE) == 1
+    assert err.splitlines().count(NO_BASELINE) == 1
 
 
-def test_an_orphan_task_branch_drops_the_task_change_with_one_note(fixture_repo, monkeypatch, capsys):
+def test_a_baseline_commit_git_no_longer_holds_drops_the_task_change_with_one_note(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("seeded-change")
-    subprocess.run(["git", "checkout", "-q", "--orphan", "task/add-limiter-window"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-qm", "orphan", "--no-verify"], cwd=repo, check=True, env=_identity())
+    record_baseline(repo)
+    held = record_of(repo)
+    gone = "f" * 40
+    for header in held["runs"].values():
+        header["commit"] = gone
+    (repo / ".earnest/assessment.json").write_text(json.dumps(held), encoding="utf-8")
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     code, out, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
     assert code == 0
     assert "impact" not in sarif_run(out)["properties"]
-    assert NO_BASE in err.splitlines()
+    note = f"task change: the approved stage check's commit {gone} is not in the repository; no out-of-task check and no impact"
+    assert err.splitlines().count(note) == 1
+
+
+def test_the_baseline_is_read_whatever_the_branch(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    record_baseline(repo)
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=repo, check=True)
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    _, out, _ = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
+    assert "earnest/out-of-task" in [result["ruleId"] for result in sarif_run(out)["results"]]
