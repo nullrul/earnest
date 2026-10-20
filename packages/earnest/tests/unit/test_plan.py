@@ -1314,6 +1314,17 @@ def test_tree_digest_ignores_a_state_or_audit_edit():
     )
 
 
+def test_document_leaves_out_the_findings_of_the_task_change():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1", line=3)])
+    tree = [source(f"r/{REQUIREMENTS}/doc.md"), source("src/a.py")]
+    task_change = [
+        Finding(f"r/{REQUIREMENTS}/doc.md", 5, "earnest/impact-degraded", "x", "m", stage=REQUIREMENTS, intent="r"),
+        Finding("src/a.py", 2, "earnest/impact-degraded", "src/a.py:2", "m"),
+        Finding("src/a.py", 2, "earnest/out-of-task", "task~t~1", "m", stage=REQUIREMENTS, intent="r"),
+    ]
+    assert document(built, REQUIREMENTS, tree, task_change) == document(built, REQUIREMENTS, tree, [])
+
+
 def test_document_holds_position_free_findings():
     built, _ = planned(BASE, items=[hashed("req~b~1", "h2", line=8), hashed("req~a~1", "h1", line=3)])
     tree = [source(f"r/{REQUIREMENTS}/doc.md"), source("src/a.py")]

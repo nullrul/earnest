@@ -3,7 +3,7 @@
 import json
 
 from earnest import impact
-from tests.sarif import git_output, record, run_earnest
+from tests.sarif import git_output, printed_hash, record, run_earnest
 
 
 CODE_STAGE = "construction/code-generation"
@@ -81,3 +81,29 @@ def test_a_line_deleted_since_the_base_selects_the_tests_the_map_at_the_base_saw
     assert found["properties"]["impact"]["tests"] == ["tests/test_auth.py::test_lockout_message"]
     assert found["properties"]["impact"]["degraded"] is False
     assert "earnest/out-of-task" not in [result["ruleId"] for result in found["results"]]  # a deletion raises none
+
+
+def test_two_stage_checks_on_a_task_branch_give_the_same_hash_though_the_first_takes_the_map(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
+    code = lines_of(repo, AUTH)
+    code[1:3] = ["def helper() -> int:", "    return 1"]  # in no tag region, and run only by a test
+    write_lines(repo, AUTH, code)
+    tests = lines_of(repo, "tests/test_auth.py")
+    tests[1] = "from checkout.auth import audit_lockout, count_failed_logins, helper, lockout_message"
+    tests[5] = "    assert count_failed_logins(3) == 3 * helper()"
+    write_lines(repo, "tests/test_auth.py", tests)
+    commit_all(repo, "helper")
+    first = run_earnest(repo, "check", "--stage", CODE_STAGE)
+    second = run_earnest(repo, "check", "--stage", CODE_STAGE)
+    degraded = [
+        [
+            result["locations"][0]["physicalLocation"]["region"]["startLine"]
+            for result in json.loads(run.stdout)["runs"][0]["results"]
+            if result["ruleId"] == "earnest/impact-degraded"
+            and result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == AUTH
+        ]
+        for run in (first, second)
+    ]
+    assert degraded == [[2, 3], [2]]  # the map the first run took sees line 3 run by a test
+    assert printed_hash(first) == printed_hash(second)

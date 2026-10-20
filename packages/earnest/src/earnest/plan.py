@@ -1263,6 +1263,9 @@ def scoped(findings: Sequence[Finding], plan: Plan, stage: str) -> list[Finding]
     ]
 
 
+_TASK_CHANGE = frozenset({"earnest/out-of-task", "earnest/impact-degraded"})  # never in the assessment document
+
+
 def assessment_document(
     plan: Plan, stage: str, tree: Sequence[Source], findings: Sequence[Finding]
 ) -> dict[str, object]:
@@ -1270,11 +1273,17 @@ def assessment_document(
 
     It holds the stage's items with their body hashes, the findings of the run that lie in the evaluated tree, as
     their rule, uri, line, subject and message, and the tree's digest. It holds no position, commit, timestamp, route
-    or approval, and no approval note, which a fresh approval removes.
+    or approval, and no approval note, which a fresh approval removes. Nor does it hold the findings of the task
+    change, `out-of-task` and `impact-degraded`, which follow the branch, the merge-base and the coverage map, so two
+    identical runs and a rebase keep the hash.
     """
     state = next(each for each in plan.stages if each.stage == stage)
     inside = {each.path for each in tree}
-    counted = [found for found in scoped(findings, plan, stage) if not found.note and found.path in inside]
+    counted = [
+        found
+        for found in scoped(findings, plan, stage)
+        if not found.note and found.path in inside and found.rule not in _TASK_CHANGE
+    ]
     return {
         "v": 1,
         "stage": run_key(plan.intent.directory, stage),
