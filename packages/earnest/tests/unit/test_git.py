@@ -251,3 +251,25 @@ def test_changed_lines_leaves_the_index_alone(files_repo):
     before = (index.read_bytes(), index.stat().st_mtime_ns)
     assert git.changed_lines(repo, base, {"a.md"}) == {}
     assert (index.read_bytes(), index.stat().st_mtime_ns) == before
+
+
+def test_changed_lines_keeps_a_deletion_only_file_when_asked(files_repo):
+    repo = files_repo({"a.py": "1\n2\n3\n4\n"})
+    base = git.head_commit(repo)
+    (repo / "a.py").write_text("1\n4\n", encoding="utf-8")
+    assert git.changed_lines(repo, base, {"a.py"}) == {}
+    assert git.changed_lines(repo, base, {"a.py"}, keep_deletions=True) == {"a.py": (git.Hunk(2, 2, 1, 0),)}
+
+
+def test_a_hunk_lists_the_old_lines_it_deletes_past_its_pairing():
+    assert list(git.Hunk(2, 2, 1, 0).deleted_lines) == [2, 3]
+    assert list(git.Hunk(5, 3, 5, 1).deleted_lines) == [6, 7]
+    assert list(git.Hunk(5, 1, 5, 2).deleted_lines) == []
+
+
+def test_changed_lines_skips_an_untracked_symlink_and_never_reads_its_target(files_repo, tmp_path):
+    repo = files_repo({"a.md": "a\n"})
+    outside = tmp_path / "outside.md"
+    outside.write_text("1\n2\n3\n", encoding="utf-8")
+    (repo / "link.md").symlink_to(outside)
+    assert git.changed_lines(repo, git.head_commit(repo), {"link.md"}) == {}

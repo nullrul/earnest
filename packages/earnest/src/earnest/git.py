@@ -36,6 +36,11 @@ class Hunk:
         offset = line - self.new_start
         return self.old_start + offset if 0 <= offset < self.old_count else None
 
+    @property
+    def deleted_lines(self) -> range:
+        """Return the numbers of the old lines the hunk deletes: those past the pairing with its new lines."""
+        return range(self.old_start + self.new_count, self.old_start + self.old_count)
+
     def before(self, line: int) -> bool:
         """Return whether the hunk lies wholly before a new line, so it shifts that line's old number."""
         return self.new_start < line if self.new_count == 0 else self.new_start + self.new_count <= line
@@ -101,11 +106,14 @@ def has_commit(root: Path, sha: str) -> bool:
     return _SHA.fullmatch(sha) is not None and _maybe(root, "cat-file", "-e", f"{sha}^{{commit}}") is not None
 
 
-def changed_lines(root: Path, base: str, paths: Collection[str]) -> dict[str, tuple[Hunk, ...]]:
+def changed_lines(
+    root: Path, base: str, paths: Collection[str], *, keep_deletions: bool = False
+) -> dict[str, tuple[Hunk, ...]]:
     """Return the hunks that changed each of paths from the commit base to the work tree, untracked files included.
 
-    A path that has no new line, deleted or unchanged, is left out, and so is every path under `.earnest/`. An
-    untracked file is one hunk that adds all its lines. `--no-optional-locks` leaves `.git/index` alone.
+    A path that has no new line is left out, unless `keep_deletions` keeps a path whose hunks only delete, and so is
+    every path under `.earnest/`. An untracked file is one hunk that adds all its lines; an untracked symlink is
+    skipped, so its target is never read. `--no-optional-locks` leaves `.git/index` alone.
     """
     wanted = {path for path in paths if not _in_record_directory(path)}
     # diff-index, the plumbing: `git diff` refreshes `.git/index` even under --no-optional-locks. A file touched but
@@ -115,10 +123,11 @@ def changed_lines(root: Path, base: str, paths: Collection[str]) -> dict[str, tu
     found: dict[str, tuple[Hunk, ...]] = {}
     for path in sorted({name for name in listed.split("\0") if name} & wanted):
         hunks = _hunks(_git(root, "--no-optional-locks", *_DIFF, base, "--", path))
-        if any(hunk.new_count for hunk in hunks):
+        if any(hunk.new_count or (keep_deletions and hunk.old_count) for hunk in hunks):
             found[path] = hunks
     for path in sorted({name for name in untracked.split("\0") if name} & wanted):
-        count = _line_count((root / path).read_bytes()) if (root / path).is_file() else 0
+        file = root / path
+        count = _line_count(file.read_bytes()) if file.is_file() and not file.is_symlink() else 0
         if count:
             found[path] = (Hunk(0, 0, 1, count),)
     return dict(sorted(found.items()))
