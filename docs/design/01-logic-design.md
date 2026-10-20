@@ -828,7 +828,13 @@ A row without `Assessment Hash`, as upstream writes before M7 of `03`, gives no
 baseline. The commit is read whether or not the header was `dirty`, so what
 was uncommitted at the approval reads as changed. With no such stage, or a
 commit that Git no longer holds, there is no baseline, and the summary says so
-in one line. These readings are the smallest that the record already
+in one line. A current task that lies in no intent's record directory, as a
+task item in a plain document can, has no intent and so no baseline: the check
+runs without the task change, and the summary says once that the task lies in
+no intent, while the exit code is untouched. The baseline is per intent, and
+an existing task id is no usage error, so this is not the exit 2 of a `--task`
+that names no task. A record whose `commit` is not a string names no commit
+and so gives no baseline either. These readings are the smallest that the record already
 supports: it keeps one header per stage and the audit log the approvals, so
 no new record key is needed.
 
