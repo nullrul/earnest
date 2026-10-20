@@ -9,8 +9,9 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
-from earnest import adapters, structural
-from earnest.index import ID_ENTRY, Index, Item, Line, Source, split_lines
+from earnest import adapters, reporter, structural
+from earnest.git import Hunk
+from earnest.index import ID_ENTRY, Id, Index, Item, Line, Source, split_lines
 from earnest.index import digest as digest_of
 from earnest.reporter import Finding, Position, Run, RunHeader, canonical, run_key, uri
 
@@ -1341,7 +1342,130 @@ def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -
 
 
 class PlanError(Exception):
-    """The command cannot pick what it was asked for: an intent or a stage."""
+    """The command cannot pick what it was asked for: an intent, a stage or a task."""
+
+
+# The Out-of-task rule (M3).
+
+_TASK_BRANCH = "task/"
+
+
+@dataclass(frozen=True)
+class ChangedRegion:
+    """A changed region: a tag region that holds a changed line, or the lines of one hunk outside every tag region.
+
+    `lines` are the region's lines, `changed` its changed lines in order, and `tags` the ids its tags name, none for a
+    hunk.
+    """
+
+    path: str
+    lines: tuple[int, ...]
+    changed: tuple[int, ...]
+    tags: tuple[Id, ...] = ()
+
+
+def on_task_branch(branch: str | None) -> bool:
+    """Return whether a branch follows the `task/…` convention, so impact runs on it whatever task it names."""
+    return branch is not None and branch.startswith(_TASK_BRANCH)
+
+
+def plan_tasks(index: Index, intents: Sequence[Intent]) -> list[Item]:
+    """Return the tasks of the plan: the `task` items in the evaluated tree."""
+    return [item for item in index.defined.values() if item.id.type == "task" and in_tree(intents, item.path)]
+
+
+def current_task(tasks: Sequence[Item], option: str | None, branch: str | None) -> Item | None:
+    """Return the current task: the one `--task` names, else the one a `task/<name>-…` or `task/<name>` branch names.
+
+    A branch names the task with the longest name that the rest of the branch equals, or begins with followed by
+    `-`; one that names none gives no current task.
+
+    Raises:
+        PlanError: `--task` is not a task id, or names no task of the plan.
+    """
+    if option is not None:
+        named = ID_ENTRY.fullmatch(option)
+        found = next((task for task in tasks if named and task.id.key == (named[1], named[2])), None)
+        if found is None:
+            known = ", ".join(sorted(str(task.id) for task in tasks)) or "none"
+            msg = f"--task {option} names no task of the plan: the tasks are {known}"
+            raise PlanError(msg)
+        return found
+    if branch is None or not on_task_branch(branch):
+        return None
+    rest = branch.removeprefix(_TASK_BRANCH)
+    matching = [task for task in tasks if rest == task.id.name or rest.startswith(task.id.name + "-")]
+    return max(matching, key=lambda task: (len(task.id.name), task.id.name), default=None)
+
+
+def changed_regions(index: Index, changed: Mapping[str, Sequence[Hunk]]) -> list[ChangedRegion]:
+    """Return the changed regions of each file, by the Region rule: tag regions first, then hunks outside them."""
+    found: list[ChangedRegion] = []
+    for path, hunks in sorted(changed.items()):
+        lines = sorted({line for hunk in hunks for line in hunk.new_lines})
+        spans: dict[tuple[int, int], list[Id]] = {}
+        for region in index.regions_by_path.get(path, ()):
+            spans.setdefault((region.first, region.last), []).append(region.target)
+        for (first, last), tags in sorted(spans.items()):
+            inside = tuple(line for line in lines if first <= line <= last)
+            if inside:
+                found.append(ChangedRegion(path, tuple(range(first, last + 1)), inside, tuple(sorted(tags, key=str))))
+        for hunk in hunks:
+            outside = tuple(line for line in hunk.new_lines if not any(first <= line <= last for first, last in spans))
+            if outside:
+                found.append(ChangedRegion(path, outside, outside))
+    return found
+
+
+def proposed_tasks(index: Index, changed: Mapping[str, Sequence[Hunk]]) -> list[Item]:
+    """Return the task items the diff adds: those whose id line is a changed line."""
+    lines = {(path, line) for path, hunks in changed.items() for hunk in hunks for line in hunk.new_lines}
+    return [item for item in index.items if item.id.type == "task" and (item.path, item.line) in lines]
+
+
+def delivered(index: Index, tasks: Sequence[Item]) -> frozenset[tuple[str, str]]:
+    """Return the type and name of everything the tasks' `Delivers:` lines name."""
+    owners = {task.id for task in tasks}
+    return frozenset(link.target.key for link in index.links if link.key == "Delivers" and link.owner in owners)
+
+
+def out_of_task(
+    plans: Sequence[Plan],
+    index: Index,
+    task: Item,
+    changed: Mapping[str, Sequence[Hunk]],
+    findings: Sequence[Finding],
+) -> list[Finding]:
+    """Return an `out-of-task` finding for each changed region outside the current task.
+
+    A region lies inside the task when one of its tags names, on type and name, what the task or a task the diff
+    adds delivers. A region on which an `outdated` finding is located raises none, and neither does the hunk that adds
+    a task, which is the proposal itself. A finding sits at its region's first changed line, counts against the stage
+    that holds the task, and is in scope there.
+    """
+    proposals = proposed_tasks(index, changed)
+    covered = delivered(index, [task, *proposals])
+    proposing = {(item.path, item.line) for item in proposals}
+    outdated = {(found.path, found.line) for found in findings if found.rule == "earnest/outdated"}
+    owner = _owner(plans, task.path)
+    stage = stage_of(owner.intent, task.path) if owner is not None else None
+    result: list[Finding] = []
+    for region in changed_regions(index, changed):
+        places = {(region.path, line) for line in region.lines}
+        if any(tag.key in covered for tag in region.tags) or places & outdated or places & proposing:
+            continue
+        result.append(
+            Finding(
+                region.path,
+                region.changed[0],
+                "earnest/out-of-task",
+                str(task.id),
+                reporter.out_of_task_message(str(task.id), [str(tag) for tag in region.tags]),
+                stage=stage,
+                intent=owner.intent.directory if owner is not None and stage is not None else None,
+            )
+        )
+    return result
 
 
 def find_intent(intents: Sequence[Intent], option: str | None) -> Intent:

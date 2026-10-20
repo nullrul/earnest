@@ -4,12 +4,14 @@ import time
 
 import pytest
 
-from earnest import adapters, plan, structural
-from earnest.index import MARKDOWN, Id, Index, Item, Link, Source, build_index
+from earnest import adapters, git, plan, structural
+from earnest.git import Hunk
+from earnest.index import MARKDOWN, Id, Index, Item, Link, Region, Source, build_index
 from earnest.index import digest as digest_of
-from earnest.plan import Approval, Event, Record, Row
+from earnest.plan import Approval, ChangedRegion, Event, Record, Row
 from earnest.reporter import Finding, Run
-from tests.sarif import write
+from tests.sarif import PLAN_FILE, write
+from tests.sarif import REQUIREMENTS as REQUIREMENTS_FILE
 
 
 DASH = "\u2014"
@@ -2494,3 +2496,136 @@ def test_properties_list_units_in_unit_order_and_tasks_by_id():
     statuses = {"r": plan.statuses(lonely, index, [], {})}
     (entry,) = plan.properties([lonely], statuses, index, {})["intents"]
     assert entry["units"] == [{"id": "unit~a~1", "status": "not done", "directory": None, "frontier": BUILD_AND_TEST}]
+
+
+# The Out-of-task rule (M3).
+
+ADD_LIMITER = "task~add-limiter~1"
+
+
+def seeded(repo):
+    """Return the plans and the index of a seeded-change work tree, as `earnest check` builds them."""
+    files = git.work_tree_files(repo)
+    index = build_index(adapters.scan(repo, files))
+    intents = [plan.intent(record) for record in plan.load(repo, files)]
+    return [plan.build(current, index) for current in intents], index, intents
+
+
+def task_item(name, path="plan.md"):
+    return Item(Id("task", name, 1), path, 1)
+
+
+@pytest.mark.parametrize(
+    ("branch", "expected"),
+    [
+        ("task/add-limiter-window", "add-limiter"),
+        ("task/add-limiter", "add-limiter"),
+        ("task/add-x", "add"),
+        ("task/add", "add"),
+        ("task/add-limiterx", "add"),
+        ("task/addx", None),
+        ("task/unknown-x", None),
+        ("feature/add-limiter", None),
+        (None, None),
+    ],
+)
+def test_a_task_branch_names_the_longest_task_name_it_equals_or_begins_with_before_a_hyphen(branch, expected):
+    tasks = [task_item("add"), task_item("add-limiter"), task_item("notify-lockout")]
+    found = plan.current_task(tasks, None, branch)
+    assert (found.id.name if found else None) == expected
+
+
+def test_task_option_wins_over_the_branch_and_ignores_the_revision():
+    tasks = [task_item("add-limiter"), task_item("notify-lockout")]
+    assert plan.current_task(tasks, "task~notify-lockout~3", "task/add-limiter-window").id.name == "notify-lockout"
+
+
+@pytest.mark.parametrize("option", ["task~nope~1", "notify-lockout", "req~notify-lockout~1"])
+def test_task_option_that_names_no_task_raises(option):
+    with pytest.raises(plan.PlanError, match="names no task"):
+        plan.current_task([task_item("notify-lockout")], option, None)
+
+
+def test_only_a_task_branch_runs_the_task_change():
+    assert plan.on_task_branch("task/x")
+    assert not plan.on_task_branch("main")
+    assert not plan.on_task_branch(None)
+
+
+def test_changed_regions_are_tag_regions_that_hold_a_change_then_hunks_outside_every_tag_region():
+    a, b = Id("req", "a", 1), Id("req", "b", 1)
+    index = Index((), (), (), (Region(a, "x.py", 4, 8), Region(b, "x.py", 4, 8), Region(a, "x.py", 9, 12)))
+    changed = {"x.py": (Hunk(1, 1, 2, 1), Hunk(5, 2, 5, 2), Hunk(13, 0, 13, 2)), "y.md": (Hunk(3, 1, 3, 1),)}
+    assert plan.changed_regions(index, changed) == [
+        ChangedRegion("x.py", (4, 5, 6, 7, 8), (5, 6), (a, b)),
+        ChangedRegion("x.py", (2,), (2,)),
+        ChangedRegion("x.py", (13, 14), (13, 14)),
+        ChangedRegion("y.md", (3,), (3,)),
+    ]
+
+
+def test_a_hunk_that_straddles_a_tag_region_gives_a_region_of_its_lines_outside_it():
+    index = Index((), (), (), (Region(Id("req", "a", 1), "x.py", 4, 8),))
+    assert plan.changed_regions(index, {"x.py": (Hunk(2, 4, 2, 4),)})[1] == ChangedRegion("x.py", (2, 3), (2, 3))
+
+
+def out_of_task_rows(repo, changed, task=ADD_LIMITER, findings=()):
+    plans, index, intents = seeded(repo)
+    current = plan.current_task(plan.plan_tasks(index, intents), task, None)
+    found = plan.out_of_task(plans, index, current, changed, list(findings))
+    return [(each.path, each.line, each.stage, each.position, each.level) for each in found]
+
+
+CODE_GENERATION = "construction/code-generation"
+
+
+def test_a_region_outside_the_task_is_flagged_at_its_first_changed_line_in_scope_at_the_tasks_stage(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    changed = {"src/checkout/auth.py": (Hunk(2, 1, 2, 1), Hunk(6, 1, 6, 1), Hunk(11, 1, 11, 2))}
+    assert out_of_task_rows(repo, changed) == [
+        ("src/checkout/auth.py", 11, CODE_GENERATION, "current", "warning"),  # the region of req~lockout-notice~1
+        ("src/checkout/auth.py", 2, CODE_GENERATION, "current", "warning"),  # before the first tag
+    ]
+
+
+def test_an_outdated_finding_on_a_regions_line_suppresses_it(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    outdated = Finding("src/checkout/auth.py", 9, "earnest/outdated", "req~lockout-notice~1", "m")
+    prose = Finding(REQUIREMENTS_FILE, 3, "earnest/outdated", "req~rate-limit~2", "m", note=True)
+    changed = {"src/checkout/auth.py": (Hunk(11, 1, 11, 1),), REQUIREMENTS_FILE: (Hunk(3, 1, 3, 1), Hunk(5, 1, 5, 1))}
+    assert out_of_task_rows(repo, changed, findings=[outdated, prose]) == [
+        (REQUIREMENTS_FILE, 5, CODE_GENERATION, "current", "warning"),
+    ]
+
+
+def test_the_message_names_the_task_the_tags_and_the_exits(fixture_repo):
+    plans, index, intents = seeded(fixture_repo("seeded-change"))
+    task = plan.current_task(plan.plan_tasks(index, intents), None, "task/add-limiter-window")
+    (found,) = plan.out_of_task(plans, index, task, {"src/checkout/auth.py": (Hunk(11, 1, 11, 1),)}, [])
+    assert found.subject == ADD_LIMITER
+    assert "`req~lockout-notice~1`" in found.message
+    assert found.text.startswith(f"in scope at {CODE_GENERATION}: ")
+
+
+def test_proposing_a_task_that_delivers_the_regions_tag_clears_it_and_the_proposal_raises_none(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    plan_text = (repo / PLAN_FILE).read_text(encoding="utf-8")
+    write(repo, PLAN_FILE, plan_text + "\n`task~tell-wait~1`\n\nTell.\n\nDelivers: req~lockout-notice~1\n")
+    changed = {"src/checkout/auth.py": (Hunk(2, 1, 2, 1), Hunk(11, 1, 11, 1)), PLAN_FILE: (Hunk(14, 0, 15, 6),)}
+    assert out_of_task_rows(repo, changed) == [("src/checkout/auth.py", 2, CODE_GENERATION, "current", "warning")]
+
+
+def test_a_plan_hunk_that_adds_no_task_is_out_of_task(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    write(repo, PLAN_FILE, (repo / PLAN_FILE).read_text(encoding="utf-8") + "\nA note.\n")
+    assert out_of_task_rows(repo, {PLAN_FILE: (Hunk(14, 0, 15, 2),)}) == [
+        (PLAN_FILE, 15, CODE_GENERATION, "current", "warning"),
+    ]
+
+
+def test_a_tag_at_another_revision_of_a_delivered_requirement_lies_inside_the_task(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    lines = (repo / "src/checkout/auth.py").read_text(encoding="utf-8").split("\n")
+    lines[1] = "LIMIT = 5  # [impl->req~rate-limit~2]"
+    write(repo, "src/checkout/auth.py", "\n".join(lines))
+    assert out_of_task_rows(repo, {"src/checkout/auth.py": (Hunk(2, 1, 2, 1),)}) == []

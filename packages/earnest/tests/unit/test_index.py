@@ -383,3 +383,11 @@ def test_gherkin_tags_have_regions():
     lines = (Line(1, "@stest:feat~f~1"),)
     source = Source("tests/a.feature", GHERKIN, lines, code_lines=frozenset({2, 3}), line_count=4)
     assert build_index([source]).regions == (Region(Id("feat", "f", 1), "tests/a.feature", 1, 4),)
+
+
+def test_regions_at_finds_the_regions_of_a_file_that_hold_a_line():
+    index = build_index([tagged([(1, "req~a~1"), (2, "req~b~1"), (6, "req~c~1")], {3, 4, 7}, 8)])
+    assert index.regions_at("src/a.py", 3) == (Region(A, "src/a.py", 1, 5), Region(B, "src/a.py", 1, 5))
+    assert index.regions_at("src/a.py", 7) == (Region(Id("req", "c", 1), "src/a.py", 6, 8),)
+    assert index.regions_at("src/b.py", 3) == ()
+    assert build_index([tagged([(3, "req~a~1")], {4}, 4)]).regions_at("src/a.py", 2) == ()

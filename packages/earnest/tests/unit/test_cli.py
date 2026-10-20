@@ -292,3 +292,52 @@ def test_plain_check_of_a_units_intent_without_a_table_is_no_silent_pass(files_r
         "utest",
     ]
     assert err.splitlines()[0].startswith("traced 0%")
+
+
+# The task change (M3).
+
+
+def test_a_task_option_that_names_no_task_exits_two_with_one_line(fixture_repo, monkeypatch, capsys):
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--task", "task~nope~1")
+    assert (code, out) == (2, "")
+    assert len(err.splitlines()) == 1
+    assert "task~nope~1" in err
+
+
+def test_a_task_branch_that_names_no_task_raises_no_out_of_task(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "checkout", "-q", "-b", "task/unknown-x"], cwd=repo, check=True)
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    code, out, _ = run(repo, monkeypatch, capsys, "check")
+    assert code == 0
+    assert "earnest/out-of-task" not in [result["ruleId"] for result in sarif_run(out)["results"]]
+
+
+def test_a_stage_check_of_another_stage_leaves_out_of_task_out(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "checkout", "-q", "-b", "task/add-limiter-window"], cwd=repo, check=True)
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    _, out, _ = run(repo, monkeypatch, capsys, "check")
+    assert "earnest/out-of-task" in [result["ruleId"] for result in sarif_run(out)["results"]]
+    _, out, _ = run(repo, monkeypatch, capsys, "check", "--stage", "inception/requirements-analysis")
+    assert "earnest/out-of-task" not in [result["ruleId"] for result in sarif_run(out)["results"]]
+
+
+def test_a_detached_head_without_a_task_option_reports_no_task_change(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    subprocess.run(["git", "checkout", "-q", "--detach"], cwd=repo, check=True)
+    _, out, _ = run(repo, monkeypatch, capsys, "check")
+    assert "earnest/out-of-task" not in [result["ruleId"] for result in sarif_run(out)["results"]]
+    _, out, _ = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
+    assert "earnest/out-of-task" in [result["ruleId"] for result in sarif_run(out)["results"]]
+
+
+def test_a_changed_audit_shard_or_state_file_raises_no_out_of_task(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "checkout", "-q", "-b", "task/add-limiter-window"], cwd=repo, check=True)
+    for path in (f"{RECORD}/audit/fixture-a1b2c3d4.md", f"{RECORD}/aidlc-state.md", f"{RECORD}/audit/new.md"):
+        target = repo / path
+        write(repo, path, (target.read_text(encoding="utf-8") if target.exists() else "") + "\nmore\n")
+    _, out, _ = run(repo, monkeypatch, capsys, "check")
+    assert "earnest/out-of-task" not in [result["ruleId"] for result in sarif_run(out)["results"]]

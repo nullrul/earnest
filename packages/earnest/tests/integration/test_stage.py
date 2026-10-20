@@ -229,6 +229,8 @@ def test_overlay_findings_match_the_scenario_table(fixture_repo, commit_overlay)
             ("earnest/outdated", "src/checkout/auth.py", 4, "note", "ahead", CODE_STAGE),
             ("earnest/outdated", "tests/test_auth.py", 4, "note", "ahead", CODE_STAGE),
             ("earnest/unplanned", REQUIREMENTS, 13, "note", "ahead", CODE_STAGE),
+            ("earnest/out-of-task", REQUIREMENTS, 5, "warning", "current", CODE_STAGE),
+            ("earnest/out-of-task", REQUIREMENTS, 11, "warning", "current", CODE_STAGE),
         ]
     )
 
