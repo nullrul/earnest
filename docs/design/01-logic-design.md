@@ -239,7 +239,7 @@ and "maintainer" everywhere else, and both name the same person.
 ### UC3 Check a change against the current task
 
 - Actor: coding agent.
-- Trigger: the agent is about to commit on a task branch.
+- Trigger: the agent is about to commit work on its current task.
 - Outcome: every changed region outside what the task delivers is a finding
   offering exactly three exits: tag it under a requirement the task delivers,
   propose a task, or declare it blocked.
@@ -263,7 +263,8 @@ and "maintainer" everywhere else, and both name the same person.
 ### UC6 Ask what a change impacts
 
 - Actor: coding agent or repo maintainer.
-- Trigger: a diff exists and the full suite is slow.
+- Trigger: a change exists since the last approved stage check and the full
+  suite is slow.
 - Outcome: `earnest check` names the impacted requirements and features and
   the tests worth running, falling back to a conservative, flagged answer when
   a changed line has no coverage data.
@@ -308,8 +309,8 @@ one of the commands in the Command surface.
 | Judge | SC3, SC4 | `earnest check --judge`: judge findings and the judged percentage |
 | Calibration | SC4 | `earnest calibrate`: match count and pass or fail; `judge-uncalibrated` otherwise |
 | Evidence | SC3 | `earnest check --evidence`: evidence findings and the evidenced percentage |
-| Out-of-task check | SC6 | `earnest check`: out-of-task findings, when a current task is known |
-| Impact | SC7 | `earnest check`: the impact section, when a diff exists |
+| Out-of-task check | SC6 | `earnest check`: out-of-task findings, when a current task and a change baseline exist |
+| Impact | SC7 | `earnest check`: the impact section, when a current task and a change baseline exist |
 | Plan and stage status | SC8 | `earnest plan`, and the plan status section of `earnest check`, with the frontier and each finding's position |
 | Stage approval | SC9 | the `earnest` sensor at each gate; AI-DLC's `GATE_APPROVED` row carries `Assessment Hash`, `Items` and `Approved By`; `earnest plan` lists approvals |
 | Overrides | SC11 | `earnest check`: the override as the observation of record, `override-expired` and `override-drift` |
@@ -708,8 +709,9 @@ and it avoids "control", which implies a compliance catalogue.
 
 SARIF is the findings contract: every finding and the observations behind it
 travel in the SARIF output. Earnest writes one thing: the `.earnest/`
-directory, which holds the assessment record and its ignore marker. The record
-holds five things:
+directory, which holds the assessment record, its ignore marker and the
+coverage maps of the Impact rule under `.earnest/coverage/`. The record holds
+five things:
 
 1. the run header of each stage that `earnest check --stage` ran: commit,
    `dirty` (as the Assessment hash section defines it),
@@ -789,9 +791,55 @@ The scanner derives regions on every run, so nobody maintains them by hand.
 
 ### Out-of-task rule
 
-The current task comes from `--task`, or else from a branch named
-`task/<name>-…`. The out-of-task check reads the diff since the task's base commit
-and matches each changed region's tags to the task's `Delivers:` ids on type and
+Earnest never reads a Git branch, a branch name, a merge-base or
+`refs/remotes/origin/HEAD`: by the maintainer's decision no check runs against
+Git branches. The task change is read from the plan state and the assessment
+record alone.
+
+The current task comes from `--task`, or else from the plan state, by the
+maintainer's ratified decision: a line
+`- **Current Task**: <task id>` in the `## Project Information` section of an
+intent's `aidlc-state.md`, read as `Scope` is read, naming one `task` item of
+that intent on type and name, revision ignored. With no such line in any
+intent, more than one such line across the intents, or a value that is not one
+id naming a task of its intent, there is no current task, and the summary says
+so in one line. The state file is the stage state that AI-DLC keeps and
+Earnest already reads by raw read; it lies outside the evaluated tree, so
+moving the current task changes no body hash, no assessment hash and no diff.
+The line names the work in scope and decides no status, so Earnest still reads
+no checkbox mark as status (Stages).
+
+The change baseline is the commit of the last approved stage check of the
+current task's intent, as the assessment record holds it. Among the stages on
+that intent's route that have an approval, current or outdated, as Frontier
+and position and Per-unit stages and units read it, Earnest takes each whose
+approval row carries an `Assessment Hash` equal to the `hash` of the run
+header the record holds for that stage; the baseline is the `commit` of the
+header whose approval row comes last in audit order. When one row approves
+several such stages, as a unit's end gate approves its per-unit stages
+together, the stage later in route order gives the baseline: the choice is
+deterministic, and the last stage in route order is the furthest-progressed
+state. The approve transition
+copies the hash from the header, so an equal hash shows that the header is
+the one the human approved, and a later stage check of that stage, which
+replaces the header, ends the stage's claim. An outdated approval still
+counts, so a revision bump during the task leaves the baseline where it was.
+A row without `Assessment Hash`, as upstream writes before M7 of `03`, gives no
+baseline. The commit is read whether or not the header was `dirty`, so what
+was uncommitted at the approval reads as changed. With no such stage, or a
+commit that Git no longer holds, there is no baseline, and the summary says so
+in one line. A current task that lies in no intent's record directory, as a
+task item in a plain document can, has no intent and so no baseline: the check
+runs without the task change, and the summary says once that the task lies in
+no intent, while the exit code is untouched. The baseline is per intent, and
+an existing task id is no usage error, so this is not the exit 2 of a `--task`
+that names no task. A record whose `commit` is not a string names no commit
+and so gives no baseline either. These readings are the smallest that the record already
+supports: it keeps one header per stage and the audit log the approvals, so
+no new record key is needed.
+
+The out-of-task check runs with a current task and a change baseline. It reads
+the diff since the baseline and matches each changed region's tags to the task's `Delivers:` ids on type and
 name, ignoring revision. A region already reported `outdated` raises no
 `out-of-task` finding. Every other changed region outside the task's items is
 `out-of-task`, offering exactly three exits:
@@ -801,15 +849,100 @@ name, ignoring revision. A region already reported `outdated` raises no
   the maintainer to ratify;
 - declare it blocked, as a message to the maintainer rather than an item.
 
+The first two exits clear the finding. A changed region is not out-of-task
+when the diff adds a task item, one whose id line is a changed line, whose
+`Delivers:` names one of the region's tags on type and name, and the hunk
+that adds such a task item is the proposal itself and raises no
+`out-of-task`. After a declared block the region still lies outside the
+current task, so the finding stands.
+
+The diff runs from the baseline to the work tree, untracked files
+included, and covers only the files the scanner reads, the evaluated tree of
+the Assessment hash section: a region exists only in a scanned source, so a
+skipped file such as an audit shard or the state file has no changed region.
+A changed region is a tag region, by the Region rule, that holds a changed
+line, or one hunk of changed lines that lie outside every tag region; changed
+Markdown prose, which holds no tag, is such a hunk. A region is already
+reported `outdated` when an `outdated` finding is located on one of its
+lines. An `out-of-task` finding is located at its region's first changed
+line. It counts against the current task: its `properties.stage` is the stage
+that holds the task, and its position is current. The check runs only when a
+current task and a baseline exist. The rule is read literally and keeps prose in scope, so a
+spec edit outside the task's requirements is out-of-task
+work too. A change that only deletes lines holds no changed line, so it forms
+no region and raises no `out-of-task`, read literally; deleting the code of
+another requirement is a known limit of the check. A task item added in the
+diff clears only through the regions whose tags its `Delivers:` names, and
+only the hunk of such a task item is the proposal that raises none; a hunk
+that adds a task delivering none of the changed regions' tags is out-of-task
+like any other. Without a current task or a baseline the check runs without
+the task change: no `out-of-task` finding, no impact section and no
+`impact-degraded` finding, and the summary gives the reason in one line, which
+is no SARIF result, so the findings of a run without the task change are those
+of M2. Failing the whole check for want of either would take
+the trace, plan and stage status away from a repository that M1 and M2
+already check.
+
 ### Impact rule
 
 Impact reads dynamic per-test coverage contexts: pytest-cov with
 `--cov-context=test`, and Jest with `--findRelatedTests`. The coverage map is
-taken at commit A; for a diff from A to B, unchanged lines are remapped through
-`git diff A..B`. A changed or new line selects every test tagged to a
-requirement whose region contains it; when no such requirement exists, impact
-selects the full suite and raises `impact-degraded`. The output names the
-impacted requirements, the features they derive from, and the tests worth
+taken by each `earnest check --stage`, at commit A, the HEAD of that run, and
+is stored under `.earnest/coverage/<A>`, ignored by
+Git as the record is; the record keeps only the commit A. A map holds the
+line numbers of the bytes the tests ran, so it is taken only from a clean
+work tree, one that is not `dirty`: a dirty tree is not commit A, and its map
+would remap wrongly. A stage check of a dirty tree takes no map, leaves every
+earlier map and the record's `coverage` as they were, and says so in the
+summary. The map run reads no stdin and stops after 900 seconds, so a test
+that hangs cannot hang the gate. A run that times out, that pytest ends with
+exit code 2 to 5 (interrupted, internal error, usage error, no tests
+collected), or that leaves no or empty coverage data, gives no map: no
+placeholder is written, the record's `coverage` stays as it was, and the
+summary names the cause, while the check's exit code is untouched. Failing
+tests, exit code 1, still give a map, as the contexts of a failing test are
+still what it ran. Earnest's own options to the map run write nothing outside
+`.earnest/`: no cache, bytecode, log file or `.coverage`, with the
+repository's `addopts` and coverage configuration left out; the repository's
+tests themselves run under the trust model of the test suite (see Runtime and
+permission model). For a diff from A to B, unchanged lines are remapped
+through `git diff A..B`, deletions included, so a line that a deletion since
+A moved is read at its line in A. Impact reads the map of the change
+baseline, `.earnest/coverage/<baseline>`, and no other, so A is the baseline.
+Impact reads the same changed lines as the out-of-task check, and runs exactly
+when it does, with a current task and a baseline: the baseline belongs to the
+current task's intent, and without a task no intent's baseline is the one to
+read, so impact without a task would be a second, separate rule. A modified line is seen
+through the base line its diff hunk pairs it with, and selects the tests whose
+contexts covered that line. A changed or new line the map never saw selects
+every test tagged to a requirement whose region contains it, a test tag
+matching the requirement on type and name; when no such requirement exists,
+impact selects the full suite and raises `impact-degraded`. The full suite is
+every test the map holds a context for, and with no map it is written as no
+test, with impact marked degraded. A line deleted since the baseline
+selects the tests whose contexts covered it in the baseline's map, the
+only map whose lines are the baseline's; with no such data, no map for the
+baseline, or no context for that line in that map, as for
+a blank line, a comment or the continuation of a statement whose context
+coverage gives to its first line, it selects the full suite and raises
+`impact-degraded`, located at the line of the work tree the deletion follows,
+and naming the deleted line's number in the baseline. A deleted line names
+no requirement, as its region is gone. A file deleted since the baseline is read
+the same way, every base line of it a deleted line, although the evaluated
+tree no longer holds it: impact reads such a file when the scanner would read
+its path, by its suffix and outside the bookkeeping of a record directory
+read by the current intents, so a deleted audit shard or state file raises
+nothing. Its findings are located at line 1 of the deleted path, its uri as
+the baseline holds it, and are placed as every finding is: a deleted stage
+artifact counts against its stage, and deleted code or tests reach no stage.
+The out-of-task check reads no deleted file, as a deletion forms no region. `impact-degraded` is one finding per
+such line, changed or deleted, blank lines included, read literally and so
+deterministically. It
+counts against a stage by the placement every finding follows: a line in a
+stage artifact counts against that stage, and a line of code or tests in no
+tag region reaches no stage. The output names the impacted requirements (the
+requirements the tags of the changed tag regions name, by type and name at
+their current revision), the features they derive from, and the tests worth
 running.
 
 ### Evidence rule
@@ -1075,22 +1208,36 @@ place of `req`.
 - Rationale: the rule works identically in every language with comments, is
   deterministic (T3), and needs no host-language parser.
 
-### D11 Out-of-task check on the diff since the task's base commit
+### D11 Out-of-task check on the diff since the change baseline
 
-- Decision: the out-of-task check reads the diff from the task's base commit, takes
-  the current task from `--task` or the branch convention `task/<name>-…`,
-  matches tags to the task's items ignoring revision, and lets `outdated`
-  suppress `out-of-task` for the same region.
-- Alternatives considered: a state file naming the current task; a required
-  command-line flag; matching on the full id with revision.
-- Rationale: branch names already exist in every workflow and agents already
-  create them (T8). Ignoring revision keeps one change from raising two
-  findings, and the outdated finding already names the fix (T6).
+- Decision: the out-of-task check reads the diff from the change baseline,
+  the commit of the last approved stage check that the assessment record
+  holds for the current task's intent; takes the current task from `--task`,
+  else from the `Current Task` line of the state file, a marker the
+  maintainer ratified; reads no Git branch,
+  branch name, merge-base or `origin/HEAD`; matches tags to the task's items
+  ignoring revision, and lets `outdated` suppress `out-of-task` for the same
+  region. Without a current task or a baseline it raises nothing and says why
+  in one summary line.
+- Alternatives considered: the branch convention `task/<name>-…` with the
+  merge-base of HEAD and the default branch, which M3 first used and the
+  maintainer dropped; a required command-line flag; matching on the full id
+  with revision.
+- Rationale: the maintainer's decision that no check runs against Git
+  branches. The record and the stage state already hold what the human
+  approved and what work is in scope, so the check needs no Git naming
+  convention, and a change reads against what was approved rather than
+  against wherever a branch began (T2). Ignoring revision keeps one change
+  from raising two findings, and the outdated finding already names the fix
+  (T6).
 
 ### D12 Impact from dynamic coverage, with a degraded fallback
 
-- Decision: impact uses per-test coverage contexts only, remaps unchanged lines
-  through the diff since the map's commit, and falls back to every test tagged
+- Decision: impact uses per-test coverage contexts only, taken by each
+  `earnest check --stage` and kept under `.earnest/coverage/<commit>`; reads
+  the map of the change baseline of D11 and runs with the out-of-task check,
+  and reads no branch (the maintainer's decision); remaps unchanged
+  lines through the diff since the map's commit, and falls back to every test tagged
   under the changed region's requirements, or the full suite with
   `impact-degraded`, for lines the map never saw.
 - Alternatives considered: a static call graph, alone or in union with
@@ -1298,7 +1445,7 @@ the `GATE_APPROVED` row only on an approval.
 
 | Command | Output |
 | --- | --- |
-| `earnest check [--task <id>] [--stage <stage>] [--intent <record dir>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings when a current task is known; the impact section when a diff exists; plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage (see Frontier and position), runs the layers its items need, prints the assessment hash and the stage's computed status in the summary, and writes the stage's run header to the record, with the status, its reasons and the hash; this is the command the `earnest` sensor's script runs at each gate. |
+| `earnest check [--task <id>] [--stage <stage>] [--intent <record dir>] [--judge] [--evidence]` | the SARIF 2.1.0 log on stdout, and on stderr a human summary: findings with their positions, each requirement's trace level, and three percentages (traced, judged, evidenced); out-of-task findings and the impact section when a current task and a change baseline exist (see the Out-of-task rule); plan and stage status. Trace runs by default. With `--stage`, the assessment covers that stage's items and every finding that reaches no stage (see Frontier and position), runs the layers its items need, prints the assessment hash and the stage's computed status in the summary, and writes the stage's run header to the record, with the status, its reasons and the hash; this is the command the `earnest` sensor's script runs at each gate. |
 | `earnest plan` | the SARIF 2.1.0 log on stdout, with the plan under the run's `properties.plan` and the plan findings as results, and on stderr the route with each stage's computed status and approval, the frontier, and the unit and task graph with each item's computed status; read-only |
 | `earnest calibrate <fixture>` | the judge's verdicts on the fixture beside the maintainer's, the match count and pass or fail against SC4; writes the result to the assessment record |
 
@@ -1356,6 +1503,10 @@ CI job reads it as it stands.
   `stage`, `hash`, `status` and `reasons`, where `reasons` counts the
   error-level findings against the stage and its tasks that are not done, and
   names its approval.
+- A run whose summary prints the impact section carries it as the run's
+  `properties.impact`: `requirements` and `features`, the impacted ids sorted;
+  `tests`, the selected test ids sorted; and `degraded`, true when impact
+  selected the full suite. A run with no impact section omits the key.
 - The commit, `dirty` (as the Assessment hash section defines it), the model
   id, the prompt hash and the layers run travel under the run's `invocations`
   and provenance properties.
@@ -1372,7 +1523,7 @@ It holds the five things listed under Process vocabulary, under these keys:
 | `version` | the schema version, the integer 1 | the Reporter, on every write |
 | `runs` | the latest run header of each stage, keyed by the intent's record directory and the stage's id | `earnest check --stage` |
 | `bodies` | the body hash of each item, keyed by the item's id with its revision | `earnest check --stage` |
-| `coverage` | the commit the coverage map was taken at, or null | the Impact rule |
+| `coverage` | the commit the coverage map was taken at, or null; the map itself lies under `.earnest/coverage/<commit>` | the Impact rule, at `earnest check --stage` |
 | `judge` | the judge cache | the judge layer |
 | `calibration` | the latest calibration result, or null | `earnest calibrate` |
 
@@ -1413,7 +1564,12 @@ id and prompt hash, the stage's items with the body hash of each, the findings
 that count against the stage together with those that reach no stage and lie in
 a file of the evaluated tree, and the digest of the evaluated tree. A finding
 enters the document as its rule id, uri, line, subject and message, without its
-position, and a finding that reports a stage approval stays out of it. The
+position, and a finding that reports a stage approval stays out of it, as do
+the findings of the task change, `out-of-task` and `impact-degraded`: they
+follow the current task, the change baseline and the coverage maps under
+`.earnest/coverage/`, none of which is the assessed content, so leaving them
+out keeps two identical stage checks at one hash, the first of which takes the
+map, and keeps a rebase from changing the hash. The
 evaluated tree is every file the scanner read outside an intent's record
 directory, plus each file it read under a route stage's path inside one, each as
 its uri and the SHA-256 of its bytes. The assessment record lists nothing of its
@@ -1463,7 +1619,8 @@ decodes each as UTF-8 with bytes that are not UTF-8 replaced, and skips a
 binary file, one with a NUL byte in its first 8000 bytes, as Git does.
 Earnest writes one thing: the `.earnest/`
 directory, which holds the assessment record `assessment.json`, its `.gitignore`
-marker and, during a write, a temporary file. The directory lies in the
+marker, the coverage maps under `coverage/` and, during a write, a temporary
+file. The directory lies in the
 repository outside the stage artifacts. `earnest plan` is read-only. Until the
 judge, impact and evidence layers exist, `earnest check` writes only with
 `--stage`, and `earnest calibrate` writes the calibration result; each of those
@@ -1480,7 +1637,13 @@ the assessment record.
 
 The evidence layer executes the repository's own tests, and executes them
 against mutated copies of the tagged code. Running `earnest check --evidence`
-therefore carries the same trust as running the test suite.
+therefore carries the same trust as running the test suite. From M3 of
+`03`, `earnest check --stage`, which the `earnest` sensor runs at each gate,
+also runs the repository's own tests once, under pytest-cov with per-test
+contexts, to take the coverage map of the Impact rule, and so carries the
+same trust: Earnest's own options write nothing outside `.earnest/`, and what
+the repository's tests write is theirs. The map run is not a layer: the run header's `layers` names only
+the trace, judge and evidence layers that ran.
 
 The judge layer sends the model provider only the requirement clause, the
 tagged code regions and the tagged tests, and only when the judge layer is
@@ -1498,9 +1661,6 @@ status, and the frontier run entirely on the local repository.
 | Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the hold on an artifact that changes during a sensor run, and the check in `approve` that artifacts are unchanged since the sensor ran | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Per-unit fork work, milestone `aidlc_fork`: how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit` | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
-| The task's base commit, which the out-of-task check diffs against | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
-| How `task/<name>-…` splits a branch such as `task/add-limiter-window` when task names hold hyphens: the longest task name that is a prefix followed by `-`, or a fixed suffix form | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
-| When the coverage map of the Impact rule is taken, and where the map is stored; the record keeps only its commit | maintainer | before milestone `task_change` of `03-implementation-plan.md` |
 | How a test plugs a stub model into `--judge` | maintainer | before milestone `judge_check` of `03-implementation-plan.md` |
 | Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
 | A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |

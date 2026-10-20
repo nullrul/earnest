@@ -4,12 +4,14 @@ import time
 
 import pytest
 
-from earnest import adapters, plan, structural
-from earnest.index import MARKDOWN, Id, Index, Item, Link, Source, build_index
+from earnest import adapters, git, plan, structural
+from earnest.git import Hunk
+from earnest.index import MARKDOWN, Id, Index, Item, Link, Region, Source, build_index
 from earnest.index import digest as digest_of
-from earnest.plan import Approval, Event, Record, Row
-from earnest.reporter import Finding, Run
-from tests.sarif import write
+from earnest.plan import Approval, ChangedRegion, Event, Record, Row
+from earnest.reporter import Finding, Run, RunHeader
+from tests.sarif import PLAN_FILE, write
+from tests.sarif import REQUIREMENTS as REQUIREMENTS_FILE
 
 
 DASH = "\u2014"
@@ -1312,6 +1314,17 @@ def test_tree_digest_ignores_a_state_or_audit_edit():
     )
 
 
+def test_document_leaves_out_the_findings_of_the_task_change():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1", line=3)])
+    tree = [source(f"r/{REQUIREMENTS}/doc.md"), source("src/a.py")]
+    task_change = [
+        Finding(f"r/{REQUIREMENTS}/doc.md", 5, "earnest/impact-degraded", "x", "m", stage=REQUIREMENTS, intent="r"),
+        Finding("src/a.py", 2, "earnest/impact-degraded", "src/a.py:2", "m"),
+        Finding("src/a.py", 2, "earnest/out-of-task", "task~t~1", "m", stage=REQUIREMENTS, intent="r"),
+    ]
+    assert document(built, REQUIREMENTS, tree, task_change) == document(built, REQUIREMENTS, tree, [])
+
+
 def test_document_holds_position_free_findings():
     built, _ = planned(BASE, items=[hashed("req~b~1", "h2", line=8), hashed("req~a~1", "h1", line=3)])
     tree = [source(f"r/{REQUIREMENTS}/doc.md"), source("src/a.py")]
@@ -2494,3 +2507,280 @@ def test_properties_list_units_in_unit_order_and_tasks_by_id():
     statuses = {"r": plan.statuses(lonely, index, [], {})}
     (entry,) = plan.properties([lonely], statuses, index, {})["intents"]
     assert entry["units"] == [{"id": "unit~a~1", "status": "not done", "directory": None, "frontier": BUILD_AND_TEST}]
+
+
+# The Out-of-task rule (M3).
+
+ADD_LIMITER = "task~add-limiter~1"
+
+
+def seeded(repo):
+    """Return the plans and the index of a seeded-change work tree, as `earnest check` builds them."""
+    files = git.work_tree_files(repo)
+    index = build_index(adapters.scan(repo, files))
+    intents = [plan.intent(record) for record in plan.load(repo, files)]
+    return [plan.build(current, index) for current in intents], index, intents
+
+
+def task_item(name, path="plan.md"):
+    return Item(Id("task", name, 1), path, 1)
+
+
+def test_the_state_file_s_current_task_lines_are_read_in_project_information_only():
+    text = (
+        "## Project Information\n- **Scope**: feature\n- **Current Task**:  task~a~1 \n\n"
+        "## Stage Progress\n- **Current Task**: task~b~1\n"
+    )
+    assert plan.parse_state(text).current == ("task~a~1",)
+    assert plan.parse_state("- **Current Task**: task~a~1\n").current == ()
+
+
+def intents_marking(*marks, directory="r"):
+    """Return one intent per entry of marks, in r, r2, …, whose state file holds those Current Task lines."""
+    found = []
+    for number, lines in enumerate(marks):
+        name = directory if number == 0 else f"{directory}{number + 1}"
+        text = "## Project Information\n" + "".join(f"- **Current Task**: {line}\n" for line in lines)
+        found.append(plan.intent(Record(name, f"{name}/aidlc-state.md", plan.parse_state(text), ())))
+    return found
+
+
+TASKS = [task_item("add-limiter", "r/plan.md"), task_item("notify-lockout", "r/plan.md"), task_item("x", "r2/plan.md")]
+
+
+def test_the_one_current_task_line_names_a_task_of_its_intent_on_type_and_name():
+    found, reason = plan.current_task(TASKS, intents_marking(["task~notify-lockout~7"]), None)
+    assert (found.id.name, reason) == ("notify-lockout", None)
+
+
+def test_task_option_wins_over_the_state_file_and_ignores_the_revision():
+    found, _ = plan.current_task(TASKS, intents_marking(["task~add-limiter~1"]), "task~notify-lockout~3")
+    assert found.id.name == "notify-lockout"
+
+
+@pytest.mark.parametrize(
+    ("marks", "reason"),
+    [
+        (([],), "no state file names one"),
+        ((["task~add-limiter~1", "task~notify-lockout~1"],), "several Current Task lines name one"),
+        ((["task~add-limiter~1"], ["task~x~1"]), "several Current Task lines name one"),
+        ((["task~x~1"],), "`task~x~1` names no task of its intent"),
+        ((["add-limiter"],), "`add-limiter` names no task of its intent"),
+        ((["task~add-limiter~1 task~notify-lockout~1"],), "names no task of its intent"),
+    ],
+)
+def test_no_single_current_task_line_gives_no_current_task_and_says_why(marks, reason):
+    found, said = plan.current_task(TASKS, intents_marking(*marks), None)
+    assert found is None
+    assert reason in said
+
+
+@pytest.mark.parametrize("option", ["task~nope~1", "notify-lockout", "req~notify-lockout~1"])
+def test_task_option_that_names_no_task_raises(option):
+    with pytest.raises(plan.PlanError, match="names no task"):
+        plan.current_task([task_item("notify-lockout")], [], option)
+
+
+def test_changed_regions_are_tag_regions_that_hold_a_change_then_hunks_outside_every_tag_region():
+    a, b = Id("req", "a", 1), Id("req", "b", 1)
+    index = Index((), (), (), (Region(a, "x.py", 4, 8), Region(b, "x.py", 4, 8), Region(a, "x.py", 9, 12)))
+    changed = {"x.py": (Hunk(1, 1, 2, 1), Hunk(5, 2, 5, 2), Hunk(13, 0, 13, 2)), "y.md": (Hunk(3, 1, 3, 1),)}
+    assert plan.changed_regions(index, changed) == [
+        ChangedRegion("x.py", (4, 5, 6, 7, 8), (5, 6), (a, b)),
+        ChangedRegion("x.py", (2,), (2,)),
+        ChangedRegion("x.py", (13, 14), (13, 14)),
+        ChangedRegion("y.md", (3,), (3,)),
+    ]
+
+
+def test_a_hunk_that_straddles_a_tag_region_gives_a_region_of_its_lines_outside_it():
+    index = Index((), (), (), (Region(Id("req", "a", 1), "x.py", 4, 8),))
+    assert plan.changed_regions(index, {"x.py": (Hunk(2, 4, 2, 4),)})[1] == ChangedRegion("x.py", (2, 3), (2, 3))
+
+
+def out_of_task_rows(repo, changed, task=ADD_LIMITER, findings=()):
+    plans, index, intents = seeded(repo)
+    current, _ = plan.current_task(plan.plan_tasks(index, intents), intents, task)
+    found = plan.out_of_task(plans, index, current, changed, list(findings))
+    return [(each.path, each.line, each.stage, each.position, each.level) for each in found]
+
+
+CODE_GENERATION = "construction/code-generation"
+
+
+def test_a_region_outside_the_task_is_flagged_at_its_first_changed_line_in_scope_at_the_tasks_stage(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    changed = {"src/checkout/auth.py": (Hunk(2, 1, 2, 1), Hunk(6, 1, 6, 1), Hunk(11, 1, 11, 2))}
+    assert out_of_task_rows(repo, changed) == [
+        ("src/checkout/auth.py", 11, CODE_GENERATION, "current", "warning"),  # the region of req~lockout-notice~1
+        ("src/checkout/auth.py", 2, CODE_GENERATION, "current", "warning"),  # before the first tag
+    ]
+
+
+def test_an_outdated_finding_on_a_regions_line_suppresses_it(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    outdated = Finding("src/checkout/auth.py", 9, "earnest/outdated", "req~lockout-notice~1", "m")
+    prose = Finding(REQUIREMENTS_FILE, 3, "earnest/outdated", "req~rate-limit~2", "m", note=True)
+    changed = {"src/checkout/auth.py": (Hunk(11, 1, 11, 1),), REQUIREMENTS_FILE: (Hunk(3, 1, 3, 1), Hunk(5, 1, 5, 1))}
+    assert out_of_task_rows(repo, changed, findings=[outdated, prose]) == [
+        (REQUIREMENTS_FILE, 5, CODE_GENERATION, "current", "warning"),
+    ]
+
+
+def test_the_message_names_the_task_the_tags_and_the_exits(fixture_repo):
+    plans, index, intents = seeded(fixture_repo("seeded-change"))
+    task, _ = plan.current_task(plan.plan_tasks(index, intents), intents, ADD_LIMITER)
+    (found,) = plan.out_of_task(plans, index, task, {"src/checkout/auth.py": (Hunk(11, 1, 11, 1),)}, [])
+    assert found.subject == ADD_LIMITER
+    assert "`req~lockout-notice~1`" in found.message
+    assert found.text.startswith(f"in scope at {CODE_GENERATION}: ")
+
+
+def test_proposing_a_task_that_delivers_the_regions_tag_clears_it_and_the_proposal_raises_none(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    plan_text = (repo / PLAN_FILE).read_text(encoding="utf-8")
+    write(repo, PLAN_FILE, plan_text + "\n`task~tell-wait~1`\n\nTell.\n\nDelivers: req~lockout-notice~1\n")
+    changed = {"src/checkout/auth.py": (Hunk(2, 1, 2, 1), Hunk(11, 1, 11, 1)), PLAN_FILE: (Hunk(14, 0, 15, 6),)}
+    assert out_of_task_rows(repo, changed) == [("src/checkout/auth.py", 2, CODE_GENERATION, "current", "warning")]
+
+
+def test_a_plan_hunk_that_adds_no_task_is_out_of_task(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    write(repo, PLAN_FILE, (repo / PLAN_FILE).read_text(encoding="utf-8") + "\nA note.\n")
+    assert out_of_task_rows(repo, {PLAN_FILE: (Hunk(14, 0, 15, 2),)}) == [
+        (PLAN_FILE, 15, CODE_GENERATION, "current", "warning"),
+    ]
+
+
+def test_a_tag_at_another_revision_of_a_delivered_requirement_lies_inside_the_task(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    lines = (repo / "src/checkout/auth.py").read_text(encoding="utf-8").split("\n")
+    lines[1] = "LIMIT = 5  # [impl->req~rate-limit~2]"
+    write(repo, "src/checkout/auth.py", "\n".join(lines))
+    assert out_of_task_rows(repo, {"src/checkout/auth.py": (Hunk(2, 1, 2, 1),)}) == []
+
+
+def test_impact_degraded_counts_against_the_stage_whose_artifact_holds_the_line_and_code_reaches_none(fixture_repo):
+    plans, index, _ = seeded(fixture_repo("seeded-change"))
+    found = plan.degraded_findings(plans, index, [(REQUIREMENTS_FILE, 5), (PLAN_FILE, 15), ("src/checkout/auth.py", 2)])
+    assert [(each.path, each.stage, each.position, each.level) for each in found] == [
+        (REQUIREMENTS_FILE, "inception/requirements-analysis", "behind", "note"),
+        (PLAN_FILE, CODE_GENERATION, "current", "note"),
+        ("src/checkout/auth.py", None, "current", "note"),
+    ]
+    assert all("impact selected the full suite" in each.message for each in found)
+
+
+def test_a_deleted_line_that_selected_the_full_suite_is_degraded_where_it_was_and_names_its_base_line(fixture_repo):
+    plans, index, _ = seeded(fixture_repo("seeded-change"))
+    (found,) = plan.degraded_findings(plans, index, [], [(REQUIREMENTS_FILE, 4, 5)])
+    assert (found.path, found.line, found.stage, found.level) == (
+        REQUIREMENTS_FILE,
+        4,
+        "inception/requirements-analysis",
+        "note",
+    )
+    assert "line 5 of the baseline commit" in found.message
+    assert "impact selected the full suite" in found.message
+
+
+def test_the_hunk_of_a_proposed_task_that_delivers_none_of_the_changed_regions_tags_is_out_of_task(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    plan_text = (repo / PLAN_FILE).read_text(encoding="utf-8")
+    write(repo, PLAN_FILE, plan_text + "\n`task~log-it~1`\n\nLog.\n\nDelivers: req~audit-log~1\n")
+    changed = {"src/checkout/auth.py": (Hunk(11, 1, 11, 1),), PLAN_FILE: (Hunk(14, 0, 15, 6),)}
+    assert out_of_task_rows(repo, changed) == [
+        (PLAN_FILE, 15, CODE_GENERATION, "current", "warning"),
+        ("src/checkout/auth.py", 11, CODE_GENERATION, "current", "warning"),
+    ]
+
+
+def test_scanned_is_a_file_of_the_evaluated_tree_by_its_path_alone(fixture_repo):
+    _, _, intents = seeded(fixture_repo("seeded-change"))
+    assert plan.scanned(intents, "src/checkout/auth.py")
+    assert plan.scanned(intents, REQUIREMENTS_FILE)
+    assert not plan.scanned(intents, "aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md")
+    assert not plan.scanned(intents, "aidlc/spaces/default/intents/260926-checkout/aidlc-state.md")
+    assert not plan.scanned(intents, "data/blob.bin")
+
+
+# The change baseline: the commit of the last approved stage check the record holds.
+
+GATE_REQ, GATE_CG = "inception/requirements-analysis", "construction/code-generation"
+
+
+def held_header(stage, digest, commit, dirty=False):
+    return RunHeader("r", stage, commit, dirty, "2026-09-26T12:00:00Z", ("trace",), None, None, (), "done", {}, digest)
+
+
+def baseline_intent(*rows):
+    """Return an intent whose audit holds one GATE_APPROVED row per (stage, hash, timestamp).
+
+    Its approvals are the latest row of each stage, as `plan.intent` reads them.
+    """
+    events = tuple(
+        Event((at, "a.md", number), "GATE_APPROVED", {"Stage": stage.rpartition("/")[2], "Assessment Hash": digest})
+        for number, (stage, digest, at) in enumerate(rows)
+    )
+    approvals = {}
+    for event, (stage, digest, _) in sorted(zip(events, rows, strict=True), key=lambda pair: pair[0].key):
+        approvals[stage] = Approval(stage, None, "human", digest, at=event.key)
+    return plan.Intent("r", "r/aidlc-state.md", (), tuple(approvals), approvals, frozenset(), (), events=events)
+
+
+def runs_of(*headers):
+    return {f"r/{each.stage}": each for each in headers}
+
+
+def test_the_baseline_is_the_commit_of_the_header_whose_hash_the_approval_row_carries():
+    intent = baseline_intent((GATE_REQ, "h1", "2026-09-26T12:00:00Z"))
+    assert plan.change_baseline(intent, runs_of(held_header(GATE_REQ, "h1", "c1"))) == "c1"
+
+
+def test_the_latest_approval_row_in_audit_order_gives_the_baseline_across_stages():
+    intent = baseline_intent((GATE_CG, "h2", "2026-09-27T12:00:00Z"), (GATE_REQ, "h1", "2026-09-26T12:00:00Z"))
+    runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h2", "c2"))
+    assert plan.change_baseline(intent, runs) == "c2"
+
+
+def test_a_later_stage_check_that_replaces_the_header_ends_that_stage_s_claim():
+    intent = baseline_intent((GATE_REQ, "h1", "2026-09-26T12:00:00Z"), (GATE_CG, "h2", "2026-09-27T12:00:00Z"))
+    runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h3", "c3"))
+    assert plan.change_baseline(intent, runs) == "c1"
+
+
+@pytest.mark.parametrize("digest", [None, "sha256:placeholder"])
+def test_a_row_without_the_header_s_hash_gives_no_baseline(digest):
+    intent = baseline_intent((GATE_REQ, digest, "2026-09-26T12:00:00Z"))
+    assert plan.change_baseline(intent, runs_of(held_header(GATE_REQ, "h1", "c1"))) is None
+
+
+def test_a_stage_without_a_held_header_or_an_approval_gives_no_baseline():
+    assert plan.change_baseline(baseline_intent((GATE_REQ, "h1", "2026-09-26T12:00:00Z")), {}) is None
+    assert plan.change_baseline(baseline_intent(), runs_of(held_header(GATE_REQ, "h1", "c1"))) is None
+
+
+def test_a_per_unit_stage_and_a_dirty_header_give_the_baseline_as_held():
+    stage = "construction/unit-a/code-generation"
+    intent = baseline_intent((stage, "h1", "2026-09-26T12:00:00Z"))
+    assert plan.change_baseline(intent, runs_of(held_header(stage, "h1", "c1", dirty=True))) == "c1"
+
+
+def test_approvals_that_share_the_latest_row_take_the_stage_later_in_route_order():
+    # a unit's end gate approves both its stages in one row; the later stage's commit wins, not the larger sha
+    design, code = "construction/u1/functional-design", "construction/u1/code-generation"
+    row = ("2026-09-27T12:00:00Z", "a.md", 0)
+    approvals = {
+        stage: Approval(stage, None, "human", digest, at=row) for stage, digest in ((code, "h2"), (design, "h1"))
+    }
+    intent = plan.Intent("r", "r/aidlc-state.md", (), (design, code), approvals, frozenset(), ())
+    runs = runs_of(held_header(design, "h1", "c9"), held_header(code, "h2", "c1"))
+    assert plan.change_baseline(intent, runs) == "c1"
+
+
+def test_the_stage_s_counting_row_gives_its_place_in_audit_order():
+    # a stage approved again with the same hash is at its latest row, after the other stage
+    rows = ((GATE_REQ, "h1", "2026-09-26T12:00:00Z"), (GATE_CG, "h2", "2026-09-27T12:00:00Z"))
+    intent = baseline_intent(*rows, (GATE_REQ, "h1", "2026-09-28T12:00:00Z"))
+    runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h2", "c2"))
+    assert plan.change_baseline(intent, runs) == "c1"

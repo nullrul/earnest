@@ -208,6 +208,18 @@ class Index:
         return found
 
     @cached_property
+    def regions_by_path(self) -> dict[str, tuple[Region, ...]]:
+        """Map each file to its tag regions, in region order."""
+        found: dict[str, list[Region]] = {}
+        for region in self.regions:
+            found.setdefault(region.path, []).append(region)
+        return {path: tuple(regions) for path, regions in found.items()}
+
+    def regions_at(self, path: str, line: int) -> tuple[Region, ...]:
+        """Return the tag regions of a file that hold a line, by the Region rule."""
+        return tuple(region for region in self.regions_by_path.get(path, ()) if region.first <= line <= region.last)
+
+    @cached_property
     def resolutions(self) -> dict[Id, Resolution]:
         """Resolve each id the links name, once per id written, by type and name and then by revision."""
         return {target: self._resolve(target) for target in dict.fromkeys(link.target for link in self.links)}

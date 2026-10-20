@@ -12,6 +12,7 @@ from pytest_bdd import given, parsers, then, when
 
 from tests.sarif import (
     RECORD,
+    append_block,
     approval_text,
     git_output,
     header,
@@ -65,6 +66,9 @@ def _commit(repo: Path) -> Path:
     return repo
 
 
+_OVERLAYS = ("change", "task", "units")  # the fixture directories that no base commit holds
+
+
 def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:
     """Return a copytree ignore that leaves out the given paths, relative to root, of the fixture at root."""
 
@@ -77,11 +81,11 @@ def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]
 
 @pytest.fixture
 def fixture_repo(tmp_path: Path) -> Callable[[str], Path]:
-    """Return a builder that copies tests/fixtures/<name>, less its `change/` and `units/` overlays, and commits it."""
+    """Return a builder that copies tests/fixtures/<name>, less its `change/`, `task/` and `units/` overlays, and commits it."""
 
     def build(name: str) -> Path:
         repo = tmp_path / name
-        shutil.copytree(FIXTURES / name, repo, ignore=_leave_out(FIXTURES / name, "change", "units"))
+        shutil.copytree(FIXTURES / name, repo, ignore=_leave_out(FIXTURES / name, *_OVERLAYS))
         return _commit(repo)
 
     return build
@@ -94,7 +98,7 @@ def units_repo(tmp_path: Path) -> Callable[[], Path]:
     def build() -> Path:
         source = FIXTURES / "seeded-change"
         repo = tmp_path / "seeded-change"
-        shutil.copytree(source, repo, ignore=_leave_out(source, "change", "units", RECORD))
+        shutil.copytree(source, repo, ignore=_leave_out(source, *_OVERLAYS, RECORD))
         shutil.copytree(source / "units" / "aidlc", repo / "aidlc", dirs_exist_ok=True)
         return _commit(repo)
 
@@ -130,6 +134,34 @@ def commit_overlay() -> Callable[[Path, str, str], Path]:
     return commit
 
 
+def _overlay_files(name: str, overlay: str) -> list[str]:
+    root = FIXTURES / name / overlay
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
+
+
+def write_overlays(repo: Path, name: str, *overlays: str) -> list[str]:
+    """Copy a fixture's overlays into repo's work tree, in order, and return the paths they write."""
+    written: list[str] = []
+    for overlay in overlays:
+        shutil.copytree(FIXTURES / name / overlay, repo, dirs_exist_ok=True)
+        written.extend(_overlay_files(name, overlay))
+    return written
+
+
+@pytest.fixture
+def commit_task_change(commit_overlay) -> Callable[[Path, str], Path]:
+    """Return a builder that commits seeded-change's `change/` overlay, then its `task/` overlay, on a new branch."""
+
+    def commit(repo: Path, branch: str) -> Path:
+        commit_overlay(repo, "seeded-change", branch)
+        files = write_overlays(repo, "seeded-change", "task")
+        _git(repo, "add", "--", *files)
+        _git(repo, "commit", "-q", "--no-verify", "-m", "task")
+        return repo
+
+    return commit
+
+
 # What each column of a findings table reads from a SARIF result.
 _COLUMNS = {
     "rule": lambda result: result["ruleId"],
@@ -145,10 +177,17 @@ _COLUMNS = {
 _RECORD_COLUMNS = _COLUMNS | {"file": lambda result: located(result)[0].removeprefix(f"{RECORD}/")}
 
 
+def _cell(column, text):
+    """Return a table cell as the column reads it: a line as a number, and `-` in `stage` as no stage."""
+    if column == "line":
+        return int(text)
+    return None if column == "stage" and text == "-" else text
+
+
 def _exact(run, datatable, read_column):
     table = rows(datatable)
     columns = list(table[0])
-    expected = [tuple(int(row[c]) if c == "line" else row[c] for c in columns) for row in table]
+    expected = [tuple(_cell(c, row[c]) for c in columns) for row in table]
     actual = [tuple(read_column[c](result) for c in columns) for result in sarif_run(run.stdout)["results"]]
     assert sorted(actual, key=repr) == sorted(expected, key=repr)
 
@@ -198,6 +237,19 @@ def agent_has_run_stage_check(repo, memory, stage):
     memory["stage"] = stage
     memory.setdefault("hash", printed_hash(run))
     memory.setdefault("bodies", record(repo)["bodies"])
+
+
+@given(parsers.parse('the repo maintainer approves "{stage}" at the gate'))
+def approve_at_gate(repo, stage):
+    held = header(repo, stage)
+    fields = [
+        ("Stage", stage.split("/")[1]),
+        ("User Input", "Approve"),
+        ("Assessment Hash", held["hash"]),
+        ("Items", ", ".join(held["items"])),
+        ("Approved By", "human"),
+    ]
+    append_block(repo, "GATE_APPROVED", "2026-09-26T12:00:00Z", fields)
 
 
 @when("the coding agent runs earnest plan", target_fixture="run")

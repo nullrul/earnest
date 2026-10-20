@@ -9,14 +9,16 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal
 
-from earnest import adapters, structural
-from earnest.index import ID_ENTRY, Index, Item, Line, Source, split_lines
+from earnest import adapters, reporter, structural
+from earnest.git import Hunk
+from earnest.index import ID_ENTRY, Id, Index, Item, Line, Source, split_lines
 from earnest.index import digest as digest_of
 from earnest.reporter import Finding, Position, Run, RunHeader, canonical, run_key, uri
 
 
 AUDIT = "audit"
 _SCOPE = re.compile(r"^- \*\*Scope\*\*:[ \t]*(.*)$", re.MULTILINE)  # no lazy group before `[ \t]*$`: that is quadratic
+_CURRENT = re.compile(r"- \*\*Current Task\*\*:[ \t]*(.*)")
 _ROW = re.compile(r"- \[([ \-?RxS])\] (\S+) \u2014 (EXECUTE|SKIP)(?:[:\s][ \t]*(.*))?")
 _FIELD = re.compile(r"\*\*([^*:]+)\*\*:[ \t]*(.*)")
 _UNITS = "units-generation"
@@ -55,6 +57,7 @@ class State:
     rows: tuple[Row, ...]
     unread: tuple[int, ...] = ()  # lines under Stage Progress that start `- [` and are no row Earnest can read
     heading: int = 0  # the line of the `## Stage Progress` heading, 0 when the file has none
+    current: tuple[str, ...] = ()  # the values of the `Current Task` lines under `## Project Information`
 
 
 @dataclass(frozen=True, order=True)
@@ -112,14 +115,18 @@ def parse_state(text: str) -> State:
     rows: list[Row] = []
     unread: list[int] = []
     heading = 0
-    in_progress = False
+    in_progress = in_project = False
     phase = ""
+    current: list[str] = []
     for line in split_lines(normalized):
         stripped = line.text.rstrip()
         if stripped.startswith("## "):
             in_progress = stripped[3:].strip() == "Stage Progress"
+            in_project = stripped[3:].strip() == "Project Information"
             heading = heading or (line.number if in_progress else 0)
             phase = ""
+        elif in_project and (marked := _CURRENT.fullmatch(stripped)):
+            current.append(marked[1])
         elif in_progress and stripped.startswith("### "):
             phase = _phase(stripped[4:])
         elif in_progress and stripped.startswith("- ["):
@@ -127,7 +134,8 @@ def parse_state(text: str) -> State:
                 rows.append(Row(phase, row[2], row[1], row[3], row[4] or "", line.number))
             else:
                 unread.append(line.number)
-    return State(scope.group(1).rstrip(" \t") if scope else "", tuple(rows), tuple(unread), heading)
+    found = scope.group(1).rstrip(" \t") if scope else ""
+    return State(found, tuple(rows), tuple(unread), heading, tuple(current))
 
 
 def parse_audit(text: str, shard: str) -> list[Event]:
@@ -270,6 +278,7 @@ class Approval:
     """A stage's approval: the ids and revisions its row names (None without an `Items` field), who gave it, its hash.
 
     `scope` names the stages whose items together make the approval current, for a unit-end row; empty is its stage.
+    `at` is the row's place in audit order, the key of its event.
     """
 
     stage: str
@@ -277,6 +286,7 @@ class Approval:
     by: str | None
     digest: str | None
     scope: tuple[str, ...] = ()
+    at: tuple[str, str, int] = field(default=("", "", 0), compare=False)
 
 
 @dataclass(frozen=True)
@@ -295,6 +305,7 @@ class Intent:
     executed: tuple[str, ...] = ()  # the route before the per-unit expansion, which the route rule reads
     events: tuple[Event, ...] = ()  # the counting audit events
     table: UnitTable | None = None  # the unit table, on a route that holds Units Generation
+    current: tuple[str, ...] = ()  # the state file's `Current Task` values
 
     @property
     def units_route(self) -> bool:
@@ -414,6 +425,7 @@ def intent(record: Record) -> Intent:
         route,
         tuple(events),
         table,
+        state.current,
     )
 
 
@@ -729,7 +741,12 @@ def _unit_approval(
     by = event.fields.get("Approved By")
     scope = tuple(sorted(stage_ids[each] for each in _gate_keys(event, lanes)))
     return Approval(
-        stage_ids[key], items, by if by in {"human", "automatic"} else None, event.fields.get("Assessment Hash"), scope
+        stage_ids[key],
+        items,
+        by if by in {"human", "automatic"} else None,
+        event.fields.get("Assessment Hash"),
+        scope,
+        event.key,
     )
 
 
@@ -779,7 +796,8 @@ def _approval(stage: str, gates: Sequence[Event]) -> Approval | None:
     if any(other.name == "GATE_REJECTED" and other.key > event.key for other in mine):
         return None
     by = event.fields.get("Approved By")
-    return Approval(stage, items, by if by in {"human", "automatic"} else None, event.fields.get("Assessment Hash"))
+    by = by if by in {"human", "automatic"} else None
+    return Approval(stage, items, by, event.fields.get("Assessment Hash"), at=event.key)
 
 
 def _named(gates: Sequence[Event]) -> frozenset[str]:
@@ -1262,6 +1280,9 @@ def scoped(findings: Sequence[Finding], plan: Plan, stage: str) -> list[Finding]
     ]
 
 
+_TASK_CHANGE = frozenset({"earnest/out-of-task", "earnest/impact-degraded"})  # never in the assessment document
+
+
 def assessment_document(
     plan: Plan, stage: str, tree: Sequence[Source], findings: Sequence[Finding]
 ) -> dict[str, object]:
@@ -1269,11 +1290,17 @@ def assessment_document(
 
     It holds the stage's items with their body hashes, the findings of the run that lie in the evaluated tree, as
     their rule, uri, line, subject and message, and the tree's digest. It holds no position, commit, timestamp, route
-    or approval, and no approval note, which a fresh approval removes.
+    or approval, and no approval note, which a fresh approval removes. Nor does it hold the findings of the task
+    change, `out-of-task` and `impact-degraded`, which follow the current task, the change baseline and the coverage
+    map, so two identical runs and a rebase keep the hash.
     """
     state = next(each for each in plan.stages if each.stage == stage)
     inside = {each.path for each in tree}
-    counted = [found for found in scoped(findings, plan, stage) if not found.note and found.path in inside]
+    counted = [
+        found
+        for found in scoped(findings, plan, stage)
+        if not found.note and found.path in inside and found.rule not in _TASK_CHANGE
+    ]
     return {
         "v": 1,
         "stage": run_key(plan.intent.directory, stage),
@@ -1313,12 +1340,15 @@ def frozen_bodies(held: Mapping[str, str], intents: Sequence[Intent]) -> dict[st
     return {key: value for key, value in held.items() if any(key in current.named_items for current in intents)}
 
 
+def scanned(intents: Sequence[Intent], path: str) -> bool:
+    """Return whether a file at path lies in the evaluated tree by its path: a scanned suffix, not bookkeeping."""
+    directories = {current.directory for current in intents}
+    return adapters.reads(path) and not adapters.skipped(path, directories) and in_tree(intents, path)
+
+
 def dirty(changes: Sequence[str], intents: Sequence[Intent]) -> bool:
     """Return whether a changed path lies in the evaluated tree: a scanned suffix, outside AI-DLC's bookkeeping."""
-    directories = {current.directory for current in intents}
-    return any(
-        adapters.reads(path) and not adapters.skipped(path, directories) and in_tree(intents, path) for path in changes
-    )
+    return any(scanned(intents, path) for path in changes)
 
 
 def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -> RunHeader:
@@ -1341,7 +1371,151 @@ def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -
 
 
 class PlanError(Exception):
-    """The command cannot pick what it was asked for: an intent or a stage."""
+    """The command cannot pick what it was asked for: an intent, a stage or a task."""
+
+
+# The Out-of-task rule (M3).
+
+
+@dataclass(frozen=True)
+class ChangedRegion:
+    """A changed region: a tag region that holds a changed line, or the lines of one hunk outside every tag region.
+
+    `lines` are the region's lines, `changed` its changed lines in order, and `tags` the ids its tags name, none for a
+    hunk.
+    """
+
+    path: str
+    lines: tuple[int, ...]
+    changed: tuple[int, ...]
+    tags: tuple[Id, ...] = ()
+
+
+def plan_tasks(index: Index, intents: Sequence[Intent]) -> list[Item]:
+    """Return the tasks of the plan: the `task` items in the evaluated tree."""
+    return [item for item in index.defined.values() if item.id.type == "task" and in_tree(intents, item.path)]
+
+
+def current_task(
+    tasks: Sequence[Item], intents: Sequence[Intent], option: str | None
+) -> tuple[Item | None, str | None]:
+    """Return the current task, or None with the reason there is none.
+
+    `--task` names it, else the one `Current Task` line of the state files, naming a task of its intent on type and
+    name; no such line, several, or a value naming no task of its intent give none.
+
+    Raises:
+        PlanError: `--task` is not a task id, or names no task of the plan.
+    """
+    if option is not None:
+        found = _task_named(tasks, option)
+        if found is None:
+            known = ", ".join(sorted(str(task.id) for task in tasks)) or "none"
+            msg = f"--task {option} names no task of the plan: the tasks are {known}"
+            raise PlanError(msg)
+        return found, None
+    marks = [(current, value) for current in intents for value in current.current]
+    if not marks:
+        return None, "no state file names one"
+    if len(marks) > 1:
+        return None, "several Current Task lines name one"
+    ((holder, value),) = marks
+    found = _task_named([task for task in tasks if inside(holder, task.path)], value)
+    return (found, None) if found is not None else (None, f"`{value}` names no task of its intent")
+
+
+def change_baseline(intent: Intent, runs: Mapping[str, RunHeader]) -> str | None:
+    """Return the change baseline of an intent: the commit of its last approved stage check, or None.
+
+    A stage counts when its approval, current or outdated, carries the `Assessment Hash` of the run header the record
+    holds for it, so the header is the one approved; the latest such approval row in audit order gives the commit, and
+    of the stages one row approves, the one later in route order, the furthest-progressed state.
+    """
+    order = {stage: place for place, stage in enumerate(intent.route)}
+    claims = [
+        (approval.at, order.get(stage, -1), held.commit)
+        for stage, approval in intent.approvals.items()
+        for held in (runs.get(run_key(intent.directory, stage)),)
+        if held is not None and approval.digest is not None and approval.digest == held.digest
+    ]
+    return max(claims)[2] if claims else None
+
+
+def _task_named(tasks: Sequence[Item], text: str) -> Item | None:
+    named = ID_ENTRY.fullmatch(text)
+    return next((task for task in tasks if named and task.id.key == (named[1], named[2])), None)
+
+
+def changed_regions(index: Index, changed: Mapping[str, Sequence[Hunk]]) -> list[ChangedRegion]:
+    """Return the changed regions of each file, by the Region rule: tag regions first, then hunks outside them."""
+    found: list[ChangedRegion] = []
+    for path, hunks in sorted(changed.items()):
+        lines = sorted({line for hunk in hunks for line in hunk.new_lines})
+        spans: dict[tuple[int, int], list[Id]] = {}
+        for region in index.regions_by_path.get(path, ()):
+            spans.setdefault((region.first, region.last), []).append(region.target)
+        for (first, last), tags in sorted(spans.items()):
+            inside = tuple(line for line in lines if first <= line <= last)
+            if inside:
+                found.append(ChangedRegion(path, tuple(range(first, last + 1)), inside, tuple(sorted(tags, key=str))))
+        for hunk in hunks:
+            outside = tuple(line for line in hunk.new_lines if not any(first <= line <= last for first, last in spans))
+            if outside:
+                found.append(ChangedRegion(path, outside, outside))
+    return found
+
+
+def proposed_tasks(index: Index, changed: Mapping[str, Sequence[Hunk]]) -> list[Item]:
+    """Return the task items the diff adds: those whose id line is a changed line."""
+    lines = {(path, line) for path, hunks in changed.items() for hunk in hunks for line in hunk.new_lines}
+    return [item for item in index.items if item.id.type == "task" and (item.path, item.line) in lines]
+
+
+def delivered(index: Index, tasks: Sequence[Item]) -> frozenset[tuple[str, str]]:
+    """Return the type and name of everything the tasks' `Delivers:` lines name."""
+    owners = {task.id for task in tasks}
+    return frozenset(link.target.key for link in index.links if link.key == "Delivers" and link.owner in owners)
+
+
+def out_of_task(
+    plans: Sequence[Plan],
+    index: Index,
+    task: Item,
+    changed: Mapping[str, Sequence[Hunk]],
+    findings: Sequence[Finding],
+) -> list[Finding]:
+    """Return an `out-of-task` finding for each changed region outside the current task.
+
+    A region lies inside the task when one of its tags names, on type and name, what the task or a task the diff
+    adds delivers. A region on which an `outdated` finding is located raises none, and neither does the hunk that adds
+    a task delivering one of the changed regions' tags, which is the proposal itself. A finding sits at its region's
+    first changed line, counts against the stage that holds the task, and is in scope there.
+    """
+    regions = changed_regions(index, changed)
+    tagged = {tag.key for region in regions for tag in region.tags}
+    proposals = [item for item in proposed_tasks(index, changed) if delivered(index, [item]) & tagged]
+    covered = delivered(index, [task, *proposals])
+    proposing = {(item.path, item.line) for item in proposals}
+    outdated = {(found.path, found.line) for found in findings if found.rule == "earnest/outdated"}
+    owner = _owner(plans, task.path)
+    stage = stage_of(owner.intent, task.path) if owner is not None else None
+    result: list[Finding] = []
+    for region in regions:
+        places = {(region.path, line) for line in region.lines}
+        if any(tag.key in covered for tag in region.tags) or places & outdated or places & proposing:
+            continue
+        result.append(
+            Finding(
+                region.path,
+                region.changed[0],
+                "earnest/out-of-task",
+                str(task.id),
+                reporter.out_of_task_message(str(task.id), [str(tag) for tag in region.tags]),
+                stage=stage,
+                intent=owner.intent.directory if owner is not None and stage is not None else None,
+            )
+        )
+    return result
 
 
 def find_intent(intents: Sequence[Intent], option: str | None) -> Intent:
@@ -1391,3 +1565,25 @@ def _unreadable(intent: Intent) -> str:
     if not found:
         return "none"
     return f"the state file's Stage Progress cannot be read ({found[0].path}:{found[0].line})"
+
+
+def degraded_findings(
+    plans: Sequence[Plan],
+    index: Index,
+    places: Sequence[tuple[str, int]],
+    deleted: Sequence[tuple[str, int, int]] = (),
+) -> list[Finding]:
+    """Return an `impact-degraded` note at each line that selected the full suite, placed as every finding is.
+
+    A changed line sits at its own line; a deleted line at the line of the work tree it was deleted at, naming its
+    line in the baseline commit. A line in a stage artifact counts against that stage, at its position; a line of code
+    or tests reaches no stage.
+    """
+    found = [
+        Finding(path, line, "earnest/impact-degraded", f"{path}:{line}", reporter.DEGRADED) for path, line in places
+    ]
+    found += [
+        Finding(path, line, "earnest/impact-degraded", f"{path}:-{old}", reporter.deleted_message(old))
+        for path, line, old in deleted
+    ]
+    return place(plans, index, found)

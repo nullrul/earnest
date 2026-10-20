@@ -15,8 +15,10 @@ RuleId = Literal[
     "earnest/cycle",
     "earnest/duplicate",
     "earnest/gap",
+    "earnest/impact-degraded",
     "earnest/near-miss",
     "earnest/orphaned",
+    "earnest/out-of-task",
     "earnest/outdated",
     "earnest/predated",
     "earnest/route-mismatch",
@@ -29,8 +31,10 @@ RULES: dict[RuleId, str] = {
     "earnest/cycle": "error",
     "earnest/duplicate": "error",
     "earnest/gap": "error",
+    "earnest/impact-degraded": "note",
     "earnest/near-miss": "error",
     "earnest/orphaned": "error",
+    "earnest/out-of-task": "warning",
     "earnest/outdated": "error",
     "earnest/predated": "error",
     "earnest/route-mismatch": "error",
@@ -39,6 +43,12 @@ RULES: dict[RuleId, str] = {
     "earnest/unwanted": "warning",
 }
 LEVELS = ("untraced", "traced", "judged", "evidenced")
+# The three exits of an out-of-task finding, in the order of the Out-of-task rule; the first two clear it.
+EXITS = ("tag it under a requirement the task delivers", "propose a task", "declare it blocked")
+DEGRADED = (
+    "the line lies in no tag region and no coverage data covers it, so impact selected the full suite:"
+    " run every test, or tag the line under the requirement it serves"
+)
 _SCHEMA = "https://json.schemastore.org/sarif-2.1.0.json"
 _OPENINGS: dict[Position, str] = {
     "behind": "regression in approved stage {}",
@@ -79,6 +89,59 @@ class Finding:
         return f"{_OPENINGS[self.position].format(self.stage)}: {self.message}"
 
 
+def deleted_message(line: int) -> str:
+    """Return the message of an `impact-degraded` note at a deleted line with no coverage data."""
+    return (
+        f"line {line} of the baseline commit was deleted here and no coverage data covers it, so impact selected the"
+        " full suite: run every test"
+    )
+
+
+def out_of_task_message(task: str, tags: Sequence[str]) -> str:
+    """Return the message of an out-of-task finding: the current task, the region's tags or `no tag`, the exits."""
+    region = f"the region of {', '.join(f'`{tag}`' for tag in tags)}" if tags else "a hunk with no tag"
+    return f"the change in {region} lies outside the current task `{task}`; exits: {'; '.join(EXITS)}"
+
+
+@dataclass(frozen=True)
+class Impact:
+    """The impact section: the impacted requirements and features, the tests to run, and whether it is degraded.
+
+    `base` is the change baseline and `mapped` whether a coverage map was read. With no map, a degraded impact
+    selects the full suite as no test, and the summary says so.
+    """
+
+    requirements: tuple[str, ...]
+    features: tuple[str, ...]
+    tests: tuple[str, ...]
+    degraded: bool
+    base: str
+    mapped: bool
+
+    def as_property(self) -> dict[str, object]:
+        """Return `properties.impact`: the ids sorted, and `degraded`."""
+        return {
+            "requirements": sorted(self.requirements),
+            "features": sorted(self.features),
+            "tests": sorted(self.tests),
+            "degraded": self.degraded,
+        }
+
+    def lines(self) -> list[str]:
+        """Return the summary's impact section, one line a field."""
+        tests = ", ".join(sorted(self.tests)) or ("the full suite" if self.degraded else "none")
+        lines = [
+            "impact:",
+            f"  requirements: {', '.join(sorted(self.requirements)) or 'none'}",
+            f"  features: {', '.join(sorted(self.features)) or 'none'}",
+            f"  tests: {tests}",
+            f"  degraded: {'yes' if self.degraded else 'no'}",
+        ]
+        if not self.mapped:
+            lines.append(f"  coverage map: none for the baseline commit {self.base}")
+        return lines
+
+
 @dataclass(frozen=True)
 class Run:
     """What one run adds to its log and summary besides the findings: the commit and the plan's view of the work."""
@@ -90,6 +153,8 @@ class Run:
     assessment: Mapping[str, object] | None = None
     record_absent: bool = False
     unheld: int = 0
+    impact: Impact | None = None
+    notes: tuple[str, ...] = ()  # summary lines the run states once, such as why it took no coverage map
 
 
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
@@ -113,6 +178,8 @@ def sarif(findings: Sequence[Finding], levels: Mapping[str, str], run: Run) -> s
         properties["plan"] = run.plan
     if run.assessment is not None:
         properties["assessment"] = run.assessment
+    if run.impact is not None:
+        properties["impact"] = run.impact.as_property()
     body = {
         "tool": {"driver": {"name": "earnest"}},
         "invocations": [
@@ -157,6 +224,9 @@ def _run_lines(run: Run) -> list[str]:
         lines.append("record: absent, body-hash baseline unavailable")
     if run.unheld > 0:
         lines.append(f"body-hash baseline: {run.unheld} items without a held hash")
+    if run.impact is not None:
+        lines.extend(run.impact.lines())
+    lines.extend(run.notes)
     return lines
 
 
@@ -234,7 +304,7 @@ class Record:
     version: int = VERSION
     runs: dict[str, RunHeader] = field(default_factory=dict)
     bodies: dict[str, str] = field(default_factory=dict)
-    # ponytail: a placeholder shape; Milestone 3 settles whether `coverage` holds an object or the bare commit
+    # the commit the coverage map was taken at, as `{"commit": sha}`; the map lies under `.earnest/coverage/<sha>`
     coverage: dict[str, object] = field(default_factory=lambda: {"commit": None})
     judge: dict[str, object] = field(default_factory=lambda: {"cache": {}})
     calibration: dict[str, object] | None = None

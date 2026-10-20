@@ -8,8 +8,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from earnest import adapters, git, plan, reporter, structural
-from earnest.index import Source, build_index
+from earnest import adapters, git, impact, plan, reporter, structural
+from earnest.index import Index, Item, Source, build_index
 from earnest.reporter import Finding, Run
 
 
@@ -30,6 +30,7 @@ class _World:
 class _Analysis:
     """What the run works out: the plans, every placed finding, the plan's own, and what each stage's status is."""
 
+    index: Index
     levels: dict[str, str]
     plans: list[plan.Plan]
     findings: list[Finding]
@@ -61,6 +62,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     check = commands.add_parser("check", help="trace the repository; SARIF 2.1.0 on stdout, a summary on stderr")
     check.add_argument("--stage", help="check one stage: its id, or its slug when that is unambiguous")
     check.add_argument("--intent", help="the record directory of the intent, when there are several")
+    check.add_argument(
+        "--task",
+        help="the current task, such as task~add-limiter~1; else the Current Task line of the state file names it",
+    )
     commands.add_parser("plan", help="print the route, each stage's status and approval, and the frontier")
     args = parser.parse_args(argv)
     try:
@@ -113,7 +118,7 @@ def _analyse(world: _World) -> _Analysis:
         record_absent=not world.record_exists and bool(index.defined),
         unheld=unheld if world.record_exists else 0,
     )
-    return _Analysis(levels, plans, findings, derived, statuses, run)
+    return _Analysis(index, levels, plans, findings, derived, statuses, run)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -150,11 +155,57 @@ def _plan(world: _World) -> _Result:
     )
 
 
+def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Analysis:
+    """Add the task change: out-of-task findings when a current task is known, and the impact of the diff.
+
+    Both read the diff since the change baseline, the commit of the current task's intent's last approved stage
+    check, and run only with a current task and a baseline; without either the summary says so once, and with no
+    changed line in the evaluated tree the analysis returns as it was. No Git branch is read.
+    """
+    if not world.intents:  # no plan, so no task to speak of: M1's output stays as it was
+        return analysis
+    task, reason = plan.current_task(plan.plan_tasks(analysis.index, world.intents), world.intents, option)
+    if task is None:
+        return _without_task_change(analysis, f"no current task, as {reason}")
+    base, missing = _baseline(world, analysis, task)
+    if base is None:
+        return _without_task_change(analysis, missing)
+    tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
+    # a file deleted since the baseline is read whole as deleted lines, when the scanner would read its path
+    gone = {path for path in git.deleted_files(world.root, base) if plan.scanned(world.intents, path)}
+    changed = git.changed_lines(world.root, base, tree | gone, keep_deletions=True)  # a deletion has no region
+    if not changed:
+        return analysis
+    found = plan.out_of_task(analysis.plans, analysis.index, task, changed, analysis.findings)
+    change = impact.Change(changed, base)
+    selection = impact.select(world.root, analysis.index, change, impact.read_map(world.root, base))
+    found += plan.degraded_findings(analysis.plans, analysis.index, selection.degraded, selection.deleted)
+    return replace(analysis, findings=[*analysis.findings, *found], run=replace(analysis.run, impact=selection.impact))
+
+
+def _baseline(world: _World, analysis: _Analysis, task: Item) -> tuple[str | None, str]:
+    """Return the change baseline of the task's intent, or None and why there is none."""
+    holder = next((each.intent for each in analysis.plans if plan.inside(each.intent, task.path)), None)
+    if holder is None:  # the baseline is per intent, and an existing task id is no usage error
+        return None, f"the current task {task.id} lies in no intent, so no approved stage check gives a baseline"
+    base = plan.change_baseline(holder, world.record.runs)  # the built intent holds the per-unit approvals
+    if base is None:
+        return None, "no approved stage check is recorded"
+    if not git.has_commit(world.root, base):
+        return None, f"the approved stage check's commit {base} is not in the repository"
+    return base, ""
+
+
+def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
+    note = f"task change: {reason}; no out-of-task check and no impact"
+    return replace(analysis, run=replace(analysis.run, notes=(*analysis.run.notes, note)))
+
+
 def _check(world: _World, args: argparse.Namespace) -> _Result:
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
-        analysis = _analyse(world)
+        analysis = _task_change(world, _analyse(world), args.task)
         findings, run = analysis.findings, analysis.run
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
@@ -162,7 +213,7 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
             _code(findings),
         )
     chosen = plan.find_intent(world.intents, _option(world, args.intent))
-    return _stage(world, _analyse(world), chosen, args.stage)
+    return _stage(world, _task_change(world, _analyse(world), args.task), chosen, args.stage)
 
 
 def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -> _Result:
@@ -186,7 +237,14 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     # last-writer-wins (the same stage twice is safe); take an flock on `.earnest/lock` if sensor fires run in parallel
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
-    reporter.write_record(world.root, world.record)
+    reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
+    # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
+    reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)
+    if reason is None:
+        world.record.coverage = {"commit": world.commit}
+        reporter.write_record(world.root, world.record)
+    else:
+        run = replace(run, notes=(*run.notes, f"coverage map: not taken, {reason}"))
     return _Result(
         reporter.sarif(found, analysis.levels, run), reporter.summary(found, analysis.levels, run), _code(found)
     )
