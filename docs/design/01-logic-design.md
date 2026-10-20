@@ -877,11 +877,21 @@ impact selects the full suite and raises `impact-degraded`. The full suite is
 every test the map holds a context for, and with no map it is written as no
 test, with impact marked degraded. A line deleted since the base commit
 selects the tests whose contexts covered it in a map taken at the base, the
-only map whose lines are the base's; with no such data, no map or a map
-taken at another commit, it selects the full suite and raises
+only map whose lines are the base's; with no such data, no map, a map
+taken at another commit, or no context for that line in the base map, as for
+a blank line, a comment or the continuation of a statement whose context
+coverage gives to its first line, it selects the full suite and raises
 `impact-degraded`, located at the line of the work tree the deletion follows,
 and naming the deleted line's number in the base commit. A deleted line names
-no requirement, as its region is gone. `impact-degraded` is one finding per
+no requirement, as its region is gone. A file deleted since the base is read
+the same way, every base line of it a deleted line, although the evaluated
+tree no longer holds it: impact reads such a file when the scanner would read
+its path, by its suffix and outside the bookkeeping of a record directory
+read by the current intents, so a deleted audit shard or state file raises
+nothing. Its findings are located at line 1 of the deleted path, its uri as
+the base holds it, and are placed as every finding is: a deleted stage
+artifact counts against its stage, and deleted code or tests reach no stage.
+The out-of-task check reads no deleted file, as a deletion forms no region. `impact-degraded` is one finding per
 such line, changed or deleted, blank lines included, read literally and so
 deterministically. It
 counts against a stage by the placement every finding follows: a line in a
