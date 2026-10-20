@@ -1,10 +1,13 @@
-"""Steps for tests/features/task_change.feature: out-of-task findings and impact on seeded-change's task branch."""
+"""Steps for tests/features/task_change.feature: out-of-task findings and impact since the approved stage check."""
+
+import re
 
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from tests.conftest import FIXTURES, _git, write_overlays
+from tests.conftest import FIXTURES, write_overlays
 from tests.sarif import (
     PLAN_FILE,
+    RECORD,
     REQUIREMENTS,
     SHARD,
     git_output,
@@ -22,10 +25,11 @@ from tests.sarif import (
 
 scenarios("task_change.feature")
 
-TASK_BRANCH = "task/add-limiter-window"
+TASK_BRANCH = "task/add-limiter-window"  # fixture mechanics: Earnest reads no branch, and no assertion reads its name
 BASE = FIXTURES / "seeded-change"
-# The body line of each task a step adds to the plan; "the same six-line shape" leaves the text to the step.
-TASK_BODIES = {"task~tell-wait~1": "Tell the member how long to wait.", "task~add~1": "Record each lockout."}
+STATE = f"{RECORD}/aidlc-state.md"
+# The body line of each task a step adds to the plan.
+TASK_BODIES = {"task~tell-wait~1": "Tell the member how long to wait."}
 FIELDS = ("requirements", "features", "tests", "degraded")
 
 
@@ -74,8 +78,20 @@ def maintainer_repository(fixture_repo, name):
     return repo
 
 
-@given("the coding agent's task change is committed on the task branch")
-def task_change_on_task_branch(repo, memory, commit_task_change):
+@given(parsers.re(r"the coding agent's state file names (?P<marked>.+) as the current task"))
+def state_file_names_task(repo, marked):
+    """Write one `Current Task` line per quoted id as the last lines of Project Information, uncommitted."""
+    lines = read(repo, STATE).split("\n")
+    start = lines.index("## Project Information") + 1
+    end = next(i for i in range(start, len(lines)) if not lines[i].strip() or lines[i].startswith("## "))
+    tasks = re.findall(r'"([^"]+)"', marked)
+    assert tasks or marked == "no task", marked
+    lines[end:end] = [f"- **Current Task**: {task}" for task in tasks]
+    write(repo, STATE, "\n".join(lines))
+
+
+@given("the coding agent's task change is committed")
+def task_change_committed(repo, memory, commit_task_change):
     commit_task_change(repo, TASK_BRANCH)
     memory["head"] = git_output(repo, "rev-parse", "HEAD").strip()
 
@@ -83,12 +99,16 @@ def task_change_on_task_branch(repo, memory, commit_task_change):
 @given("the coding agent's task change is left uncommitted on main")
 def task_change_uncommitted(repo):
     write_overlays(repo, "seeded-change", "change", "task")
-    assert git_output(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
 
 
-@given(parsers.parse('the coding agent\'s task change is committed on the branch "{branch}"'))
-def task_change_on_branch(repo, commit_task_change, branch):
-    commit_task_change(repo, branch)
+@given(parsers.parse('the coverage maps under "{directory}" are gone'))
+def coverage_maps_gone(repo, memory, directory):
+    """Delete the map files the scenario's own stage check wrote, and nothing else."""
+    commit = header(repo, memory["stage"])["commit"]
+    written = [repo / directory / commit, repo / directory / f"{commit}.json"]
+    assert all(path.is_file() for path in written), written
+    for path in written:
+        path.unlink()
 
 
 @given(parsers.parse('the coding agent tags line {line:d} of "{path}" under "{req}", uncommitted'))
@@ -114,13 +134,6 @@ def propose_task(repo, task, req):
 )
 def declare_blocked(repo, line, path):
     assert read(repo, path).split("\n")[line - 1]  # the message names a line that exists, and the repository is left
-
-
-@given(parsers.parse('the repo maintainer adds the task "{task}", delivering "{req}", to the plan on main'))
-def add_task_on_main(repo, task, req):
-    write(repo, PLAN_FILE, read(repo, PLAN_FILE) + task_lines(task, req))
-    _git(repo, "add", "--", PLAN_FILE)
-    _git(repo, "commit", "-q", "--no-verify", "-m", "plan")
 
 
 @given(
@@ -242,7 +255,22 @@ def degraded_says_full_suite(run):
     assert all("impact selected the full suite" in text for text in found), found
 
 
-@then("the summary states that no coverage map exists for the base commit")
-def summary_states_no_map(repo, run):
-    base = git_output(repo, "merge-base", "HEAD", "main").strip()
-    assert f"  coverage map: none for the base commit {base}" in run.stderr.splitlines(), run.stderr
+@then("the summary states that no coverage map exists for the baseline commit")
+def summary_states_no_map(repo, memory, run):
+    baseline = header(repo, memory["stage"])["commit"]
+    assert f"  coverage map: none for the baseline commit {baseline}" in run.stderr.splitlines(), run.stderr
+
+
+def _states_once(run, reason):
+    found = [line for line in run.stderr.splitlines() if reason in line]
+    assert len(found) == 1, run.stderr
+
+
+@then("the summary states once that there is no current task")
+def summary_no_current_task(run):
+    _states_once(run, "no current task")
+
+
+@then("the summary states once that no approved stage check is recorded")
+def summary_no_baseline(run):
+    _states_once(run, "no approved stage check is recorded")

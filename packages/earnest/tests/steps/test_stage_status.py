@@ -95,19 +95,6 @@ def restore_text(repo, item):
     write(repo, REQUIREMENTS, text.replace("how long the lockout lasts.", "when they may try again."))
 
 
-@given(parsers.parse('the repo maintainer approves "{stage}" at the gate'))
-def approve_at_gate(repo, stage):
-    held = header(repo, stage)
-    fields = [
-        ("Stage", stage.split("/")[1]),
-        ("User Input", "Approve"),
-        ("Assessment Hash", held["hash"]),
-        ("Items", ", ".join(held["items"])),
-        ("Approved By", "human"),
-    ]
-    append_block(repo, "GATE_APPROVED", "2026-09-26T12:00:00Z", fields)
-
-
 @given(parsers.parse('the audit log gains a GATE_REJECTED row for "{slug}" after its approval'))
 def audit_rejection(repo, slug):
     append_block(repo, "GATE_REJECTED", "2026-09-26T11:00:00Z", [("Stage", slug), ("Feedback", "Rework the limits.")])

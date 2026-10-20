@@ -12,6 +12,7 @@ from pytest_bdd import given, parsers, then, when
 
 from tests.sarif import (
     RECORD,
+    append_block,
     approval_text,
     git_output,
     header,
@@ -236,6 +237,19 @@ def agent_has_run_stage_check(repo, memory, stage):
     memory["stage"] = stage
     memory.setdefault("hash", printed_hash(run))
     memory.setdefault("bodies", record(repo)["bodies"])
+
+
+@given(parsers.parse('the repo maintainer approves "{stage}" at the gate'))
+def approve_at_gate(repo, stage):
+    held = header(repo, stage)
+    fields = [
+        ("Stage", stage.split("/")[1]),
+        ("User Input", "Approve"),
+        ("Assessment Hash", held["hash"]),
+        ("Items", ", ".join(held["items"])),
+        ("Approved By", "human"),
+    ]
+    append_block(repo, "GATE_APPROVED", "2026-09-26T12:00:00Z", fields)
 
 
 @when("the coding agent runs earnest plan", target_fixture="run")
