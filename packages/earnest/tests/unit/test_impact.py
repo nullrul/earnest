@@ -5,7 +5,9 @@ import sys
 
 import pytest
 
-from earnest import git, impact
+from earnest import adapters, git, impact
+from earnest.git import Hunk
+from earnest.index import Source, build_index
 from tests.sarif import git_output
 
 
@@ -106,3 +108,95 @@ def test_no_map_and_a_name_that_is_no_commit_read_as_no_map(tmp_path):
 
 def test_the_map_run_uses_the_interpreter_that_runs_earnest():
     assert impact.take_map.__defaults__ == (sys.executable,)
+
+
+# Selection by the Impact rule.
+
+BASE = "d" * 40
+CODE = (
+    "X = 0\n"  # 1: before every tag
+    "# [impl->req~a~1]\n"  # 2
+    "def a():\n"  # 3
+    "    return 1\n"  # 4
+    "\n"  # 5
+    "# [impl->dsn~b~1]\n"  # 6
+    "def b():\n"  # 7
+    "    return 2\n"  # 8
+)
+TESTS = (
+    "# [utest->req~a~2]\n"  # 1: another revision, matched on type and name
+    "def test_a():\n"
+    "    pass\n"
+    "# [utest->dsn~b~1]\n"  # 4
+    "class TestB:\n"
+    "    def test_b(self):\n"
+    "        pass\n"
+)
+SPEC = "`feat~f~1`\n\nF.\n\n`req~a~1`\n\nA.\n\nCovers: feat~f~1\n\n`dsn~b~1`\n\nB.\n\nCovers: req~a~1\n"
+FILES = {"src/m.py": CODE, "tests/test_m.py": TESTS, "docs/spec.md": SPEC}
+
+
+def selected(tmp_path, hunks, coverage, since_map=None):
+    for path, text in FILES.items():
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(text, encoding="utf-8")
+    index = build_index(adapters.scan(tmp_path, sorted(FILES)))
+    change = impact.Change(hunks, BASE, hunks if since_map is None else since_map)
+    return impact.select(tmp_path, index, change, coverage)
+
+
+MAP = {("src/m.py", 4): ("tests/test_m.py::test_a",), ("src/m.py", 8): ("tests/test_m.py::TestB::test_b",)}
+
+
+def test_a_modified_line_selects_the_tests_the_map_saw_run_its_paired_base_line(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(4, 1, 4, 1),)}, MAP)
+    assert found.impact.tests == ("tests/test_m.py::test_a",)
+    assert (found.impact.degraded, found.degraded, found.impact.mapped) == (False, (), True)
+    assert found.impact.requirements == ("req~a~1",)
+    assert found.impact.features == ("feat~f~1",)
+
+
+def test_an_unseen_line_in_a_tag_region_selects_the_tests_tagged_on_type_and_name(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(4, 0, 5, 1),)}, MAP)  # line 5 is added, beyond the pairing
+    assert found.impact.tests == ("tests/test_m.py::test_a",)
+    assert not found.impact.degraded
+
+
+def test_a_tag_region_of_a_design_names_the_requirement_it_covers_and_selects_a_test_method(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(7, 1, 7, 1),)}, None)
+    assert found.impact.tests == ("tests/test_m.py::TestB::test_b",)
+    assert found.impact.requirements == ("req~a~1",)
+    assert found.impact.features == ("feat~f~1",)
+    assert not found.impact.mapped
+
+
+def test_a_line_in_no_tag_region_selects_the_full_suite_and_is_degraded_blank_lines_included(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(1, 1, 1, 1),), "docs/spec.md": (Hunk(2, 1, 2, 2),)}, MAP)
+    assert found.degraded == (("docs/spec.md", 2), ("docs/spec.md", 3), ("src/m.py", 1))
+    assert found.impact.tests == ("tests/test_m.py::TestB::test_b", "tests/test_m.py::test_a")
+    assert found.impact.degraded
+    assert found.impact.requirements == ()
+
+
+def test_without_a_map_the_full_suite_is_no_test_and_degraded(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(1, 1, 1, 1),)}, None)
+    assert (found.impact.tests, found.impact.degraded, found.impact.mapped) == ((), True, False)
+    assert "  tests: the full suite" in found.impact.lines()
+
+
+def test_a_line_is_remapped_through_the_hunks_since_the_maps_commit(tmp_path):
+    # since the map, two lines were added at the top, so line 6 now was line 4 then
+    found = selected(tmp_path, {"src/m.py": (Hunk(6, 1, 6, 1),)}, MAP, since_map={"src/m.py": (Hunk(0, 0, 1, 2),)})
+    assert found.impact.tests == ("tests/test_m.py::test_a",)
+
+
+def test_a_deleted_line_selects_nothing(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(4, 1, 3, 0),)}, MAP)
+    assert found.impact.tests == ()
+    assert found.degraded == ()
+
+
+def test_only_python_test_files_give_node_ids(tmp_path):
+    (tmp_path / "f.feature").write_text("@stest:req~a~1\nScenario: x\n", encoding="utf-8")
+    index = build_index([*adapters.scan(tmp_path, ["f.feature"]), Source("x.md", "markdown", ())])
+    assert impact.tagged_tests(tmp_path, index, {("req", "a")}) == []

@@ -231,6 +231,9 @@ def test_overlay_findings_match_the_scenario_table(fixture_repo, commit_overlay)
             ("earnest/unplanned", REQUIREMENTS, 13, "note", "ahead", CODE_STAGE),
             ("earnest/out-of-task", REQUIREMENTS, 5, "warning", "current", CODE_STAGE),
             ("earnest/out-of-task", REQUIREMENTS, 11, "warning", "current", CODE_STAGE),
+            ("earnest/impact-degraded", REQUIREMENTS, 3, "note", "current", REQ_STAGE),
+            ("earnest/impact-degraded", REQUIREMENTS, 5, "note", "current", REQ_STAGE),
+            ("earnest/impact-degraded", REQUIREMENTS, 11, "note", "current", REQ_STAGE),
         ]
     )
 

@@ -341,3 +341,31 @@ def test_a_changed_audit_shard_or_state_file_raises_no_out_of_task(fixture_repo,
         write(repo, path, (target.read_text(encoding="utf-8") if target.exists() else "") + "\nmore\n")
     _, out, _ = run(repo, monkeypatch, capsys, "check")
     assert "earnest/out-of-task" not in [result["ruleId"] for result in sarif_run(out)["results"]]
+
+
+def test_a_task_branch_that_names_no_task_still_reports_impact(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "checkout", "-q", "-b", "task/unknown-x"], cwd=repo, check=True)
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    _, out, err = run(repo, monkeypatch, capsys, "check")
+    assert sarif_run(out)["properties"]["impact"]["requirements"] == ["req~audit-log~1"]  # the last tag's region
+    assert "impact:" in err.splitlines()
+
+
+def test_a_task_branch_with_no_changed_line_prints_no_impact(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "checkout", "-q", "-b", "task/add-limiter-window"], cwd=repo, check=True)
+    _, out, err = run(repo, monkeypatch, capsys, "check")
+    assert "impact" not in sarif_run(out)["properties"]
+    assert "impact:" not in err.splitlines()
+
+
+def test_a_record_naming_no_commit_as_its_map_reads_as_no_map(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    held = json.loads((repo / ".earnest/assessment.json").read_text(encoding="utf-8"))
+    held["coverage"] = {"commit": "../../outside"}
+    (repo / ".earnest/assessment.json").write_text(json.dumps(held), encoding="utf-8")
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    _, _, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
+    assert any(line.startswith("  coverage map: none for the base commit") for line in err.splitlines())

@@ -155,9 +155,10 @@ def _plan(world: _World) -> _Result:
 
 
 def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Analysis:
-    """Add the out-of-task findings of the diff since the task's base commit, when a current task is known.
+    """Add the task change: out-of-task findings when a current task is known, and the impact of the diff.
 
-    It runs only with `--task` or on a `task/…` branch; anywhere else the analysis returns as it was.
+    Both read the diff since the task's base commit, and run only with `--task` or on a `task/…` branch; anywhere
+    else, or with no changed line in the evaluated tree, the analysis returns as it was.
     """
     branch = git.current_branch(world.root)
     if option is None and not plan.on_task_branch(branch):
@@ -166,8 +167,24 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
     base = git.merge_base(world.root, git.default_branch(world.root))
     tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
     changed = git.changed_lines(world.root, base, tree)
+    if not changed:
+        return analysis
     found = [] if task is None else plan.out_of_task(analysis.plans, analysis.index, task, changed, analysis.findings)
-    return replace(analysis, findings=[*analysis.findings, *found])
+    selection = _impact(world, analysis.index, impact.Change(changed, base, changed), tree)
+    found += plan.degraded_findings(analysis.plans, analysis.index, selection.degraded)
+    return replace(analysis, findings=[*analysis.findings, *found], run=replace(analysis.run, impact=selection.impact))
+
+
+def _impact(world: _World, index: Index, change: impact.Change, tree: set[str]) -> impact.Selection:
+    """Select the impact of a change against the coverage map the record names, remapped since its commit."""
+    commit = world.record.coverage.get("commit")
+    if not impact.is_commit(commit) or not git.has_commit(world.root, str(commit)):
+        return impact.select(world.root, index, change, None)
+    taken = str(commit)
+    coverage = impact.read_map(world.root, taken)
+    if coverage is not None and taken != change.base:
+        change = replace(change, since_map=git.changed_lines(world.root, taken, tree))
+    return impact.select(world.root, index, change, coverage)
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:

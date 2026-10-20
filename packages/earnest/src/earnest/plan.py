@@ -1515,3 +1515,14 @@ def _unreadable(intent: Intent) -> str:
     if not found:
         return "none"
     return f"the state file's Stage Progress cannot be read ({found[0].path}:{found[0].line})"
+
+
+def degraded_findings(plans: Sequence[Plan], index: Index, places: Sequence[tuple[str, int]]) -> list[Finding]:
+    """Return an `impact-degraded` note at each changed line that selected the full suite, placed as every finding is.
+
+    A line in a stage artifact counts against that stage, at its position; a line of code or tests reaches no stage.
+    """
+    found = [
+        Finding(path, line, "earnest/impact-degraded", f"{path}:{line}", reporter.DEGRADED) for path, line in places
+    ]
+    return place(plans, index, found)

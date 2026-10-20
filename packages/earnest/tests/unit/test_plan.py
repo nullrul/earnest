@@ -2629,3 +2629,14 @@ def test_a_tag_at_another_revision_of_a_delivered_requirement_lies_inside_the_ta
     lines[1] = "LIMIT = 5  # [impl->req~rate-limit~2]"
     write(repo, "src/checkout/auth.py", "\n".join(lines))
     assert out_of_task_rows(repo, {"src/checkout/auth.py": (Hunk(2, 1, 2, 1),)}) == []
+
+
+def test_impact_degraded_counts_against_the_stage_whose_artifact_holds_the_line_and_code_reaches_none(fixture_repo):
+    plans, index, _ = seeded(fixture_repo("seeded-change"))
+    found = plan.degraded_findings(plans, index, [(REQUIREMENTS_FILE, 5), (PLAN_FILE, 15), ("src/checkout/auth.py", 2)])
+    assert [(each.path, each.stage, each.position, each.level) for each in found] == [
+        (REQUIREMENTS_FILE, "inception/requirements-analysis", "behind", "note"),
+        (PLAN_FILE, CODE_GENERATION, "current", "note"),
+        ("src/checkout/auth.py", None, "current", "note"),
+    ]
+    assert all("impact selected the full suite" in each.message for each in found)
