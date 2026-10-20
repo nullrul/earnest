@@ -1,6 +1,6 @@
 # M3 `task_change` Implementation Plan
 
-Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 and decisions (a)–(d), (i) and (ii), and on the Lead's decisions E1–E5. These are recorded in `docs/design/01-logic-design.md` (Out-of-task rule, Impact rule, D11, D12, SARIF 2.1.0, Runtime and permission model), `docs/design/02-structural-design.md` (`git.py`, `impact.py`, `fixtures/seeded-change/`) and `docs/design/04-bdd-test-plan.md` (the M2 Notes and the M3 section). E4 (`task/add-limiter` resolves to no task) is the literal reading and is not yet confirmed.
+Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 and decisions (a)–(d), (i) and (ii), and on the Lead's decisions E1–E5. These are recorded in `docs/design/01-logic-design.md` (Out-of-task rule, Impact rule, D11, D12, SARIF 2.1.0, Runtime and permission model), `docs/design/02-structural-design.md` (`git.py`, `impact.py`, `fixtures/seeded-change/`) and `docs/design/04-bdd-test-plan.md` (the M2 Notes and the M3 section). The maintainer's amendment confirms E4 as an exact-name match (`task/add-limiter` resolves to `add-limiter`) and re-derives E1 so that exit 2 resolves the finding.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -20,7 +20,7 @@ Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 
   - the merge-base;
   - the changed lines from a commit to the work tree, untracked files included, as `-U0` hunks that pair old lines with new.
 - `plan.py` owns the Out-of-task rule.
-  - It resolves the current task: `--task`, else the longest task name in the plan that the branch name begins with, followed by `-`.
+  - It resolves the current task: `--task`, else the longest task name in the plan that the rest of the branch name equals, or begins with followed by `-`.
   - It keeps the changed lines of files in the evaluated tree only.
   - It forms regions: each tag region of `index.py` that holds a changed line, and each hunk of changed lines outside every tag region, prose included.
   - It raises `out-of-task` at a region's first changed line, unless an `outdated` finding lies on one of the region's lines. The finding goes against the task's stage, at position current.
@@ -56,9 +56,9 @@ Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 
   - The diff runs from the base commit to the work tree, untracked files included.
   - The diff is read only in the evaluated tree (decision i).
 - **Resolution 3 and E4:**
-  - A branch `task/<rest>` resolves to the longest task name `n` in the plan such that `<rest>` begins with `n-`.
-  - No match gives no current task; `task/add-limiter` is such a branch.
-  - E4 is unconfirmed.
+  - A branch `task/<rest>` resolves to the longest task name `n` in the plan such that `<rest>` equals `n` or begins with `n-`.
+  - `task/add-limiter` and `task/add-limiter-window` both resolve to `add-limiter` (E4, confirmed).
+  - No match gives no current task; `task/add-limiterx` and `task/unknown-x` are such branches.
 - **Resolution 2 and (d):**
   - Only `check --stage` takes the map.
   - Its data file is `.earnest/coverage/<HEAD sha>`.
@@ -72,7 +72,10 @@ Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 
   - `impact-degraded` is one note per such line, blank lines included.
   - It counts against the stage whose artifact holds the line, else reaches no stage.
 - **(b):** the `task/` overlay is committed on top of `change/` on `task/add-limiter-window`.
-- **E1:** only the first exit clears the finding.
+- **E1, re-derived:** exits 1 and 2 clear the finding, and exit 3 leaves it standing.
+  - A changed region is not out-of-task when the diff adds a task item (its id line is a changed line) whose `Delivers:` names one of the region's tags on type and name.
+  - The hunk that adds such a task item is the proposal itself and raises no `out-of-task`.
+  - The Impact rule is unchanged, so the added plan lines still raise `impact-degraded` per line.
 - **E5:** `properties.impact` is `{requirements, features, tests, degraded}`, with ids and node ids sorted.
 - **Full suite:** it is every test the map holds a context for. With no map, `tests` is `[]` and `degraded` is `true` (a Lead decision).
 - **Writes:** `plan` stays read-only, and plain `check` writes nothing.
@@ -114,7 +117,7 @@ Scenario names are those of `04`: M3's "Task change feature" and the M2 "Stage s
 | 5 | The current task, regions and the Out-of-task rule, `plan.py`; `--task` in `cli.py` | T3, T4 | M3: "An out-of-task finding names the task and offers exactly three exits" |
 | 6 | The coverage map at `check --stage`, `impact.py`, `cli.py` | T4 | M3: "The stage check takes the coverage map and leaves Git's listing as it was" |
 | 7 | Impact selection, `impact-degraded` and its placement, `impact.py`, `plan.py`, `cli.py`; both gates turn green | T2, T5, T6 | the other ten M3 scenarios (see the table below), and M2's three amended scenarios |
-| 8 | The full suite, lint and the pre-PR review | T7 | all 13 of M3 and all 26 of M2, with M1 and M2b unchanged |
+| 8 | The full suite, lint and the pre-PR review | T7 | all 13 of M3 (14 tests, the outline giving two) and all 26 of M2, with M1 and M2b unchanged |
 
 The ten M3 scenarios that turn green at Task 7:
 
@@ -122,9 +125,9 @@ The ten M3 scenarios that turn green at Task 7:
 | --- |
 | "Each changed region outside the task is flagged, prose and code alike" |
 | "Tagging the region under a requirement the task delivers clears its finding" |
-| "Proposing a task leaves the finding standing for the maintainer to ratify" |
+| "Proposing a task that delivers the region's requirement clears its finding" |
 | "Declaring the change blocked leaves the repository and the finding as they were" |
-| "A task name with hyphens resolves to the longest task name the branch begins with" |
+| "A task name with hyphens resolves to the longest task name the branch names" (an outline: `task/add-limiter-window` and `task/add-limiter`) |
 | "The task named on the command line wins over the branch" |
 | "Off a task branch the named task diffs from the default branch, uncommitted work included" |
 | "The impact section names the requirements, features and tests to run, from the coverage map" |
@@ -154,7 +157,7 @@ M2's three amended scenarios, which turn green again at Task 7:
 | `tests/fixtures/seeded-change/pytest.ini` | `pythonpath = src` for the map run | 1 |
 | `tests/fixtures/seeded-change/tests/test_auth.py` | lines 2, 6, 11 and 16 call the code (E3); the tag lines stay at 4, 9 and 14 | 1 |
 | `tests/fixtures/seeded-change/task/src/checkout/auth.py` | the `task/` overlay: lines 2, 6 and 11 changed | 1 |
-| `tests/features/task_change.feature` | M3's 13 scenarios, verbatim from `04` | 1 |
+| `tests/features/task_change.feature` | M3's 13 scenarios (14 tests), verbatim from `04` | 1 |
 | `tests/steps/test_task_change.py` | pytest-bdd steps; the exit command | 1, 7 |
 | `tests/conftest.py` | the base builder leaves `task/` out; `-` in a `stage` column means no `properties.stage`; the stacked task-change committer | 1 |
 | `tests/integration/test_seeded_change.py` | the M3 seeds and the `task/` overlay pinned to the lines `04` names | 1 |
@@ -173,7 +176,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
 
 - Impact for TypeScript (Jest `--findRelatedTests`) is not built. M3 reads pytest-cov alone, so a changed `.ts` line takes the fallback.
 - Deleted lines select nothing; the unit tier pins this.
-- With no map, the full suite is written as `tests: []` with `degraded: true`.
+- With no map, the full suite is written as `tests: []` with `degraded: true` in `properties.impact`, and the summary says `tests: the full suite`.
 - Every changed prose line on a task branch is `impact-degraded`, blank lines included. That is the literal reading the maintainer chose (R1h′, ii), and it makes a spec edit always select the full suite.
 
 ---
@@ -200,7 +203,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
 - [ ] **Step 5:** Extend the shared findings-table step so that a `-` in the `stage` column means the result has no `properties.stage`.
 - [ ] **Step 6:** Pin the seeds and the overlay in `test_seeded_change.py`.
 - [ ] **Step 7:** Run the gates.
-  - Run `uv run pytest tests/steps/test_task_change.py`. Expected: 12 fail, and the off-branch guard passes.
+  - Run `uv run pytest tests/steps/test_task_change.py`. Expected: 13 of the 14 tests fail, and the off-branch guard passes.
   - Run `uv run pytest tests/steps/test_trace_check.py tests/steps/test_stage_status.py tests/steps/test_unit_status.py`. Expected: all green.
 - [ ] **Step 8:** Commit `test: RED task_change behavior gate and seeded-change M3 cases`.
 
@@ -246,8 +249,9 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
 - [ ] **Step 1:** Write failing tests:
   - **`current_task`:**
     - `--task` wins over the branch;
-    - the longest-prefix rule (`add` and `add-limiter` against `task/add-limiter-window`);
-    - `task/add-limiter` and `task/unknown-x` give `None`.
+    - the longest-name rule (`add` and `add-limiter` against `task/add-limiter-window`);
+    - the exact-name case (`task/add-limiter` gives `add-limiter`);
+    - `task/add-limiterx` and `task/unknown-x` give `None`.
   - **`changed_regions`:**
     - only files in the evaluated tree, so an audit shard or the state file gives none;
     - tag regions;
@@ -256,6 +260,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
     - type-and-name matching that ignores revision;
     - the location at the first changed line;
     - suppression when an `outdated` finding lies on a region's line, the stale-approval note included;
+    - exit 2: a region whose tags a task item added in the diff delivers raises none, and the hunk that adds the task item raises none, while a declared block changes nothing;
     - the stage is the task's stage, at position current.
 - [ ] **Step 2:** Implement. `cli.py` adds `--task <id>` and calls `out_of_task` only under resolution 4. A `--stage` run of another stage leaves `out-of-task` out of its assessment.
 - [ ] **Step 3:** The scenario "An out-of-task finding names the task and offers exactly three exits" passes. Commit.
@@ -287,7 +292,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
   - With no map there is only the fallback, and the summary says no map exists for the base commit.
 - [ ] **Step 2:** Implement, and wire into `cli.py` under resolution 4.
 - [ ] **Step 3:** Run the gates:
-  - `uv run pytest tests/steps/test_task_change.py`: 13 passed.
+  - `uv run pytest tests/steps/test_task_change.py`: 14 passed.
   - `uv run pytest tests/steps/test_stage_status.py`: 26 passed.
   - The regression run is green, with M1 and M2b unchanged.
 - [ ] **Step 4:** Commit.

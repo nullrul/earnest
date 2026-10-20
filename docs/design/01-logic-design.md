@@ -791,11 +791,12 @@ The scanner derives regions on every run, so nobody maintains them by hand.
 ### Out-of-task rule
 
 The current task comes from `--task`, or else from a branch named
-`task/<name>-…`. A branch name resolves to the task whose name is the longest
-task name in the plan that the part after `task/` begins with, followed by
-`-`, so `task/add-limiter-window` resolves to `task~add-limiter~…` even when
-the plan also holds a task `add`; a branch that resolves to no task gives no
-current task. The task's base commit is the merge-base of HEAD with the
+`task/<name>-…` or `task/<name>`. A branch name resolves to the task whose
+name is the longest task name in the plan that the part after `task/` equals,
+or begins with followed by `-`, so `task/add-limiter-window` and
+`task/add-limiter` both resolve to `task~add-limiter~…` even when the plan
+also holds a task `add`; a branch that resolves to no task gives no current
+task. The task's base commit is the merge-base of HEAD with the
 default branch, the branch `refs/remotes/origin/HEAD` names when it is set and
 `main` otherwise. The out-of-task check reads the diff since the task's base commit
 and matches each changed region's tags to the task's `Delivers:` ids on type and
@@ -808,8 +809,12 @@ name, ignoring revision. A region already reported `outdated` raises no
   the maintainer to ratify;
 - declare it blocked, as a message to the maintainer rather than an item.
 
-Only the first exit clears the finding. After a proposed task or a declared
-block the region still lies outside the current task, so the finding stands.
+The first two exits clear the finding. A changed region is not out-of-task
+when the diff adds a task item, one whose id line is a changed line, whose
+`Delivers:` names one of the region's tags on type and name, and the hunk
+that adds such a task item is the proposal itself and raises no
+`out-of-task`. After a declared block the region still lies outside the
+current task, so the finding stands.
 
 The diff runs from the base commit to the work tree, untracked files
 included, and covers only the files the scanner reads, the evaluated tree of
@@ -1119,8 +1124,9 @@ place of `req`.
 
 - Decision: the out-of-task check reads the diff from the task's base commit,
   the merge-base of HEAD with the default branch; takes the current task from
-  `--task` or the branch convention `task/<name>-…`, where `<name>` is the
-  longest task name in the plan followed by `-`;
+  `--task` or the branch convention `task/<name>-…` or `task/<name>`, where
+  `<name>` is the longest task name in the plan that the rest of the branch
+  name equals or begins with followed by `-`;
   matches tags to the task's items ignoring revision, and lets `outdated`
   suppress `out-of-task` for the same region.
 - Alternatives considered: a state file naming the current task; a required

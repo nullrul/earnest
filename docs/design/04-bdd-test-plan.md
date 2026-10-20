@@ -214,7 +214,7 @@ Feature: Trace check
   second commit, on the branch `task/add-limiter-window`, named after an
   existing task: one revision bump and one silent edit. M2 passes no `--task`.
   From M3 the check reads the branch, which names the current task by the
-  longest task name followed by `-` (the Out-of-task rule of `01`). It then
+  longest task name it equals or that is followed by `-` (the Out-of-task rule of `01`). It then
   reads the overlay's prose edits as out-of-task and impact changes, which
   add rows to three of the tables below (see the Notes for the task plan).
 - Success criteria asserted: SC1, SC5, SC8 (stage and task status), SC9 (run
@@ -932,13 +932,13 @@ appears in M3's tables.
 | A region is already reported `outdated` when an `outdated` finding is located on one of its lines, the stale-approval note included | D11 in `01` |
 | An `out-of-task` finding counts against the stage that holds the current task, at position current, so its message opens `in scope at construction/code-generation` even while that stage is ahead | Frontier and position in `01`: "current: … the current task" |
 | `impact-degraded` is one note per changed line in no tag region, blank lines included. A line in a stage artifact counts against that stage, taking that stage's position; a code or test line in no tag region reaches no stage | the Impact rule in `01`, read literally (maintainer decisions R1h′ and ii); M2's placement of a finding in a stage artifact |
-| Only the first exit clears the finding; it stands after a proposed task or a declared block | the Out-of-task rule in `01` (E1) |
-| A branch with no `-` after a task name, such as `task/add-limiter`, resolves to no task | resolution 3, read literally (E4, unconfirmed) |
+| The first two exits clear the finding: a region whose tags a task item added in the diff delivers, on type and name, is not out-of-task, and the hunk that adds the task item raises none; the finding stands after a declared block | the Out-of-task rule in `01` (E1, as the maintainer re-derived it) |
+| A branch `task/<rest>` resolves to the longest task name that `<rest>` equals or begins with followed by `-`: `task/add-limiter-window` and `task/add-limiter` resolve to `task~add-limiter~1`, and `task/add-limiterx` and `task/unknown-x` to no task | resolution 3 (E4, as the maintainer confirmed it) |
 | A modified line is seen through the base line its diff hunk pairs it with; an added line beyond the pairing is one the map never saw | the Impact rule and D12 in `01` |
 | A test tag matches a requirement on type and name, so `[utest->req~rate-limit~1]` still selects its test after the bump | the Out-of-task rule's revision-blind matching, and M2's reading of `Delivers:` |
 | The impacted requirements are those the tags of the changed tag regions name, at their current revision; the features are the `feat` items they cover, none on the `bugfix` route, whose chain root is `req` | the Impact rule and Stages in `01` (E2) |
 | Tests are named by pytest node id, the per-test context with its phase suffix dropped | pytest-cov's `--cov-context=test` |
-| The full suite is every test the coverage map holds a context for; with no map, `tests` is empty and `degraded` true, and the summary says the full suite | D12 in `01` (Lead decision) |
+| The full suite is every test the coverage map holds a context for; when impact selects the full suite with no map, `properties.impact` records `tests` as `[]` with `degraded` true, and the summary says so explicitly, as `tests: the full suite` | D12 in `01` (Lead decision) |
 
 ### Task change feature
 
@@ -1011,7 +1011,7 @@ Feature: Task change
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
     And the check exits zero
 
-  Scenario: Proposing a task leaves the finding standing for the maintainer to ratify (SC6)
+  Scenario: Proposing a task that delivers the region's requirement clears its finding (SC6)
     Given the coding agent has run earnest check --stage "construction/code-generation"
     And the coding agent's task change is committed on the task branch
     And the coding agent proposes the task "task~tell-wait~1", delivering "req~lockout-notice~1", in the plan, uncommitted
@@ -1029,9 +1029,7 @@ Feature: Task change
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 2    | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 15   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 15   | note    | ahead    | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 16   | note    | ahead    | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 17   | note    | ahead    | construction/code-generation    |
@@ -1062,10 +1060,10 @@ Feature: Task change
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
     And the repository is unchanged since the task change
 
-  Scenario: A task name with hyphens resolves to the longest task name the branch begins with (SC6)
+  Scenario Outline: A task name with hyphens resolves to the longest task name the branch names (SC6)
     Given the repo maintainer adds the task "task~add~1", delivering "req~audit-log~1", to the plan on main
     And the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    And the coding agent's task change is committed on the branch "<branch>"
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
       | rule                    | file                                                                                              | line | level   | position | stage                           |
@@ -1082,6 +1080,11 @@ Feature: Task change
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
     And each earnest/out-of-task finding names "task~add-limiter~1"
+
+    Examples:
+      | branch                  |
+      | task/add-limiter-window |
+      | task/add-limiter        |
 
   Scenario: The task named on the command line wins over the branch (SC6)
     Given the coding agent has run earnest check --stage "construction/code-generation"
@@ -1204,6 +1207,9 @@ Feature: Task change
     `Tell the member how long to wait.`, a blank line and
     `Delivers: req~lockout-notice~1`.
   - "declares … blocked" writes nothing to the repository.
+  - "… committed on the branch `<branch>`" of the outline commits both
+    overlays on that branch, as the task branch step does on
+    `task/add-limiter-window`.
   - "adds the task `task~add~1` … on main" appends the same six-line shape
     with `Delivers: req~audit-log~1` and commits it on `main`, before the stage
     check and the branch.
@@ -1220,12 +1226,14 @@ Feature: Task change
     the three exits in the order of the Out-of-task rule.
   - `impact-degraded` says that impact selected the full suite.
   - The summary's impact section is one line each for requirements, features,
-    tests and degraded.
+    tests and degraded. When impact selects the full suite with no map, the
+    tests line reads `tests: the full suite`, while `properties.impact`
+    records `tests: []` and `degraded: true`.
   - The wording is the plan's to fix, and the scenarios assert the places and
     the facts above.
 - The unit and integration tiers cover what the feature leaves out: the
   default branch from `refs/remotes/origin/HEAD`, a branch that resolves to no
-  task (`task/add-limiter`, `task/unknown-x`), several hunks in one file,
+  task (`task/add-limiterx`, `task/unknown-x`), several hunks in one file,
   deleted lines, a changed skipped file such as an audit shard, the full suite
   with no map, and the parse of the pytest-cov contexts.
 - Regression guard:
