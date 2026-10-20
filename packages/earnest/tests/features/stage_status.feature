@@ -92,13 +92,18 @@ Feature: Stage status
     And the repo maintainer's change is committed on a task branch
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
-      | rule                    | file                                                                                              | line | level | position | stage                           |
-      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error | current  | inception/requirements-analysis |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note  | current  | inception/requirements-analysis |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note  | ahead    | construction/code-generation    |
-      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note  | ahead    | construction/code-generation    |
-      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note  | ahead    | construction/code-generation    |
-      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note  | ahead    | construction/code-generation    |
+      | rule                    | file                                                                                              | line | level   | position | stage                           |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note    | ahead    | construction/code-generation    |
+      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
+      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
+      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
+      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
     And the finding at requirements.md line 3 names the approval of "inception/requirements-analysis" and the current revision 2
     And the check exits non-zero
 
@@ -119,8 +124,10 @@ Feature: Stage status
     And the repo maintainer restores the approved text of "req~lockout-notice~1"
     When the coding agent runs earnest check --stage "inception/requirements-analysis"
     Then the SARIF log holds exactly these findings:
-      | rule             | file                                                                                         | line | level | position | stage                           |
-      | earnest/outdated | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
+      | rule                    | file                                                                                         | line | level | position | stage                           |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 5    | note  | current  | inception/requirements-analysis |
     And the SARIF log gives the stage status "not done" with its approval "outdated"
     And the check exits zero
 
@@ -146,11 +153,15 @@ Feature: Stage status
     And the repo maintainer approves "inception/requirements-analysis" at the gate
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
-      | rule              | file                                                                                              | line | level   | position | stage                        |
-      | earnest/outdated  | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | error   | current  | construction/code-generation |
-      | earnest/outdated  | src/checkout/auth.py                                                                              | 4    | error   | current  | construction/code-generation |
-      | earnest/outdated  | tests/test_auth.py                                                                                | 4    | error   | current  | construction/code-generation |
-      | earnest/unplanned | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | warning | current  | construction/code-generation |
+      | rule                    | file                                                                                              | line | level   | position | stage                           |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | error   | current  | construction/code-generation    |
+      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | error   | current  | construction/code-generation    |
+      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | error   | current  | construction/code-generation    |
+      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | warning | current  | construction/code-generation    |
+      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | warning | current  | construction/code-generation    |
+      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | behind   | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | behind   | inception/requirements-analysis |
     And the check exits non-zero
 
   Scenario: A held hash that no approval names is no baseline (SC5)
