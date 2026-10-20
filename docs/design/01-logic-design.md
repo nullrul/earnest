@@ -796,7 +796,8 @@ Earnest never reads a Git branch, a branch name, a merge-base or
 Git branches. The task change is read from the plan state and the assessment
 record alone.
 
-The current task comes from `--task`, or else from the plan state: a line
+The current task comes from `--task`, or else from the plan state, by the
+maintainer's ratified decision: a line
 `- **Current Task**: <task id>` in the `## Project Information` section of an
 intent's `aidlc-state.md`, read as `Scope` is read, naming one `task` item of
 that intent on type and name, revision ignored. With no such line in any
@@ -1202,7 +1203,8 @@ place of `req`.
 - Decision: the out-of-task check reads the diff from the change baseline,
   the commit of the last approved stage check that the assessment record
   holds for the current task's intent; takes the current task from `--task`,
-  else from the `Current Task` line of the state file; reads no Git branch,
+  else from the `Current Task` line of the state file, a marker the
+  maintainer ratified; reads no Git branch,
   branch name, merge-base or `origin/HEAD`; matches tags to the task's items
   ignoring revision, and lets `outdated` suppress `out-of-task` for the same
   region. Without a current task or a baseline it raises nothing and says why
