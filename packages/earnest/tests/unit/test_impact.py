@@ -15,6 +15,10 @@ PROJECT = {
     "pytest.ini": "[pytest]\npythonpath = src\n",
     "src/pkg/__init__.py": "",
     "src/pkg/core.py": "def one():\n    return 1\n\n\ndef two():\n    return 2\n",
+    "tests/test_nested.py": (
+        "class TestOuter:\n    def test_method(self):\n        def test_inner():\n            pass\n\n"
+        "        test_inner()\n"
+    ),
     "tests/test_core.py": (
         "from pkg.core import one, two\n\n\ndef test_one():\n    assert one() == 1\n\n\ndef test_two():\n"
         "    assert two() == 2\n\n\ndef test_both():\n    assert one() + two() == 3\n"
@@ -26,7 +30,7 @@ def taken(repo):
     commit = git.head_commit(repo)
     (repo / ".earnest").mkdir()
     (repo / ".earnest" / ".gitignore").write_text("*\n", encoding="utf-8")
-    impact.take_map(repo, commit)
+    assert impact.take_map(repo, commit) is None
     return commit
 
 
@@ -61,20 +65,67 @@ def test_a_failing_test_still_gives_a_map(files_repo):
     )
 
 
-def test_a_repository_without_tests_gives_an_empty_map(files_repo):
+def untaken(repo, **options):
+    commit = git.head_commit(repo)
+    (repo / ".earnest").mkdir(exist_ok=True)
+    (repo / ".earnest" / ".gitignore").write_text("*\n", encoding="utf-8")
+    reason = impact.take_map(repo, commit, **options)
+    assert impact.read_map(repo, commit) is None
+    assert not impact.map_file(repo, commit).exists()
+    assert sorted(path.name for path in (repo / ".earnest" / "coverage").iterdir()) == []
+    return reason
+
+
+def test_a_repository_without_tests_gives_no_map_and_says_why(files_repo):
     repo = files_repo({"a.md": "a\n"})
-    assert impact.read_map(repo, taken(repo)) == {}
+    assert untaken(repo) == "pytest exited 5 (no tests collected)"
     assert git_output(repo, "status", "--porcelain", "--untracked-files=all") == ""
 
 
-def test_an_interpreter_without_pytest_gives_an_empty_map(files_repo, tmp_path):
-    repo = files_repo(PROJECT)
-    commit = git.head_commit(repo)
+def fake_python(tmp_path, script):
     fake = tmp_path / "python"
-    fake.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake.write_text(f"#!/bin/sh\n{script}\n", encoding="utf-8")
     fake.chmod(0o755)
-    impact.take_map(repo, commit, python=str(fake))
-    assert impact.read_map(repo, commit) == {}
+    return str(fake)
+
+
+def test_an_interpreter_without_pytest_gives_no_map_and_says_why(files_repo, tmp_path):
+    reason = untaken(files_repo(PROJECT), python=fake_python(tmp_path, "exit 1"))
+    assert reason == "the test run gave no coverage data"
+
+
+@pytest.mark.parametrize(("code", "meaning"), [(2, "interrupted"), (3, "internal error"), (4, "usage error")])
+def test_pytest_exit_codes_2_to_5_give_no_map(files_repo, tmp_path, code, meaning):
+    reason = untaken(files_repo(PROJECT), python=fake_python(tmp_path, f"exit {code}"))
+    assert reason == f"pytest exited {code} ({meaning})"
+
+
+def test_a_test_run_that_times_out_gives_no_map_and_says_so(files_repo, tmp_path, monkeypatch):
+    monkeypatch.setattr(impact, "MAP_TIMEOUT", 1)
+    reason = untaken(files_repo(PROJECT), python=fake_python(tmp_path, "sleep 5"))
+    assert reason == "the test run timed out after 1 s"
+
+
+def test_a_failed_run_leaves_an_earlier_map_at_the_commit_as_it_was(files_repo, tmp_path):
+    repo = files_repo(PROJECT)
+    commit = taken(repo)
+    before = impact.read_map(repo, commit)
+    assert impact.take_map(repo, commit, python=fake_python(tmp_path, "exit 4")) is not None
+    assert impact.read_map(repo, commit) == before
+
+
+def test_the_map_run_reads_no_stdin_and_has_a_generous_timeout(files_repo, tmp_path):
+    assert impact.MAP_TIMEOUT == 900
+    repo = files_repo(
+        {**PROJECT, "tests/test_stdin.py": "import sys\n\n\ndef test_stdin():\n    assert sys.stdin.read() == ''\n"}
+    )
+    assert impact.read_map(repo, taken(repo))[("src/pkg/core.py", 2)]
+
+
+def test_the_map_run_turns_off_the_repositorys_log_file(files_repo):
+    repo = files_repo({**PROJECT, "pytest.ini": "[pytest]\npythonpath = src\nlog_file = run.log\n"})
+    taken(repo)
+    assert not (repo / "run.log").exists()
 
 
 def test_read_map_drops_the_phase_suffix_and_the_empty_context_and_relativizes_paths(tmp_path):
@@ -200,3 +251,11 @@ def test_only_python_test_files_give_node_ids(tmp_path):
     (tmp_path / "f.feature").write_text("@stest:req~a~1\nScenario: x\n", encoding="utf-8")
     index = build_index([*adapters.scan(tmp_path, ["f.feature"]), Source("x.md", "markdown", ())])
     assert impact.tagged_tests(tmp_path, index, {("req", "a")}) == []
+
+
+def test_a_def_nested_inside_a_test_method_is_no_test(tmp_path):
+    (tmp_path / "tests").mkdir()
+    text = "# [utest->req~a~1]\nclass TestOuter:\n    def test_method(self):\n        def test_inner():\n            pass\n"
+    (tmp_path / "tests" / "test_n.py").write_text(text, encoding="utf-8")
+    index = build_index(adapters.scan(tmp_path, ["tests/test_n.py"]))
+    assert impact.tagged_tests(tmp_path, index, {("req", "a")}) == ["tests/test_n.py::TestOuter::test_method"]

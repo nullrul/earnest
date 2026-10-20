@@ -1,6 +1,7 @@
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
 
 import json
+import os
 import subprocess
 import sys
 
@@ -369,3 +370,51 @@ def test_a_record_naming_no_commit_as_its_map_reads_as_no_map(fixture_repo, monk
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     _, _, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
     assert any(line.startswith("  coverage map: none for the base commit") for line in err.splitlines())
+
+
+# The map a stage check takes, or the reason it takes none.
+
+
+def record_of(repo):
+    return json.loads((repo / ".earnest/assessment.json").read_text(encoding="utf-8"))
+
+
+def test_a_stage_check_of_a_dirty_tree_takes_no_map_and_keeps_the_record_s_coverage(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    first = record_of(repo)["coverage"]
+    maps = sorted(path.name for path in (repo / ".earnest/coverage").iterdir())
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    subprocess.run(["git", "commit", "-qam", "next", "--no-verify"], cwd=repo, check=True, env=_identity())
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nY = 1\n")
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    assert code == 0
+    assert record_of(repo)["coverage"] == first
+    assert sorted(path.name for path in (repo / ".earnest/coverage").iterdir()) == maps
+    assert "coverage map: not taken, the work tree is dirty" in err.splitlines()
+
+
+def test_a_first_stage_check_of_a_dirty_tree_leaves_the_coverage_null(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nY = 1\n")
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    assert record_of(repo)["coverage"] == {"commit": None}
+    assert not (repo / ".earnest/coverage").exists()
+
+
+def test_a_map_run_that_fails_keeps_the_record_s_coverage_and_says_why(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    monkeypatch.setattr(cli.impact, "take_map", lambda *_: "pytest exited 4 (usage error)")
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    assert code == 0
+    assert record_of(repo)["coverage"] == {"commit": None}
+    assert "coverage map: not taken, pytest exited 4 (usage error)" in err.splitlines()
+
+
+def _identity():
+    return os.environ | {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.com",
+    }

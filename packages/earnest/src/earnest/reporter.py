@@ -146,6 +146,7 @@ class Run:
     record_absent: bool = False
     unheld: int = 0
     impact: Impact | None = None
+    notes: tuple[str, ...] = ()  # summary lines the run states once, such as why it took no coverage map
 
 
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
@@ -217,6 +218,7 @@ def _run_lines(run: Run) -> list[str]:
         lines.append(f"body-hash baseline: {run.unheld} items without a held hash")
     if run.impact is not None:
         lines.extend(run.impact.lines())
+    lines.extend(run.notes)
     return lines
 
 

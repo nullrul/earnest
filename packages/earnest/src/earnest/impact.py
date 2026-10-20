@@ -20,6 +20,8 @@ COVERAGE = ".earnest/coverage"
 # The variables of a test run that is already going, which would steer the map run into that run's data and options.
 _INHERITED = ("PYTEST_", "COV_CORE_", "COVERAGE_")
 
+MAP_TIMEOUT = 900  # seconds the map run may take, generous for a slow suite, so a hanging test cannot hang the gate
+_NO_MAP = {2: "interrupted", 3: "internal error", 4: "usage error", 5: "no tests collected"}  # pytest's exit codes
 _SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")  # a commit, so a record that names anything else names no path
 CoverageMap = dict[tuple[str, int], tuple[str, ...]]
 _TEST_TYPES = frozenset({"utest", "itest", "stest"})
@@ -41,13 +43,18 @@ def is_commit(text: object) -> bool:
     return isinstance(text, str) and _SHA.fullmatch(text) is not None
 
 
-def take_map(root: Path, commit: str, python: str = sys.executable) -> None:
+def take_map(root: Path, commit: str, python: str = sys.executable) -> str | None:
     """Take the coverage map at commit: run the repository's tests under pytest-cov with per-test contexts.
 
-    The run uses the interpreter that runs Earnest. Its data file is `.earnest/coverage/<commit>` and its JSON report,
-    with the contexts, `.earnest/coverage/<commit>.json`; it writes nothing else, so no cache, bytecode or `.coverage`
-    file reaches the work tree, and the repository's own `addopts` and coverage configuration are left out. A failing
-    test still gives a map; a run that gives no data, as with no pytest or no test, leaves an empty map.
+    The run uses the interpreter that runs Earnest, reads no stdin and stops after `MAP_TIMEOUT` seconds. Its data
+    file is `.earnest/coverage/<commit>` and its JSON report, with the contexts, `.earnest/coverage/<commit>.json`.
+    Earnest's own options write nothing outside `.earnest/`: no cache, bytecode, log file or `.coverage`, with the
+    repository's `addopts` and coverage configuration left out; the repository's tests themselves run under the
+    test-suite trust model. A failing test still gives a map. A run that times out, that pytest ends with exit code 2
+    to 5, or that gives no coverage data gives none, and leaves an earlier map at the commit as it was.
+
+    Returns:
+        None when the map was taken, else the reason it was not, for the summary.
 
     Raises:
         OSError: `.earnest/coverage/` cannot be written.
@@ -58,21 +65,51 @@ def take_map(root: Path, commit: str, python: str = sys.executable) -> None:
         raise ValueError(msg)
     directory = root / COVERAGE
     directory.mkdir(parents=True, exist_ok=True)
-    report = _report(root, commit)
-    report.unlink(missing_ok=True)
+    data, report = directory / f"{commit}.tmp", directory / f"{commit}.json.tmp"  # moved into place once whole
+    try:
+        reason = _map_run(root, python, data, report)
+        if reason is None:
+            report.replace(_report(root, commit))
+            data.replace(map_file(root, commit))
+    finally:
+        data.unlink(missing_ok=True)
+        report.unlink(missing_ok=True)
+    return reason
+
+
+def _map_run(root: Path, python: str, data: Path, report: Path) -> str | None:
     env = {name: value for name, value in os.environ.items() if not name.startswith(_INHERITED)}
-    env |= {"COVERAGE_FILE": str(map_file(root, commit)), "PYTHONDONTWRITEBYTECODE": "1"}
+    env |= {"COVERAGE_FILE": str(data), "PYTHONDONTWRITEBYTECODE": "1"}
     tests = ["--cov=.", "--cov-context=test", "--cov-report=", f"--cov-config={os.devnull}"]
-    options = ["-p", "no:cacheprovider", "-o", "addopts=", "-q"]
-    _run([python, "-m", "pytest", *tests, *options], root, env)
-    _run([python, "-m", "coverage", "json", "--show-contexts", f"--rcfile={os.devnull}", "-o", str(report)], root, env)
-    if not report.is_file():
-        report.write_text(json.dumps({"files": {}}) + "\n", encoding="utf-8")
+    # ponytail: `cache_dir` is the cache provider's own option, so with the provider off `-o cache_dir=` is an unknown
+    # option that fails a repository with `filterwarnings = error`; turning the provider off already writes no cache
+    options = ["-p", "no:cacheprovider", "-o", "addopts=", "-o", "log_file=", "-q"]
+    code = _run([python, "-m", "pytest", *tests, *options], root, env)
+    if code is None:
+        return f"the test run timed out after {MAP_TIMEOUT} s"
+    if code in _NO_MAP:
+        return f"pytest exited {code} ({_NO_MAP[code]})"
+    if not data.is_file() or data.stat().st_size == 0:
+        return "the test run gave no coverage data"
+    reported = _run(
+        [python, "-m", "coverage", "json", "--show-contexts", f"--rcfile={os.devnull}", "-o", str(report)], root, env
+    )
+    if reported is None:
+        return f"the coverage report timed out after {MAP_TIMEOUT} s"
+    if reported != 0 or not report.is_file():
+        return "coverage could not report the test contexts"
+    return None
 
 
-def _run(command: list[str], root: Path, env: Mapping[str, str]) -> None:
-    # the repository's own tests, run as `check --stage` promises; their exit code is no part of the map
-    subprocess.run(command, cwd=root, env=env, capture_output=True, check=False)  # noqa: S603
+def _run(command: list[str], root: Path, env: Mapping[str, str]) -> int | None:
+    """Run the repository's own tests or report, as `check --stage` promises; None when it timed out."""
+    try:
+        done = subprocess.run(  # noqa: S603
+            command, cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, check=False, timeout=MAP_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    return done.returncode
 
 
 def read_map(root: Path, commit: str) -> CoverageMap | None:
@@ -194,16 +231,20 @@ def _node_ids(root: Path, path: str, first: int, last: int) -> list[str]:
         return []
     found: list[str] = []
     owner: str | None = None
+    body: str | None = None  # the indentation of the class body, from its first line
     for number, text in enumerate(lines, 1):
-        if text[:1] not in ("", " ", "\t"):
+        indent = text[: len(text) - len(text.lstrip(" \t"))]
+        if text.strip() and not indent:
             match = _CLASS.match(text)
-            owner = match[1] if match else None
+            owner, body = (match[1] if match else None), None
+        elif text.strip() and owner is not None and body is None:
+            body = indent
         defined = _DEF.match(text)
         if defined is None or not first <= number <= last:
             continue
         if not defined[1]:
             found.append(f"{path}::{defined[2]}")
-        elif owner is not None:
+        elif owner is not None and defined[1] == body:  # a method of the class, not a def nested in one
             found.append(f"{path}::{owner}::{defined[2]}")
     return found
 

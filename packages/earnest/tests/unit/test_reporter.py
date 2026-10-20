@@ -529,3 +529,9 @@ def test_reporter_imports_no_impact():
     tree = ast.parse(Path(reporter.__file__).read_text(encoding="utf-8"))
     modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
     assert "earnest.impact" not in modules
+
+
+def test_summary_states_the_runs_notes_and_the_log_leaves_them_out():
+    run = Run(commit="abc", notes=("coverage map: not taken, the work tree is dirty",))
+    assert "coverage map: not taken, the work tree is dirty" in reporter.summary([], {}, run).splitlines()
+    assert reporter.sarif([], {}, run) == reporter.sarif([], {}, Run(commit="abc"))

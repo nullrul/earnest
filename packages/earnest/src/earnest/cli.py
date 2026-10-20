@@ -223,9 +223,14 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     # last-writer-wins (the same stage twice is safe); take an flock on `.earnest/lock` if sensor fires run in parallel
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
-    world.record.coverage = {"commit": world.commit}
     reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
-    impact.take_map(world.root, world.commit)
+    # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
+    reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)
+    if reason is None:
+        world.record.coverage = {"commit": world.commit}
+        reporter.write_record(world.root, world.record)
+    else:
+        run = replace(run, notes=(*run.notes, f"coverage map: not taken, {reason}"))
     return _Result(
         reporter.sarif(found, analysis.levels, run), reporter.summary(found, analysis.levels, run), _code(found)
     )
