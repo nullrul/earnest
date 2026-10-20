@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from earnest import adapters, git, plan, reporter, structural
+from earnest import adapters, git, impact, plan, reporter, structural
 from earnest.index import Index, Source, build_index
 from earnest.reporter import Finding, Run
 
@@ -206,7 +206,9 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     # last-writer-wins (the same stage twice is safe); take an flock on `.earnest/lock` if sensor fires run in parallel
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
-    reporter.write_record(world.root, world.record)
+    world.record.coverage = {"commit": world.commit}
+    reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
+    impact.take_map(world.root, world.commit)
     return _Result(
         reporter.sarif(found, analysis.levels, run), reporter.summary(found, analysis.levels, run), _code(found)
     )
