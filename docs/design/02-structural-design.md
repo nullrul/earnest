@@ -329,8 +329,10 @@ its line says "Owns", and each such rule has exactly one owner.
   It runs the repository's own coverage, test and mutation tools as
   subprocesses and reads their JSON reports. At `check --stage` it takes the
   coverage map, a pytest-cov run with `--cov-context=test` whose data file is
-  `.earnest/coverage/<commit>` and which writes nothing else to the work tree,
-  and hands the commit to the Reporter for the record's `coverage` key. It
+  `.earnest/coverage/<commit>`, whose own options write nothing else to the
+  work tree, and which runs only on a clean tree and gives no map when it times
+  out or fails (the Impact rule of `01`), and hands the commit of a map it took
+  to the Reporter for the record's `coverage` key. It
   builds the impact section that the Reporter renders as `properties.impact`.
 - `judge/__init__.py`: Judge. Questions from the EARS spans (D14) and the model
   call. Owns the Override rule, calibration, which `earnest calibrate` runs, and

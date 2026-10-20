@@ -829,7 +829,19 @@ line. It counts against the current task: its `properties.stage` is the stage
 that holds the task, and its position is current. The check runs only when a
 current task exists. The rule is read literally and keeps prose in scope, so a
 spec edit outside the task's requirements on a task branch is out-of-task
-work too.
+work too. A change that only deletes lines holds no changed line, so it forms
+no region and raises no `out-of-task`, read literally; deleting the code of
+another requirement is a known limit of the check. A task item added in the
+diff clears only through the regions whose tags its `Delivers:` names, and
+only the hunk of such a task item is the proposal that raises none; a hunk
+that adds a task delivering none of the changed regions' tags is out-of-task
+like any other. When no base commit can be found, because the default branch
+does not exist or HEAD shares no history with it, as on an orphan branch, the
+check runs without the task change: no `out-of-task` finding, no impact
+section and no `impact-degraded` finding, and the summary says once that no
+base commit exists. Failing the whole check for want of a base would take
+the trace, plan and stage status away from a repository that M1 and M2
+already check.
 
 ### Impact rule
 
@@ -837,10 +849,25 @@ Impact reads dynamic per-test coverage contexts: pytest-cov with
 `--cov-context=test`, and Jest with `--findRelatedTests`. The coverage map is
 taken when `earnest check --stage` writes the stage's baseline, at commit A,
 the HEAD of that run, and is stored under `.earnest/coverage/<A>`, ignored by
-Git as the record is; the record keeps only the commit A. The map run writes
-nothing outside `.earnest/`. For a diff from A to B, unchanged lines are
-remapped through
-`git diff A..B`. Impact reads the same changed lines as the out-of-task
+Git as the record is; the record keeps only the commit A. A map holds the
+line numbers of the bytes the tests ran, so it is taken only from a clean
+work tree, one that is not `dirty`: a dirty tree is not commit A, and its map
+would remap wrongly. A stage check of a dirty tree takes no map, leaves every
+earlier map and the record's `coverage` as they were, and says so in the
+summary. The map run reads no stdin and stops after 900 seconds, so a test
+that hangs cannot hang the gate. A run that times out, that pytest ends with
+exit code 2 to 5 (interrupted, internal error, usage error, no tests
+collected), or that leaves no or empty coverage data, gives no map: no
+placeholder is written, the record's `coverage` stays as it was, and the
+summary names the cause, while the check's exit code is untouched. Failing
+tests, exit code 1, still give a map, as the contexts of a failing test are
+still what it ran. Earnest's own options to the map run write nothing outside
+`.earnest/`: no cache, bytecode, log file or `.coverage`, with the
+repository's `addopts` and coverage configuration left out; the repository's
+tests themselves run under the trust model of the test suite (see Runtime and
+permission model). For a diff from A to B, unchanged lines are remapped
+through `git diff A..B`, deletions included, so a line that a deletion since
+A moved is read at its line in A. Impact reads the same changed lines as the out-of-task
 check, and runs on a `task/…` branch or with `--task`. A modified line is seen
 through the base line its diff hunk pairs it with, and selects the tests whose
 contexts covered that line. A changed or new line the map never saw selects
@@ -848,8 +875,15 @@ every test tagged to a requirement whose region contains it, a test tag
 matching the requirement on type and name; when no such requirement exists,
 impact selects the full suite and raises `impact-degraded`. The full suite is
 every test the map holds a context for, and with no map it is written as no
-test, with impact marked degraded. `impact-degraded` is one finding per such
-line, blank lines included, read literally and so deterministically. It
+test, with impact marked degraded. A line deleted since the base commit
+selects the tests whose contexts covered it in a map taken at the base, the
+only map whose lines are the base's; with no such data, no map or a map
+taken at another commit, it selects the full suite and raises
+`impact-degraded`, located at the line of the work tree the deletion follows,
+and naming the deleted line's number in the base commit. A deleted line names
+no requirement, as its region is gone. `impact-degraded` is one finding per
+such line, changed or deleted, blank lines included, read literally and so
+deterministically. It
 counts against a stage by the placement every finding follows: a line in a
 stage artifact counts against that stage, and a line of code or tests in no
 tag region reaches no stage. The output names the impacted requirements (the
@@ -1467,7 +1501,12 @@ id and prompt hash, the stage's items with the body hash of each, the findings
 that count against the stage together with those that reach no stage and lie in
 a file of the evaluated tree, and the digest of the evaluated tree. A finding
 enters the document as its rule id, uri, line, subject and message, without its
-position, and a finding that reports a stage approval stays out of it. The
+position, and a finding that reports a stage approval stays out of it, as do
+the findings of the task change, `out-of-task` and `impact-degraded`: they
+follow the branch, the merge-base and the coverage maps under
+`.earnest/coverage/`, none of which is the assessed content, so leaving them
+out keeps two identical stage checks at one hash, the first of which takes the
+map, and keeps a rebase from changing the hash. The
 evaluated tree is every file the scanner read outside an intent's record
 directory, plus each file it read under a route stage's path inside one, each as
 its uri and the SHA-256 of its bytes. The assessment record lists nothing of its
@@ -1539,7 +1578,8 @@ therefore carries the same trust as running the test suite. From M3 of
 `03`, `earnest check --stage`, which the `earnest` sensor runs at each gate,
 also runs the repository's own tests once, under pytest-cov with per-test
 contexts, to take the coverage map of the Impact rule, and so carries the
-same trust. The map run is not a layer: the run header's `layers` names only
+same trust: Earnest's own options write nothing outside `.earnest/`, and what
+the repository's tests write is theirs. The map run is not a layer: the run header's `layers` names only
 the trace, judge and evidence layers that ran.
 
 The judge layer sends the model provider only the requirement clause, the

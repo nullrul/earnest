@@ -939,6 +939,13 @@ appears in M3's tables.
 | The impacted requirements are those the tags of the changed tag regions name, at their current revision; the features are the `feat` items they cover, none on the `bugfix` route, whose chain root is `req` | the Impact rule and Stages in `01` (E2) |
 | Tests are named by pytest node id, the per-test context with its phase suffix dropped | pytest-cov's `--cov-context=test` |
 | The full suite is every test the coverage map holds a context for; when impact selects the full suite with no map, `properties.impact` records `tests` as `[]` with `degraded` true, and the summary says so explicitly, as `tests: the full suite` | D12 in `01` (Lead decision) |
+| A change that only deletes lines forms no region and raises no `out-of-task`; deleting another requirement's code is a known limit | the Out-of-task rule in `01`, read literally (Lead decision) |
+| A line deleted since the base selects the tests that covered it in a map taken at the base; with no such data it raises `impact-degraded` at the line the deletion follows, naming its base line, and selects the full suite. No table here deletes a line, so no row of M2 or M3 changes | the Impact rule in `01` (Manager decision) |
+| Only the hunk of a task item that delivers one of the changed regions' tags is the proposal; a hunk adding a task that delivers none is out-of-task | the Out-of-task rule in `01`: "the hunk that adds such a task item" |
+| A line can lie in two tag regions, when the regions of one id merge across another tag's group; each changed region is then its own finding, read on its own tags | the Region rule in `01`, read literally |
+| `out-of-task` and `impact-degraded` stay out of the assessment document, so the hash of a stage check on a task branch is the same whether a coverage map exists | the Assessment hash section of `01` |
+| A stage check of a dirty work tree, or a map run that times out, ends with pytest exit code 2 to 5 or leaves no data, takes no map; the summary names the cause and the record's `coverage` stays as it was | the Impact rule in `01` |
+| With no base commit, no default branch or an orphan branch, the check drops the task change and prints one note, never exit 2 | the Out-of-task rule in `01` |
 
 ### Task change feature
 
@@ -1216,8 +1223,10 @@ Feature: Task change
 - The map run:
   - `check --stage` runs the repository's tests with the interpreter that runs
     Earnest, under pytest-cov with `--cov-context=test`.
-  - Its data file is `.earnest/coverage/<commit>`, and the run writes nothing
-    outside `.earnest/`: no `.pytest_cache`, no `__pycache__`, no `.coverage`.
+  - Its data file is `.earnest/coverage/<commit>`, and Earnest's own options
+    write nothing outside `.earnest/`: no `.pytest_cache`, no `__pycache__`, no
+    `.coverage`, no log file. The repository's tests run under the test-suite
+    trust model.
   - A failing test still gives a map.
   - The record's `coverage` is the commit, and the run header's `layers` stays
     `trace`.

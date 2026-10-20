@@ -63,7 +63,8 @@ Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 
   - Only `check --stage` takes the map.
   - Its data file is `.earnest/coverage/<HEAD sha>`.
   - The record's `coverage` is `{"commit": "<sha>"}`, keeping M2's object shape.
-  - The map run writes nothing outside `.earnest/`: it uses `-p no:cacheprovider`, `PYTHONDONTWRITEBYTECODE=1`, and a `COVERAGE_FILE` under `.earnest/`.
+  - Earnest's own options to the map run write nothing outside `.earnest/`: it uses `-p no:cacheprovider`, `-o addopts=`, `-o log_file=`, `PYTHONDONTWRITEBYTECODE=1`, and a `COVERAGE_FILE` under `.earnest/`; the repository's tests run under the test-suite trust model.
+  - A dirty tree, a timeout (900 s), pytest exit codes 2 to 5, or no coverage data give no map; the summary names the cause.
   - A failing test still gives a map.
   - The run header's `layers` stays `trace`.
 - **(a), R1h′ and (ii):**
@@ -101,7 +102,7 @@ Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 
   - `--task` winning over the branch;
   - a detached HEAD (no current task without `--task`);
   - a `task/` branch that names no task (impact runs, out-of-task does not).
-- **A repository without pytest or tests:** the map run fails soft and gives an empty map, not exit 2, so every changed line falls back.
+- **A repository without pytest or tests:** the map run gives no map, never exit 2, and the summary names the cause, so every changed line falls back to the tagged tests.
 
 ## Task order and the scenarios each turns green
 
@@ -175,7 +176,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
 ## Known limits
 
 - Impact for TypeScript (Jest `--findRelatedTests`) is not built. M3 reads pytest-cov alone, so a changed `.ts` line takes the fallback.
-- Deleted lines select nothing; the unit tier pins this.
+- A deletion-only change raises no `out-of-task`.
 - With no map, the full suite is written as `tests: []` with `degraded: true` in `properties.impact`, and the summary says `tests: the full suite`.
 - Every changed prose line on a task branch is `impact-degraded`, blank lines included. That is the literal reading the maintainer chose (R1h′, ii), and it makes a spec edit always select the full suite.
 
@@ -272,7 +273,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
 - [ ] **Step 1:** Write failing tests:
   - `take_map` writes `.earnest/coverage/<sha>` and nothing else, so `git status` stays empty;
   - a failing test still gives a map;
-  - a repository without pytest gives an empty map and no exit 2;
+  - a repository without pytest or tests gives no map, a named cause and no exit 2;
   - `read_map` maps `(path, line)` to sorted node ids, dropping the `|run` suffix.
 - [ ] **Step 2:** Implement in two runs, each with `COVERAGE_FILE=.earnest/coverage/<sha>`:
   - `sys.executable -m pytest --cov=. --cov-context=test -p no:cacheprovider -q`;
