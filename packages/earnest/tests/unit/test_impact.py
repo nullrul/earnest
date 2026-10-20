@@ -187,12 +187,12 @@ SPEC = "`feat~f~1`\n\nF.\n\n`req~a~1`\n\nA.\n\nCovers: feat~f~1\n\n`dsn~b~1`\n\n
 FILES = {"src/m.py": CODE, "tests/test_m.py": TESTS, "docs/spec.md": SPEC}
 
 
-def selected(tmp_path, hunks, coverage, since_map=None):
+def selected(tmp_path, hunks, coverage, since_map=None, *, at_base=True):
     for path, text in FILES.items():
         (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / path).write_text(text, encoding="utf-8")
     index = build_index(adapters.scan(tmp_path, sorted(FILES)))
-    change = impact.Change(hunks, BASE, hunks if since_map is None else since_map)
+    change = impact.Change(hunks, BASE, hunks if since_map is None else since_map, map_at_base=at_base)
     return impact.select(tmp_path, index, change, coverage)
 
 
@@ -241,10 +241,38 @@ def test_a_line_is_remapped_through_the_hunks_since_the_maps_commit(tmp_path):
     assert found.impact.tests == ("tests/test_m.py::test_a",)
 
 
-def test_a_deleted_line_selects_nothing(tmp_path):
-    found = selected(tmp_path, {"src/m.py": (Hunk(4, 1, 3, 0),)}, MAP)
-    assert found.impact.tests == ()
-    assert found.degraded == ()
+def test_a_line_deleted_since_the_base_selects_the_tests_that_covered_it_in_the_map_at_the_base(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(4, 1, 3, 0),)}, MAP)  # base line 4 deleted
+    assert found.impact.tests == ("tests/test_m.py::test_a",)
+    assert (found.degraded, found.deleted, found.impact.degraded) == ((), (), False)
+
+
+def test_a_deleted_line_with_no_coverage_data_is_degraded_at_the_line_before_it(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(5, 2, 4, 0), Hunk(9, 2, 8, 1))}, MAP)
+    assert found.deleted == (("src/m.py", 4, 5), ("src/m.py", 4, 6), ("src/m.py", 8, 10))
+    assert found.impact.degraded
+    assert found.impact.tests == ("tests/test_m.py::TestB::test_b", "tests/test_m.py::test_a")  # the full suite
+
+
+def test_a_deleted_line_is_read_only_in_a_map_taken_at_the_base(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(4, 1, 3, 0),)}, MAP, at_base=False)
+    assert found.deleted == (("src/m.py", 3, 4),)
+    assert found.impact.degraded
+
+
+def test_a_deleted_line_without_a_map_is_degraded(tmp_path):
+    found = selected(tmp_path, {"src/m.py": (Hunk(1, 1, 0, 0),)}, None)
+    assert found.deleted == (("src/m.py", 1, 1),)  # a deletion at the top sits at line 1
+    assert (found.impact.tests, found.impact.degraded) == ((), True)
+
+
+def test_a_line_shifted_by_a_deletion_since_the_map_is_read_at_its_line_then(tmp_path):
+    # the map is at A; since A only line 2 was deleted, so line 7 now was line 8 then
+    at_a = {("src/m.py", 8): ("tests/test_m.py::test_a",)}  # not the test the tags would select for the line
+    found = selected(
+        tmp_path, {"src/m.py": (Hunk(8, 1, 7, 1),)}, at_a, since_map={"src/m.py": (Hunk(2, 1, 1, 0),)}, at_base=False
+    )
+    assert found.impact.tests == ("tests/test_m.py::test_a",)
 
 
 def test_only_python_test_files_give_node_ids(tmp_path):

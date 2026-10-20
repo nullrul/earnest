@@ -166,12 +166,12 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
     task = plan.current_task(plan.plan_tasks(analysis.index, world.intents), option, branch)
     base = git.merge_base(world.root, git.default_branch(world.root))
     tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
-    changed = git.changed_lines(world.root, base, tree)
+    changed = git.changed_lines(world.root, base, tree, keep_deletions=True)  # a deletion has no region of its own
     if not changed:
         return analysis
     found = [] if task is None else plan.out_of_task(analysis.plans, analysis.index, task, changed, analysis.findings)
     selection = _impact(world, analysis.index, impact.Change(changed, base, changed), tree)
-    found += plan.degraded_findings(analysis.plans, analysis.index, selection.degraded)
+    found += plan.degraded_findings(analysis.plans, analysis.index, selection.degraded, selection.deleted)
     return replace(analysis, findings=[*analysis.findings, *found], run=replace(analysis.run, impact=selection.impact))
 
 
@@ -183,7 +183,8 @@ def _impact(world: _World, index: Index, change: impact.Change, tree: set[str]) 
     taken = str(commit)
     coverage = impact.read_map(world.root, taken)
     if coverage is not None and taken != change.base:
-        change = replace(change, since_map=git.changed_lines(world.root, taken, tree))
+        since_map = git.changed_lines(world.root, taken, tree, keep_deletions=True)
+        change = replace(change, since_map=since_map, map_at_base=False)
     return impact.select(world.root, index, change, coverage)
 
 

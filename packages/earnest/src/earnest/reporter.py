@@ -89,6 +89,14 @@ class Finding:
         return f"{_OPENINGS[self.position].format(self.stage)}: {self.message}"
 
 
+def deleted_message(line: int) -> str:
+    """Return the message of an `impact-degraded` note at a deleted line with no coverage data."""
+    return (
+        f"line {line} of the base commit was deleted here and no coverage data covers it, so impact selected the"
+        " full suite: run every test"
+    )
+
+
 def out_of_task_message(task: str, tags: Sequence[str]) -> str:
     """Return the message of an out-of-task finding: the current task, the region's tags or `no tag`, the exits."""
     region = f"the region of {', '.join(f'`{tag}`' for tag in tags)}" if tags else "a hunk with no tag"

@@ -1517,12 +1517,23 @@ def _unreadable(intent: Intent) -> str:
     return f"the state file's Stage Progress cannot be read ({found[0].path}:{found[0].line})"
 
 
-def degraded_findings(plans: Sequence[Plan], index: Index, places: Sequence[tuple[str, int]]) -> list[Finding]:
-    """Return an `impact-degraded` note at each changed line that selected the full suite, placed as every finding is.
+def degraded_findings(
+    plans: Sequence[Plan],
+    index: Index,
+    places: Sequence[tuple[str, int]],
+    deleted: Sequence[tuple[str, int, int]] = (),
+) -> list[Finding]:
+    """Return an `impact-degraded` note at each line that selected the full suite, placed as every finding is.
 
-    A line in a stage artifact counts against that stage, at its position; a line of code or tests reaches no stage.
+    A changed line sits at its own line; a deleted line at the line of the work tree it was deleted at, naming its
+    line in the base commit. A line in a stage artifact counts against that stage, at its position; a line of code or
+    tests reaches no stage.
     """
     found = [
         Finding(path, line, "earnest/impact-degraded", f"{path}:{line}", reporter.DEGRADED) for path, line in places
+    ]
+    found += [
+        Finding(path, line, "earnest/impact-degraded", f"{path}:-{old}", reporter.deleted_message(old))
+        for path, line, old in deleted
     ]
     return place(plans, index, found)

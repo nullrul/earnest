@@ -147,19 +147,28 @@ def _relative(root: Path, name: str) -> str:
 
 @dataclass(frozen=True)
 class Selection:
-    """What impact selects for a change: the impact section, and each changed line that selected the full suite."""
+    """What impact selects for a change: the impact section, and each line that selected the full suite.
+
+    `degraded` holds each changed line, as its file and line; `deleted` each deleted line, as its file, the line of the
+    work tree it was deleted at, and its line in the base commit.
+    """
 
     impact: Impact
     degraded: tuple[tuple[str, int], ...]
+    deleted: tuple[tuple[str, int, int], ...] = ()
 
 
 @dataclass(frozen=True)
 class Change:
-    """A change since the task's base commit: its hunks, the base, and the hunks since the coverage map's commit."""
+    """A change since the task's base commit: its hunks, the base, and the hunks since the coverage map's commit.
+
+    Both sets of hunks keep their deletions. `map_at_base` says whether the coverage map was taken at the base.
+    """
 
     hunks: Mapping[str, Sequence[Hunk]]
     base: str
     since_map: Mapping[str, Sequence[Hunk]]
+    map_at_base: bool = True
 
 
 def select(root: Path, index: Index, change: Change, coverage: CoverageMap | None) -> Selection:
@@ -168,14 +177,23 @@ def select(root: Path, index: Index, change: Change, coverage: CoverageMap | Non
     A changed line is seen through the line it was at the map's commit, by `change.since_map`, the hunks from that
     commit to the work tree, and selects the tests whose contexts covered it. A line the map never saw selects every
     test whose tag names, on type and name, what a tag region holding the line names. A line in no tag region selects
-    the full suite, every test the map holds, and is degraded. The requirements are those the changed tag regions
+    the full suite, every test the map holds, and is degraded. A line deleted since the base selects the tests that
+    covered it in a map taken at the base; with no such data it selects the full suite and is degraded, at the line
+    of the work tree it was deleted at. The requirements are those the changed tag regions
     name, and what they cover up to the requirements, at their current revision; the features are the `feat` items
     above them.
     """
     tests: set[str] = set()
     named: set[tuple[str, str]] = set()
     degraded: list[tuple[str, int]] = []
+    deleted: list[tuple[str, int, int]] = []
     for path, hunks in sorted(change.hunks.items()):
+        for hunk in hunks:
+            for old in hunk.deleted_lines:
+                covered = coverage.get((path, old), ()) if coverage is not None and change.map_at_base else ()
+                tests.update(covered)
+                if not covered:
+                    deleted.append((path, max(hunk.new_start + max(hunk.new_count - 1, 0), 1), old))
         for line in sorted({line for hunk in hunks for line in hunk.new_lines}):
             keys = {region.target.key for region in index.regions_at(path, line)}
             named |= keys
@@ -186,18 +204,18 @@ def select(root: Path, index: Index, change: Change, coverage: CoverageMap | Non
                 tests.update(tagged_tests(root, index, keys))
             else:
                 degraded.append((path, line))
-    if degraded and coverage:
+    if (degraded or deleted) and coverage:
         tests.update(test for found in coverage.values() for test in found)
     above = _covered(index, named)
     selected = Impact(
         requirements=_current(index, above, "req"),
         features=_current(index, above, "feat"),
         tests=tuple(sorted(tests)),
-        degraded=bool(degraded),
+        degraded=bool(degraded or deleted),
         base=change.base,
         mapped=coverage is not None,
     )
-    return Selection(selected, tuple(degraded))
+    return Selection(selected, tuple(degraded), tuple(deleted))
 
 
 def _seen(coverage: CoverageMap | None, hunks: Sequence[Hunk], path: str, line: int) -> tuple[str, ...]:

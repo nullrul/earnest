@@ -1,5 +1,7 @@
 """Integration: the coverage map a stage check takes over seeded-change, and the task change read against it."""
 
+import json
+
 from earnest import impact
 from tests.sarif import git_output, record, run_earnest
 
@@ -23,3 +25,59 @@ def test_the_stage_check_maps_each_test_to_the_lines_it_runs_and_leaves_git_stat
     assert not list(repo.rglob("__pycache__"))
     assert not (repo / ".pytest_cache").exists()
     assert not (repo / ".coverage").exists()
+
+
+AUTH = "src/checkout/auth.py"
+
+
+def commit_all(repo, message):
+    git_output(repo, "add", "-A")
+    git_output(
+        repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--no-verify", "-m", message
+    )
+
+
+def lines_of(repo, path):
+    return (repo / path).read_text(encoding="utf-8").split("\n")
+
+
+def write_lines(repo, path, lines):
+    (repo / path).write_text("\n".join(lines), encoding="utf-8")
+
+
+def test_a_map_taken_after_the_base_is_read_through_a_deletion_since_its_commit(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
+    lines = lines_of(repo, AUTH)
+    lines[5] = "    return min(window, 5)"
+    lines.insert(5, "    # the window is capped")  # line 6 at A; the return moves to line 7
+    write_lines(repo, AUTH, lines)
+    commit_all(repo, "a")
+    assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
+    commit = git_output(repo, "rev-parse", "HEAD").strip()
+    assert record(repo)["coverage"] == {"commit": commit}
+    del lines[5]  # since A only a deletion; since the base only line 6 is modified
+    write_lines(repo, AUTH, lines)
+    done = run_earnest(repo, "check")
+    impact_property = json.loads(done.stdout)["runs"][0]["properties"]["impact"]
+    assert impact_property == {
+        "requirements": ["req~rate-limit~1"],
+        "features": [],
+        # from the map's line 7, not the tags' choice for the line, which leaves test_audit_lockout out
+        "tests": ["tests/test_auth.py::test_audit_lockout", "tests/test_auth.py::test_count_failed_logins"],
+        "degraded": False,
+    }
+
+
+def test_a_line_deleted_since_the_base_selects_the_tests_the_map_at_the_base_saw_run_it(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
+    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
+    lines = lines_of(repo, AUTH)
+    del lines[10]  # `return "Try again later."`, which test_lockout_message runs
+    write_lines(repo, AUTH, lines)
+    done = run_earnest(repo, "check")
+    found = json.loads(done.stdout)["runs"][0]
+    assert found["properties"]["impact"]["tests"] == ["tests/test_auth.py::test_lockout_message"]
+    assert found["properties"]["impact"]["degraded"] is False
+    assert "earnest/out-of-task" not in [result["ruleId"] for result in found["results"]]  # a deletion raises none

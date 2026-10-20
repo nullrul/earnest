@@ -2640,3 +2640,16 @@ def test_impact_degraded_counts_against_the_stage_whose_artifact_holds_the_line_
         ("src/checkout/auth.py", None, "current", "note"),
     ]
     assert all("impact selected the full suite" in each.message for each in found)
+
+
+def test_a_deleted_line_that_selected_the_full_suite_is_degraded_where_it_was_and_names_its_base_line(fixture_repo):
+    plans, index, _ = seeded(fixture_repo("seeded-change"))
+    (found,) = plan.degraded_findings(plans, index, [], [(REQUIREMENTS_FILE, 4, 5)])
+    assert (found.path, found.line, found.stage, found.level) == (
+        REQUIREMENTS_FILE,
+        4,
+        "inception/requirements-analysis",
+        "note",
+    )
+    assert "line 5 of the base commit" in found.message
+    assert "impact selected the full suite" in found.message
