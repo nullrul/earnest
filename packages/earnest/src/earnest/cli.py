@@ -164,7 +164,13 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
     if option is None and not plan.on_task_branch(branch):
         return analysis
     task = plan.current_task(plan.plan_tasks(analysis.index, world.intents), option, branch)
-    base = git.merge_base(world.root, git.default_branch(world.root))
+    default = git.default_branch(world.root)
+    try:
+        base = git.merge_base(world.root, default)
+    except git.GitError:  # no default branch, or an orphan branch: no base, so the check runs without the task change
+        name = default.removeprefix("refs/remotes/")
+        note = f"task change: no base commit, as HEAD has no merge-base with {name}; no out-of-task check and no impact"
+        return replace(analysis, run=replace(analysis.run, notes=(*analysis.run.notes, note)))
     tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
     changed = git.changed_lines(world.root, base, tree, keep_deletions=True)  # a deletion has no region of its own
     if not changed:

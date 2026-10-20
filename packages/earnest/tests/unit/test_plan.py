@@ -2664,3 +2664,14 @@ def test_a_deleted_line_that_selected_the_full_suite_is_degraded_where_it_was_an
     )
     assert "line 5 of the base commit" in found.message
     assert "impact selected the full suite" in found.message
+
+
+def test_the_hunk_of_a_proposed_task_that_delivers_none_of_the_changed_regions_tags_is_out_of_task(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    plan_text = (repo / PLAN_FILE).read_text(encoding="utf-8")
+    write(repo, PLAN_FILE, plan_text + "\n`task~log-it~1`\n\nLog.\n\nDelivers: req~audit-log~1\n")
+    changed = {"src/checkout/auth.py": (Hunk(11, 1, 11, 1),), PLAN_FILE: (Hunk(14, 0, 15, 6),)}
+    assert out_of_task_rows(repo, changed) == [
+        (PLAN_FILE, 15, CODE_GENERATION, "current", "warning"),
+        ("src/checkout/auth.py", 11, CODE_GENERATION, "current", "warning"),
+    ]

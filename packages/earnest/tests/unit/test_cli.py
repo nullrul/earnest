@@ -418,3 +418,28 @@ def _identity():
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.com",
     }
+
+
+NO_BASE = "task change: no base commit, as HEAD has no merge-base with main; no out-of-task check and no impact"
+
+
+def test_a_task_branch_without_a_default_branch_drops_the_task_change_with_one_note(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "branch", "-q", "-m", "main", "task/add-limiter-window"], cwd=repo, check=True)
+    write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
+    code, out, err = run(repo, monkeypatch, capsys, "check")
+    assert code == 0
+    rules = [result["ruleId"] for result in sarif_run(out)["results"]]
+    assert not {"earnest/out-of-task", "earnest/impact-degraded"} & set(rules)
+    assert "impact" not in sarif_run(out)["properties"]
+    assert err.splitlines().count(NO_BASE) == 1
+
+
+def test_an_orphan_task_branch_drops_the_task_change_with_one_note(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("seeded-change")
+    subprocess.run(["git", "checkout", "-q", "--orphan", "task/add-limiter-window"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-qm", "orphan", "--no-verify"], cwd=repo, check=True, env=_identity())
+    code, out, err = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
+    assert code == 0
+    assert "impact" not in sarif_run(out)["properties"]
+    assert NO_BASE in err.splitlines()

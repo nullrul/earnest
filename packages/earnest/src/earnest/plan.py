@@ -1449,17 +1449,19 @@ def out_of_task(
 
     A region lies inside the task when one of its tags names, on type and name, what the task or a task the diff
     adds delivers. A region on which an `outdated` finding is located raises none, and neither does the hunk that adds
-    a task, which is the proposal itself. A finding sits at its region's first changed line, counts against the stage
-    that holds the task, and is in scope there.
+    a task delivering one of the changed regions' tags, which is the proposal itself. A finding sits at its region's
+    first changed line, counts against the stage that holds the task, and is in scope there.
     """
-    proposals = proposed_tasks(index, changed)
+    regions = changed_regions(index, changed)
+    tagged = {tag.key for region in regions for tag in region.tags}
+    proposals = [item for item in proposed_tasks(index, changed) if delivered(index, [item]) & tagged]
     covered = delivered(index, [task, *proposals])
     proposing = {(item.path, item.line) for item in proposals}
     outdated = {(found.path, found.line) for found in findings if found.rule == "earnest/outdated"}
     owner = _owner(plans, task.path)
     stage = stage_of(owner.intent, task.path) if owner is not None else None
     result: list[Finding] = []
-    for region in changed_regions(index, changed):
+    for region in regions:
         places = {(region.path, line) for line in region.lines}
         if any(tag.key in covered for tag in region.tags) or places & outdated or places & proposing:
             continue
