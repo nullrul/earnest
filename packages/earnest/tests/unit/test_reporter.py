@@ -33,6 +33,8 @@ def test_each_rule_has_its_sarif_level():
         "earnest/unplanned": "warning",
         "earnest/cycle": "error",
         "earnest/route-mismatch": "error",
+        "earnest/out-of-task": "warning",
+        "earnest/impact-degraded": "note",
     }
 
 
@@ -442,3 +444,88 @@ def test_reporter_imports_neither_structural_nor_plan():
             names.add(node.module or "")
             names.update(f"{node.module}.{alias.name}" for alias in node.names)
     assert not {name for name in names if name.startswith(("earnest.structural", "earnest.plan"))}
+
+
+# Out-of-task and impact (M3).
+
+IMPACT = reporter.Impact(
+    requirements=("req~b~2", "req~a~1"),
+    features=(),
+    tests=("t.py::test_b", "t.py::test_a"),
+    degraded=False,
+    base="b" * 40,
+    mapped=True,
+)
+
+
+def test_out_of_task_message_names_the_task_the_tags_and_the_three_exits_in_order():
+    text = reporter.out_of_task_message("task~a~1", ["req~x~1", "req~y~2"])
+    assert "`task~a~1`" in text
+    assert "`req~x~1`, `req~y~2`" in text
+    assert text.endswith("exits: tag it under a requirement the task delivers; propose a task; declare it blocked")
+    assert "no tag" in reporter.out_of_task_message("task~a~1", [])
+    assert reporter.EXITS == ("tag it under a requirement the task delivers", "propose a task", "declare it blocked")
+
+
+def test_out_of_task_is_a_warning_in_scope_at_the_tasks_stage():
+    found = Finding("a.py", 2, "earnest/out-of-task", "task~a~1", "m", stage=STAGE, position="current")
+    assert found.level == "warning"
+    assert found.text == f"in scope at {STAGE}: m"
+
+
+def test_impact_degraded_says_impact_selected_the_full_suite_and_is_a_note():
+    assert "impact selected the full suite" in reporter.DEGRADED
+    assert Finding("a.py", 2, "earnest/impact-degraded", "a.py:2", reporter.DEGRADED).level == "note"
+
+
+def test_impact_travels_sorted_as_the_runs_impact_property_only_when_given():
+    run = sarif_run(reporter.sarif([], {}, Run(commit="abc", impact=IMPACT)))
+    assert run["properties"]["impact"] == {
+        "requirements": ["req~a~1", "req~b~2"],
+        "features": [],
+        "tests": ["t.py::test_a", "t.py::test_b"],
+        "degraded": False,
+    }
+    assert "impact" not in sarif_run(reporter.sarif([], {}, Run(commit="abc")))["properties"]
+
+
+def test_summary_prints_the_impact_section_one_line_a_field():
+    lines = reporter.summary([], {}, Run(commit="abc", impact=IMPACT)).splitlines()
+    start = lines.index("impact:")
+    assert lines[start + 1 : start + 5] == [
+        "  requirements: req~a~1, req~b~2",
+        "  features: none",
+        "  tests: t.py::test_a, t.py::test_b",
+        "  degraded: no",
+    ]
+    assert not [line for line in lines if "coverage map" in line]
+    assert "impact:" not in reporter.summary([], {}, Run(commit="abc")).splitlines()
+
+
+def test_summary_says_the_full_suite_and_the_missing_map_when_impact_is_degraded_without_one():
+    unmapped = reporter.Impact((), (), (), degraded=True, base="b" * 40, mapped=False)
+    lines = reporter.summary([], {}, Run(commit="abc", impact=unmapped)).splitlines()
+    assert "  tests: the full suite" in lines
+    assert "  degraded: yes" in lines
+    assert f"  coverage map: none for the base commit {'b' * 40}" in lines
+    assert sarif_run(reporter.sarif([], {}, Run(commit="abc", impact=unmapped)))["properties"]["impact"] == {
+        "requirements": [],
+        "features": [],
+        "tests": [],
+        "degraded": True,
+    }
+    selected = reporter.Impact((), (), (), degraded=False, base="b" * 40, mapped=False)
+    assert "  tests: none" in reporter.summary([], {}, Run(commit="abc", impact=selected)).splitlines()
+
+
+def test_the_record_keeps_the_coverage_maps_commit(tmp_path):
+    record = Record(coverage={"commit": "c" * 40})
+    reporter.write_record(tmp_path, record)
+    assert reporter.read_record(tmp_path).coverage == {"commit": "c" * 40}
+    assert Record().coverage == {"commit": None}
+
+
+def test_reporter_imports_no_impact():
+    tree = ast.parse(Path(reporter.__file__).read_text(encoding="utf-8"))
+    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert "earnest.impact" not in modules
