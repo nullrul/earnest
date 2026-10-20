@@ -172,7 +172,9 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
         note = f"task change: no base commit, as HEAD has no merge-base with {name}; no out-of-task check and no impact"
         return replace(analysis, run=replace(analysis.run, notes=(*analysis.run.notes, note)))
     tree = {each.path for each in plan.evaluated_tree(world.sources, world.intents)}
-    changed = git.changed_lines(world.root, base, tree, keep_deletions=True)  # a deletion has no region of its own
+    # a file deleted since the base is read whole as deleted lines, when the scanner would read its path
+    gone = {path for path in git.deleted_files(world.root, base) if plan.scanned(world.intents, path)}
+    changed = git.changed_lines(world.root, base, tree | gone, keep_deletions=True)  # a deletion has no region
     if not changed:
         return analysis
     found = [] if task is None else plan.out_of_task(analysis.plans, analysis.index, task, changed, analysis.findings)

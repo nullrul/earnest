@@ -287,3 +287,10 @@ def test_a_def_nested_inside_a_test_method_is_no_test(tmp_path):
     (tmp_path / "tests" / "test_n.py").write_text(text, encoding="utf-8")
     index = build_index(adapters.scan(tmp_path, ["tests/test_n.py"]))
     assert impact.tagged_tests(tmp_path, index, {("req", "a")}) == ["tests/test_n.py::TestOuter::test_method"]
+
+
+def test_a_deleted_file_selects_the_tests_that_covered_its_lines_and_degrades_the_rest_at_its_line_1(tmp_path):
+    gone = {("src/gone.py", 2): ("tests/test_m.py::test_a",)}
+    found = selected(tmp_path, {"src/gone.py": (Hunk(1, 3, 0, 0),)}, gone)
+    assert found.impact.tests == ("tests/test_m.py::test_a",)  # and the full suite, which this map is
+    assert found.deleted == (("src/gone.py", 1, 1), ("src/gone.py", 1, 3))

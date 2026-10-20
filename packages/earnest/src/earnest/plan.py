@@ -1323,12 +1323,15 @@ def frozen_bodies(held: Mapping[str, str], intents: Sequence[Intent]) -> dict[st
     return {key: value for key, value in held.items() if any(key in current.named_items for current in intents)}
 
 
+def scanned(intents: Sequence[Intent], path: str) -> bool:
+    """Return whether a file at path lies in the evaluated tree by its path: a scanned suffix, not bookkeeping."""
+    directories = {current.directory for current in intents}
+    return adapters.reads(path) and not adapters.skipped(path, directories) and in_tree(intents, path)
+
+
 def dirty(changes: Sequence[str], intents: Sequence[Intent]) -> bool:
     """Return whether a changed path lies in the evaluated tree: a scanned suffix, outside AI-DLC's bookkeeping."""
-    directories = {current.directory for current in intents}
-    return any(
-        adapters.reads(path) and not adapters.skipped(path, directories) and in_tree(intents, path) for path in changes
-    )
+    return any(scanned(intents, path) for path in changes)
 
 
 def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -> RunHeader:

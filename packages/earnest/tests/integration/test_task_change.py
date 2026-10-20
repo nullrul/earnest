@@ -3,7 +3,7 @@
 import json
 
 from earnest import impact
-from tests.sarif import git_output, printed_hash, record, run_earnest
+from tests.sarif import git_output, located, printed_hash, record, run_earnest
 
 
 CODE_STAGE = "construction/code-generation"
@@ -107,3 +107,24 @@ def test_two_stage_checks_on_a_task_branch_give_the_same_hash_though_the_first_t
     ]
     assert degraded == [[2, 3], [2]]  # the map the first run took sees line 3 run by a test
     assert printed_hash(first) == printed_hash(second)
+
+
+def test_a_file_deleted_since_the_base_is_read_by_impact_and_a_deleted_audit_shard_is_not(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
+    git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
+    git_output(repo, "rm", "-q", AUTH, "aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md")
+    found = json.loads(run_earnest(repo, "check").stdout)["runs"][0]
+    task_change = [
+        (located(result), result["properties"].get("stage"), result["level"])
+        for result in found["results"]
+        if result["ruleId"] in {"earnest/impact-degraded", "earnest/out-of-task"}
+    ]
+    # every base line of auth.py but 6, 11 and 16, which tests ran, at line 1 of the deleted path, reaching no stage
+    assert task_change == [((AUTH, 1), None, "note")] * 13
+    assert found["properties"]["impact"]["tests"] == [
+        "tests/test_auth.py::test_audit_lockout",
+        "tests/test_auth.py::test_count_failed_logins",
+        "tests/test_auth.py::test_lockout_message",
+    ]
+    assert found["properties"]["impact"]["degraded"] is True

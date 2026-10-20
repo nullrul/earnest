@@ -133,6 +133,14 @@ def changed_lines(
     return dict(sorted(found.items()))
 
 
+def deleted_files(root: Path, base: str) -> list[str]:
+    """Return the paths of the commit base that the work tree no longer holds, sorted, with none under `.earnest/`."""
+    listed = _git(
+        root, "--no-optional-locks", "diff-index", "--name-only", "-z", "--no-renames", "--diff-filter=D", base, "--"
+    )
+    return sorted({path for path in listed.split("\0") if path and not _in_record_directory(path)})
+
+
 def old_line(hunks: Sequence[Hunk], line: int) -> int | None:
     """Return the line of the old side that a new line was, or None for a line the hunks add past their pairing."""
     for hunk in hunks:

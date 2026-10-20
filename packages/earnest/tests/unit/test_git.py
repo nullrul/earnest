@@ -273,3 +273,15 @@ def test_changed_lines_skips_an_untracked_symlink_and_never_reads_its_target(fil
     outside.write_text("1\n2\n3\n", encoding="utf-8")
     (repo / "link.md").symlink_to(outside)
     assert git.changed_lines(repo, git.head_commit(repo), {"link.md"}) == {}
+
+
+def test_deleted_files_lists_the_paths_of_the_base_missing_from_the_work_tree(files_repo):
+    repo = files_repo({"a.py": "1\n2\n", "b.py": "b\n", "c.py": "c\n", "d b[1].py": "d\n"})
+    base = git.head_commit(repo)
+    git_output(repo, "rm", "-q", "a.py")
+    _commit_all(repo)
+    (repo / "b.py").unlink()
+    (repo / "d b[1].py").unlink()
+    (repo / "c.py").write_text("changed\n", encoding="utf-8")
+    assert git.deleted_files(repo, base) == ["a.py", "b.py", "d b[1].py"]
+    assert git.changed_lines(repo, base, {"a.py"}, keep_deletions=True) == {"a.py": (git.Hunk(1, 2, 0, 0),)}

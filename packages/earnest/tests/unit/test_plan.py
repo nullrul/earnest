@@ -2675,3 +2675,12 @@ def test_the_hunk_of_a_proposed_task_that_delivers_none_of_the_changed_regions_t
         (PLAN_FILE, 15, CODE_GENERATION, "current", "warning"),
         ("src/checkout/auth.py", 11, CODE_GENERATION, "current", "warning"),
     ]
+
+
+def test_scanned_is_a_file_of_the_evaluated_tree_by_its_path_alone(fixture_repo):
+    _, _, intents = seeded(fixture_repo("seeded-change"))
+    assert plan.scanned(intents, "src/checkout/auth.py")
+    assert plan.scanned(intents, REQUIREMENTS_FILE)
+    assert not plan.scanned(intents, "aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md")
+    assert not plan.scanned(intents, "aidlc/spaces/default/intents/260926-checkout/aidlc-state.md")
+    assert not plan.scanned(intents, "data/blob.bin")
