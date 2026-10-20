@@ -167,7 +167,8 @@ def _task_change(world: _World, analysis: _Analysis, option: str | None) -> _Ana
     task, reason = plan.current_task(plan.plan_tasks(analysis.index, world.intents), world.intents, option)
     if task is None:
         return _without_task_change(analysis, f"no current task, as {reason}")
-    holder = next(each for each in world.intents if plan.inside(each, task.path))
+    # the built intent, as only it holds the approvals of the per-unit stages
+    holder = next(each.intent for each in analysis.plans if plan.inside(each.intent, task.path))
     base = plan.change_baseline(holder, world.record.runs)
     if base is None:
         return _without_task_change(analysis, "no approved stage check is recorded")

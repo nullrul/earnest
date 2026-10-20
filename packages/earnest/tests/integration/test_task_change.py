@@ -3,7 +3,7 @@
 import json
 
 from earnest import impact
-from tests.sarif import git_output, located, printed_hash, record, record_baseline, run_earnest
+from tests.sarif import append_block, git_output, header, located, printed_hash, record, record_baseline, run_earnest
 
 
 CODE_STAGE = "construction/code-generation"
@@ -106,3 +106,35 @@ def test_a_file_deleted_since_the_baseline_is_read_by_impact_and_a_deleted_audit
         "tests/test_auth.py::test_lockout_message",
     ]
     assert found["properties"]["impact"]["degraded"] is True
+
+
+UNIT_STAGE = "construction/u1-limiter/functional-design"
+
+
+def test_on_a_units_route_a_per_unit_stage_check_approved_at_its_unit_s_gate_is_the_baseline(units_repo):
+    repo = units_repo()
+    done = run_earnest(repo, "check", "--stage", UNIT_STAGE)
+    assert done.returncode != 2, done.stderr
+    held = header(repo, UNIT_STAGE)
+    unit_gate = [
+        ("Stage", "functional-design"),
+        ("Unit", "u1"),
+        ("Gate Scope", "per-stage"),
+        ("Gate Stages", "functional-design"),
+        ("Attempt Generation", "1"),
+        ("Assessment Hash", held["hash"]),
+        ("Approved By", "human"),
+    ]
+    append_block(repo, "GATE_APPROVED", "2026-09-27T12:00:00Z", unit_gate)
+    commit_all(repo, "the unit's gate")
+    code = lines_of(repo, AUTH)
+    code[10] = code[10].replace("later", "soon")  # a line test_lockout_message runs, in the task's own region
+    write_lines(repo, AUTH, code)
+    commit_all(repo, "a change since the baseline")
+    done = run_earnest(repo, "check", *TASK)
+    assert "no approved stage check" not in done.stderr
+    # the diff runs from the header's commit, so the change committed since it is in the impact
+    assert json.loads(done.stdout)["runs"][0]["properties"]["impact"]["tests"] == [
+        "tests/test_auth.py::test_lockout_message"
+    ]
+    assert held["commit"] != git_output(repo, "rev-parse", "HEAD").strip()
