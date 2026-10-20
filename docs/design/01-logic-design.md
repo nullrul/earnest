@@ -815,7 +815,11 @@ that intent's route that have an approval, current or outdated, as Frontier
 and position and Per-unit stages and units read it, Earnest takes each whose
 approval row carries an `Assessment Hash` equal to the `hash` of the run
 header the record holds for that stage; the baseline is the `commit` of the
-header whose approval row comes last in audit order. The approve transition
+header whose approval row comes last in audit order. When one row approves
+several such stages, as a unit's end gate approves its per-unit stages
+together, the stage later in route order gives the baseline: the choice is
+deterministic, and the last stage in route order is the furthest-progressed
+state. The approve transition
 copies the hash from the header, so an equal hash shows that the header is
 the one the human approved, and a later stage check of that stage, which
 replaces the header, ends the stage's claim. An outdated approval still
