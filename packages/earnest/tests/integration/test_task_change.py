@@ -7,6 +7,7 @@ from tests.sarif import git_output, located, printed_hash, record, run_earnest
 
 
 CODE_STAGE = "construction/code-generation"
+TASK = ("--task", "task~add-limiter~1")
 
 
 def test_the_stage_check_maps_each_test_to_the_lines_it_runs_and_leaves_git_status_empty(fixture_repo):
@@ -58,7 +59,7 @@ def test_a_map_taken_after_the_base_is_read_through_a_deletion_since_its_commit(
     assert record(repo)["coverage"] == {"commit": commit}
     del lines[5]  # since A only a deletion; since the base only line 6 is modified
     write_lines(repo, AUTH, lines)
-    done = run_earnest(repo, "check")
+    done = run_earnest(repo, "check", *TASK)
     impact_property = json.loads(done.stdout)["runs"][0]["properties"]["impact"]
     assert impact_property == {
         "requirements": ["req~rate-limit~1"],
@@ -76,7 +77,7 @@ def test_a_line_deleted_since_the_base_selects_the_tests_the_map_at_the_base_saw
     lines = lines_of(repo, AUTH)
     del lines[10]  # `return "Try again later."`, which test_lockout_message runs
     write_lines(repo, AUTH, lines)
-    done = run_earnest(repo, "check")
+    done = run_earnest(repo, "check", *TASK)
     found = json.loads(done.stdout)["runs"][0]
     assert found["properties"]["impact"]["tests"] == ["tests/test_auth.py::test_lockout_message"]
     assert found["properties"]["impact"]["degraded"] is False
@@ -94,8 +95,8 @@ def test_two_stage_checks_on_a_task_branch_give_the_same_hash_though_the_first_t
     tests[5] = "    assert count_failed_logins(3) == 3 * helper()"
     write_lines(repo, "tests/test_auth.py", tests)
     commit_all(repo, "helper")
-    first = run_earnest(repo, "check", "--stage", CODE_STAGE)
-    second = run_earnest(repo, "check", "--stage", CODE_STAGE)
+    first = run_earnest(repo, "check", "--stage", CODE_STAGE, *TASK)
+    second = run_earnest(repo, "check", "--stage", CODE_STAGE, *TASK)
     degraded = [
         [
             result["locations"][0]["physicalLocation"]["region"]["startLine"]
@@ -114,7 +115,7 @@ def test_a_file_deleted_since_the_base_is_read_by_impact_and_a_deleted_audit_sha
     assert run_earnest(repo, "check", "--stage", CODE_STAGE).returncode == 0
     git_output(repo, "checkout", "-q", "-b", "task/add-limiter-window")
     git_output(repo, "rm", "-q", AUTH, "aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md")
-    found = json.loads(run_earnest(repo, "check").stdout)["runs"][0]
+    found = json.loads(run_earnest(repo, "check", *TASK).stdout)["runs"][0]
     task_change = [
         (located(result), result["properties"].get("stage"), result["level"])
         for result in found["results"]

@@ -18,6 +18,7 @@ from earnest.reporter import Finding, Position, Run, RunHeader, canonical, run_k
 
 AUDIT = "audit"
 _SCOPE = re.compile(r"^- \*\*Scope\*\*:[ \t]*(.*)$", re.MULTILINE)  # no lazy group before `[ \t]*$`: that is quadratic
+_CURRENT = re.compile(r"- \*\*Current Task\*\*:[ \t]*(.*)")
 _ROW = re.compile(r"- \[([ \-?RxS])\] (\S+) \u2014 (EXECUTE|SKIP)(?:[:\s][ \t]*(.*))?")
 _FIELD = re.compile(r"\*\*([^*:]+)\*\*:[ \t]*(.*)")
 _UNITS = "units-generation"
@@ -56,6 +57,7 @@ class State:
     rows: tuple[Row, ...]
     unread: tuple[int, ...] = ()  # lines under Stage Progress that start `- [` and are no row Earnest can read
     heading: int = 0  # the line of the `## Stage Progress` heading, 0 when the file has none
+    current: tuple[str, ...] = ()  # the values of the `Current Task` lines under `## Project Information`
 
 
 @dataclass(frozen=True, order=True)
@@ -113,14 +115,18 @@ def parse_state(text: str) -> State:
     rows: list[Row] = []
     unread: list[int] = []
     heading = 0
-    in_progress = False
+    in_progress = in_project = False
     phase = ""
+    current: list[str] = []
     for line in split_lines(normalized):
         stripped = line.text.rstrip()
         if stripped.startswith("## "):
             in_progress = stripped[3:].strip() == "Stage Progress"
+            in_project = stripped[3:].strip() == "Project Information"
             heading = heading or (line.number if in_progress else 0)
             phase = ""
+        elif in_project and (marked := _CURRENT.fullmatch(stripped)):
+            current.append(marked[1])
         elif in_progress and stripped.startswith("### "):
             phase = _phase(stripped[4:])
         elif in_progress and stripped.startswith("- ["):
@@ -128,7 +134,8 @@ def parse_state(text: str) -> State:
                 rows.append(Row(phase, row[2], row[1], row[3], row[4] or "", line.number))
             else:
                 unread.append(line.number)
-    return State(scope.group(1).rstrip(" \t") if scope else "", tuple(rows), tuple(unread), heading)
+    found = scope.group(1).rstrip(" \t") if scope else ""
+    return State(found, tuple(rows), tuple(unread), heading, tuple(current))
 
 
 def parse_audit(text: str, shard: str) -> list[Event]:
@@ -296,6 +303,7 @@ class Intent:
     executed: tuple[str, ...] = ()  # the route before the per-unit expansion, which the route rule reads
     events: tuple[Event, ...] = ()  # the counting audit events
     table: UnitTable | None = None  # the unit table, on a route that holds Units Generation
+    current: tuple[str, ...] = ()  # the state file's `Current Task` values
 
     @property
     def units_route(self) -> bool:
@@ -415,6 +423,7 @@ def intent(record: Record) -> Intent:
         route,
         tuple(events),
         table,
+        state.current,
     )
 
 
@@ -1359,8 +1368,6 @@ class PlanError(Exception):
 
 # The Out-of-task rule (M3).
 
-_TASK_BRANCH = "task/"
-
 
 @dataclass(frozen=True)
 class ChangedRegion:
@@ -1376,38 +1383,42 @@ class ChangedRegion:
     tags: tuple[Id, ...] = ()
 
 
-def on_task_branch(branch: str | None) -> bool:
-    """Return whether a branch follows the `task/…` convention, so impact runs on it whatever task it names."""
-    return branch is not None and branch.startswith(_TASK_BRANCH)
-
-
 def plan_tasks(index: Index, intents: Sequence[Intent]) -> list[Item]:
     """Return the tasks of the plan: the `task` items in the evaluated tree."""
     return [item for item in index.defined.values() if item.id.type == "task" and in_tree(intents, item.path)]
 
 
-def current_task(tasks: Sequence[Item], option: str | None, branch: str | None) -> Item | None:
-    """Return the current task: the one `--task` names, else the one a `task/<name>-…` or `task/<name>` branch names.
+def current_task(
+    tasks: Sequence[Item], intents: Sequence[Intent], option: str | None
+) -> tuple[Item | None, str | None]:
+    """Return the current task, or None with the reason there is none.
 
-    A branch names the task with the longest name that the rest of the branch equals, or begins with followed by
-    `-`; one that names none gives no current task.
+    `--task` names it, else the one `Current Task` line of the state files, naming a task of its intent on type and
+    name; no such line, several, or a value naming no task of its intent give none.
 
     Raises:
         PlanError: `--task` is not a task id, or names no task of the plan.
     """
     if option is not None:
-        named = ID_ENTRY.fullmatch(option)
-        found = next((task for task in tasks if named and task.id.key == (named[1], named[2])), None)
+        found = _task_named(tasks, option)
         if found is None:
             known = ", ".join(sorted(str(task.id) for task in tasks)) or "none"
             msg = f"--task {option} names no task of the plan: the tasks are {known}"
             raise PlanError(msg)
-        return found
-    if branch is None or not on_task_branch(branch):
-        return None
-    rest = branch.removeprefix(_TASK_BRANCH)
-    matching = [task for task in tasks if rest == task.id.name or rest.startswith(task.id.name + "-")]
-    return max(matching, key=lambda task: (len(task.id.name), task.id.name), default=None)
+        return found, None
+    marks = [(current, value) for current in intents for value in current.current]
+    if not marks:
+        return None, "no state file names one"
+    if len(marks) > 1:
+        return None, "several Current Task lines name one"
+    ((holder, value),) = marks
+    found = _task_named([task for task in tasks if inside(holder, task.path)], value)
+    return (found, None) if found is not None else (None, f"`{value}` names no task of its intent")
+
+
+def _task_named(tasks: Sequence[Item], text: str) -> Item | None:
+    named = ID_ENTRY.fullmatch(text)
+    return next((task for task in tasks if named and task.id.key == (named[1], named[2])), None)
 
 
 def changed_regions(index: Index, changed: Mapping[str, Sequence[Hunk]]) -> list[ChangedRegion]:
