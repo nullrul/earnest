@@ -94,10 +94,46 @@ def test_overlay_changes_two_places_of_the_requirements(fixture_repo, commit_ove
     assert requirements[10] == "how long the lockout lasts."
 
 
+def test_base_commit_holds_the_m3_seeds(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    assert lines_of(repo, "pytest.ini")[:2] == ["[pytest]", "pythonpath = src"]
+    tests = lines_of(repo, "tests/test_auth.py")
+    assert [tests[n - 1].strip() for n in (2, 6, 11, 16)] == [
+        "from checkout.auth import audit_lockout, count_failed_logins, lockout_message",
+        "assert count_failed_logins(3) == 3",
+        'assert lockout_message().startswith("Try again")',
+        'assert audit_lockout(str(count_failed_logins(1))) == "1"',
+    ]
+
+
+def test_task_overlay_changes_three_lines_of_the_code(fixture_repo, commit_task_change):
+    repo = commit_task_change(fixture_repo("seeded-change"), "task/add-limiter-window")
+    assert git_output(repo, "rev-list", "--count", "main..HEAD").strip() == "2"
+    diff = git_output(repo, "diff", "--unified=0", "HEAD~1", "HEAD")
+    assert [line for line in diff.splitlines() if line.startswith("diff --git")] == [
+        "diff --git a/src/checkout/auth.py b/src/checkout/auth.py",
+    ]
+    hunks = [line.split(" @@")[0] + " @@" for line in diff.splitlines() if line.startswith("@@")]
+    assert hunks == ["@@ -2 +2 @@", "@@ -6 +6 @@", "@@ -11 +11 @@"]
+    code = lines_of(repo, "src/checkout/auth.py")
+    assert [code[n - 1].strip() for n in (2, 6, 11)] == [
+        "LIMIT = 5",
+        "return min(window, LIMIT)",
+        'return "Try again in fifteen minutes."',
+    ]
+    assert [code[n - 1] for n in (4, 9, 14)] == [
+        "# [impl->req~rate-limit~1]",
+        "# [impl->req~lockout-notice~1]",
+        "# [impl->req~audit-log~1]",
+    ]
+    assert not (repo / "task").exists()
+
+
 def test_base_copy_leaves_the_change_directory_out(fixture_repo):
     repo = fixture_repo("seeded-change")
     assert not (repo / "change").exists()
-    assert "change/" not in git_output(repo, "ls-files")
+    assert not (repo / "task").exists()
+    assert not any(path.startswith(("change/", "task/")) for path in git_output(repo, "ls-files").split())
 
 
 def test_state_and_audit_files_hold_no_item_id_tag_or_near_miss(fixture_repo):
@@ -125,8 +161,12 @@ def test_units_variant_replaces_only_the_record_directory(units_repo):
     files = git_output(repo, "ls-files").split()
     assert not (repo / RECORD / "construction" / "code-generation").exists()
     assert [path for path in files if path.endswith("aidlc-state.md")] == [STATE]
-    assert [path for path in files if not path.startswith(RECORD)] == ["src/checkout/auth.py", "tests/test_auth.py"]
-    assert not any("FUTURE-FORMAT" in path or path.startswith(("units/", "change/")) for path in files)
+    assert [path for path in files if not path.startswith(RECORD)] == [
+        "pytest.ini",
+        "src/checkout/auth.py",
+        "tests/test_auth.py",
+    ]
+    assert not any("FUTURE-FORMAT" in path or path.startswith(("units/", "change/", "task/")) for path in files)
 
 
 def test_units_requirements_are_a_byte_copy_of_the_base():
