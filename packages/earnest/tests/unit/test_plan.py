@@ -2766,6 +2766,18 @@ def test_a_per_unit_stage_and_a_dirty_header_give_the_baseline_as_held():
     assert plan.change_baseline(intent, runs_of(held_header(stage, "h1", "c1", dirty=True))) == "c1"
 
 
+def test_approvals_that_share_the_latest_row_take_the_stage_later_in_route_order():
+    # a unit's end gate approves both its stages in one row; the later stage's commit wins, not the larger sha
+    design, code = "construction/u1/functional-design", "construction/u1/code-generation"
+    row = ("2026-09-27T12:00:00Z", "a.md", 0)
+    approvals = {
+        stage: Approval(stage, None, "human", digest, at=row) for stage, digest in ((code, "h2"), (design, "h1"))
+    }
+    intent = plan.Intent("r", "r/aidlc-state.md", (), (design, code), approvals, frozenset(), ())
+    runs = runs_of(held_header(design, "h1", "c9"), held_header(code, "h2", "c1"))
+    assert plan.change_baseline(intent, runs) == "c1"
+
+
 def test_the_stage_s_counting_row_gives_its_place_in_audit_order():
     # a stage approved again with the same hash is at its latest row, after the other stage
     rows = ((GATE_REQ, "h1", "2026-09-26T12:00:00Z"), (GATE_CG, "h2", "2026-09-27T12:00:00Z"))

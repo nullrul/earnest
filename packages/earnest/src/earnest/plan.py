@@ -1428,15 +1428,17 @@ def change_baseline(intent: Intent, runs: Mapping[str, RunHeader]) -> str | None
     """Return the change baseline of an intent: the commit of its last approved stage check, or None.
 
     A stage counts when its approval, current or outdated, carries the `Assessment Hash` of the run header the record
-    holds for it, so the header is the one approved; the latest such approval row in audit order gives the commit.
+    holds for it, so the header is the one approved; the latest such approval row in audit order gives the commit, and
+    of the stages one row approves, the one later in route order, the furthest-progressed state.
     """
+    order = {stage: place for place, stage in enumerate(intent.route)}
     claims = [
-        (approval.at, held.commit)
+        (approval.at, order.get(stage, -1), held.commit)
         for stage, approval in intent.approvals.items()
         for held in (runs.get(run_key(intent.directory, stage)),)
         if held is not None and approval.digest is not None and approval.digest == held.digest
     ]
-    return max(claims)[1] if claims else None
+    return max(claims)[2] if claims else None
 
 
 def _task_named(tasks: Sequence[Item], text: str) -> Item | None:
