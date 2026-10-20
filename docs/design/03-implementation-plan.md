@@ -187,8 +187,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   `task/<name>-…` splits a branch whose task name holds hyphens (`01`); how
   M3's overlay changes meet M2's exact findings tables (the Open questions
   section of `04`).
-- Task plan: `docs/superpowers/plans/<date>-task-change.md`, written when M3
-  is next.
+- Task plan:
+  [2026-10-20-task-change.md](../superpowers/plans/2026-10-20-task-change.md).
 
 ### M4 `judge_check`
 
