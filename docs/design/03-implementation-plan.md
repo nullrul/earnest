@@ -170,8 +170,9 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 
 - Goal: add the out-of-task check in `plan.py` and impact in `impact.py`.
 - Depends on: M2.
-- Exit behavior: on a `task/…` branch, `earnest check` reports each changed
-  region outside the task with the three exits. It also prints an impact
+- Exit behavior: with a current task and an approved stage check recorded,
+  and no Git branch read, `earnest check` reports each changed region since
+  that check that lies outside the task, with the three exits. It also prints an impact
   section of requirements, features and tests to run, with `impact-degraded`
   for a line that has no coverage data.
 - Exit command: `uv run pytest tests/steps/test_task_change.py`.
@@ -183,10 +184,10 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Context to load: `01`: Out-of-task rule, Impact rule, Region rule, D11, D12.
   `02`: `git.py`, `index.py`, `plan.py`, `impact.py` and
   `fixtures/seeded-change/change/` in Module boundaries.
-- Gating open questions: task base commit, coverage map timing, and how
-  `task/<name>-…` splits a branch whose task name holds hyphens (`01`); how
-  M3's overlay changes meet M2's exact findings tables (the Open questions
-  section of `04`).
+- Gating open questions: none left. The change baseline, the current task
+  and the coverage map timing are settled in `01` (the Out-of-task and Impact
+  rules), with no Git branch read; how M3's overlay changes meet M2's exact
+  findings tables is settled in `04`.
 - Task plan:
   [2026-10-20-task-change.md](../superpowers/plans/2026-10-20-task-change.md).
 

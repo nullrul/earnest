@@ -2,6 +2,8 @@
 
 Status: draft for plan approval. It rests on the maintainer's resolutions 1–4 and decisions (a)–(d), (i) and (ii), and on the Lead's decisions E1–E5. These are recorded in `docs/design/01-logic-design.md` (Out-of-task rule, Impact rule, D11, D12, SARIF 2.1.0, Runtime and permission model), `docs/design/02-structural-design.md` (`git.py`, `impact.py`, `fixtures/seeded-change/`) and `docs/design/04-bdd-test-plan.md` (the M2 Notes and the M3 section). The maintainer's amendment confirms E4 as an exact-name match (`task/add-limiter` resolves to `add-limiter`) and re-derives E1 so that exit 2 resolves the finding.
 
+**Superseded in part.** The maintainer later ruled that no check runs against Git branches. Resolutions 1 and 3 and E4 are withdrawn, and resolution 4 is rewritten; see [Rework: no Git branch read](#rework-no-git-branch-read) at the end, which governs where it differs from the sections above. Tasks 1 to 8 are done as of `0775233`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When `earnest check` runs on a `task/…` branch or with `--task`, it:
@@ -331,5 +333,133 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
   "packages/earnest/tests/fixtures/seeded-change/pytest.ini",
   "packages/earnest/tests/fixtures/seeded-change/tests/test_auth.py",
   "packages/earnest/tests/fixtures/seeded-change/task/src/checkout/auth.py"
+]
+```
+
+---
+
+## Rework: no Git branch read
+
+The maintainer ruled that "we should not do any checks against git branches". `01` (the Out-of-task rule, the Impact rule, D11 and D12), `02` (`git.py`, `plan.py`, `conftest.py`, `fixtures/seeded-change/`) and `04` (the M2 Notes and the M3 section) now record:
+
+- **The change baseline** replaces the task base commit. It is the `commit` of the run header of the stage whose approval row's `Assessment Hash` equals that header's `hash`, current or outdated, the latest such row in audit order, within the current task's intent. No such stage, or a commit Git no longer holds, gives no baseline. Both the out-of-task check and impact diff from it to the work tree, and impact reads `.earnest/coverage/<baseline>` alone.
+- **The current task** is `--task`, else the one `- **Current Task**: <task id>` line in the `## Project Information` section of an intent's `aidlc-state.md`, naming a task of that intent. No such line, several lines, or a value that names no task gives no current task.
+- **Resolution 4, rewritten:** the out-of-task check and impact both run only with a current task and a baseline. Otherwise there is no M3 finding, no impact section and no `properties.impact`, only one summary line naming what is missing.
+- **Withdrawn:** resolutions 1 and 3 and E4: the merge-base, the `origin/HEAD` fallback and the `task/<name>` resolution. Earnest reads no branch, branch name, merge-base or `origin/HEAD`; the fixture's branches are step mechanics.
+- **Unchanged:** decisions (a), (b), (d), (i), (ii), E1, E2, E3, E5, the hash exclusion, the deletion rules, tag-only regions and per-line `impact-degraded`.
+
+### Rework constraints
+
+- `git.py`'s `current_branch`, `default_branch` and `merge_base` are used only by `cli.py`'s task change, so they and their unit tests go. `git.py` gains a check that a commit exists.
+- M2's `stage_status.feature` returns to its tables on `main`, byte for byte; its 11 M3 rows go. M1 and M2b stay unchanged.
+- The state-file line is outside the evaluated tree, so writing it makes no tree dirty and enters no diff or hash.
+
+### Rework task order and the scenarios each turns green
+
+Scenario names are those of `04`'s "Task change feature" (14 scenarios; the outline's two examples make 15 test cases) and the M2 "Stage status feature".
+
+| Task | Content | Depends on | Scenarios green after it |
+| --- | --- | --- | --- |
+| R1 | The behavior gates, red: `task_change.feature` and `stage_status.feature` from `04`, verbatim, and the new steps | none | M3: "The stage check takes the coverage map and leaves Git's listing as it was" |
+| R2 | The current task from the state file; `--task` wins; drop the branch resolution | R1 | M2's three scenarios that `0775233` amended, back on `main`'s tables; M3: "With no single current task the check reports nothing of the task change" (both examples) |
+| R3 | The change baseline from the record and the audit; impact on the baseline's map; drop the branch, default-branch and merge-base reads | R2 | the other 12 M3 test cases |
+| R4 | The full suite, lint and the pre-PR review | R3 | all 15 M3 test cases and all 26 of M2, with M1 and M2b unchanged |
+
+The 12 M3 test cases that turn green at R3:
+
+| M3 scenario |
+| --- |
+| "Each changed region since the approved stage check that lies outside the task is flagged, prose and code alike" |
+| "An out-of-task finding names the task and offers exactly three exits" |
+| "Tagging the region under a requirement the task delivers clears its finding" |
+| "Proposing a task that delivers the region's requirement clears its finding" |
+| "Declaring the change blocked leaves the repository and the finding as they were" |
+| "The state file's current task is the task the check reads" |
+| "The task named on the command line wins over the state file" |
+| "With no approved stage check recorded the check reports nothing of the task change" |
+| "An uncommitted change is diffed against the commit the approved stage check recorded" |
+| "The impact section names the requirements, features and tests to run, from the coverage map" |
+| "A changed line with no coverage data selects the full suite and says so", and "Without a coverage map a changed line selects the tests tagged to its requirement" |
+
+**Regression expectations:**
+
+- **R1 to R3:** the regression run is `uv run pytest --ignore=tests/steps/test_task_change.py --ignore=tests/steps/test_stage_status.py` in `packages/earnest/`, green, with each task's exact count recorded against `0775233`.
+- **R1:** `uv run pytest tests/steps/test_stage_status.py` reports 23 passed and the 3 restored scenarios failed.
+- **From R2:** that run reports 26 passed.
+
+### Task R1: The behavior gates, red
+
+**Files:**
+
+- Modify: `packages/earnest/tests/features/task_change.feature`, `packages/earnest/tests/features/stage_status.feature`
+- Modify: `packages/earnest/tests/steps/test_task_change.py`, `packages/earnest/tests/conftest.py`
+
+- [ ] **Step 1:** Copy the M3 Gherkin of `04` into `task_change.feature` verbatim. Restore `stage_status.feature` to `main`'s bytes: `git diff main -- packages/earnest/tests/features/stage_status.feature` is empty.
+- [ ] **Step 2:** Write the steps the M3 Notes of `04` name:
+  - "the coding agent's state file names `<id>` as the current task", "names no task" and "names both …", writing the `Current Task` lines uncommitted;
+  - "the coding agent's task change is committed", replacing the step that named the task branch; it may still commit on `task/add-limiter-window`, and no assertion reads the branch name;
+  - "the coverage maps under `.earnest/coverage/` are gone", deleting only the files the scenario's own stage check wrote;
+  - "the summary states once that there is no current task", and "… that no approved stage check is recorded".
+  
+  Drop the steps of the removed scenarios: the hyphenated branch outline, the `feature/limiter` branch, and adding `task~add~1` on `main`. Reuse the shared approval step of M2.
+- [ ] **Step 3:** Run `uv run pytest tests/steps/test_task_change.py tests/steps/test_stage_status.py`. Expected: the map scenario passes, the M3 scenarios that need a marker or a baseline fail, and M2 has 23 passed and 3 failed. Commit `test: RED task_change gate without branches, M2 tables back to main`.
+
+### Task R2: The current task from the state file, `plan.py`
+
+**Files:** Modify `packages/earnest/src/earnest/plan.py`, `packages/earnest/src/earnest/cli.py`, `packages/earnest/src/earnest/reporter.py`; Test `tests/unit/test_plan.py`, `tests/unit/test_cli.py`, `tests/unit/test_reporter.py`.
+
+- [ ] **Step 1:** Write failing tests for `current_task`:
+  - `--task` wins over the line;
+  - one `- **Current Task**:` line under `## Project Information` names the task, on type and name, revision ignored;
+  - no line, two lines in one intent, lines in two intents, a line outside that section, or a value naming no task of its intent each give `None` and a reason;
+  - the summary line, which is no SARIF result.
+- [ ] **Step 2:** Implement. Delete the branch-name resolution and its tests. In `cli.py`, the task change runs only with a current task.
+- [ ] **Step 3:** M2's 26 scenarios and the outline's two examples pass. Commit `feat: the current task from the state file, no branch name read`.
+
+### Task R3: The change baseline from the record, `plan.py`, `git.py`, `cli.py`
+
+**Files:** Modify `packages/earnest/src/earnest/plan.py`, `packages/earnest/src/earnest/git.py`, `packages/earnest/src/earnest/cli.py`, `packages/earnest/src/earnest/impact.py`; Test `tests/unit/test_plan.py`, `tests/unit/test_git.py`, `tests/unit/test_cli.py`, `tests/integration/test_task_change.py`.
+
+- [ ] **Step 1:** Write failing tests for `change_baseline`, covering every case the M3 Notes of `04` give to the unit and integration tiers:
+  - the header whose hash the approval row carries;
+  - the latest such row in audit order, across stages;
+  - an outdated approval still counting;
+  - a later stage check that replaces the header ending that stage's claim;
+  - a row without `Assessment Hash`, and the seeded placeholder hash, giving none;
+  - a per-unit stage;
+  - a dirty header's commit read as is;
+  - a commit Git no longer holds giving none, through the new `git` commit check.
+- [ ] **Step 2:** Implement:
+  - `cli.py` diffs from the baseline, and impact reads `.earnest/coverage/<baseline>`.
+  - Delete `current_branch`, `default_branch` and `merge_base`, with their tests. The "no base commit" note becomes "no approved stage check is recorded".
+  - Run `grep -rn "merge-base\|origin/HEAD\|symbolic-ref\|rev-parse --abbrev-ref" packages/earnest/src`. Expected: no hit.
+- [ ] **Step 3:** All 15 M3 test cases pass, and the regression run is green. Commit `feat: the change baseline is the last approved stage check, no branch read`.
+
+### Task R4: The full suite, lint and the pre-PR review
+
+**Files:** none; this task only runs the checks.
+
+- [ ] **Step 1:** From the repository root, run `rtk proxy make; echo $?`. Expected: `0`.
+- [ ] **Step 2:** Run `git diff main -- packages/earnest/tests/features/trace_check.feature packages/earnest/tests/features/stage_status.feature packages/earnest/tests/features/unit_status.feature`. Expected: empty.
+- [ ] **Step 3:** Run the `/pre-pr-review` skill on HEAD and record its verdict.
+
+### Rework scope paths
+
+```json
+[
+  "packages/earnest/src/earnest/git.py",
+  "packages/earnest/src/earnest/plan.py",
+  "packages/earnest/src/earnest/impact.py",
+  "packages/earnest/src/earnest/reporter.py",
+  "packages/earnest/src/earnest/cli.py",
+  "packages/earnest/tests/conftest.py",
+  "packages/earnest/tests/features/task_change.feature",
+  "packages/earnest/tests/features/stage_status.feature",
+  "packages/earnest/tests/steps/test_task_change.py",
+  "packages/earnest/tests/unit/test_git.py",
+  "packages/earnest/tests/unit/test_plan.py",
+  "packages/earnest/tests/unit/test_reporter.py",
+  "packages/earnest/tests/unit/test_cli.py",
+  "packages/earnest/tests/integration/test_task_change.py"
 ]
 ```

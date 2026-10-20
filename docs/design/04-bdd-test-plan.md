@@ -212,11 +212,10 @@ Feature: Trace check
   audit log, three requirements, two tasks, Python code and tests carrying tags,
   and one approval for the requirements stage. Its `change/` overlay is the
   second commit, on the branch `task/add-limiter-window`, named after an
-  existing task: one revision bump and one silent edit. M2 passes no `--task`.
-  From M3 the check reads the branch, which names the current task by the
-  longest task name it equals or that is followed by `-` (the Out-of-task rule of `01`). It then
-  reads the overlay's prose edits as out-of-task and impact changes, which
-  add rows to three of the tables below (see the Notes for the task plan).
+  existing task: one revision bump and one silent edit. M2 passes no `--task`,
+  the base state file names no current task, and Earnest never reads the
+  branch, so the out-of-task check and impact of M3 add nothing to M2's
+  scenarios (the Out-of-task rule of `01`).
 - Success criteria asserted: SC1, SC5, SC8 (stage and task status), SC9 (run
   header).
 
@@ -273,8 +272,8 @@ M5), so it is the frontier. A requirement is unplanned when no task's
 what it covers.
 
 The `change/` overlay, the second commit on the branch
-`task/add-limiter-window` (`01` names the convention `task/<name>-…`, and
-`add-limiter` is the task the base commit holds):
+`task/add-limiter-window`, a name that is fixture mechanics only, as Earnest
+reads no branch:
 
 | File | Line | Change | Finding |
 | --- | --- | --- | --- |
@@ -397,18 +396,13 @@ Feature: Stage status
     And the repo maintainer's change is committed on a task branch
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
-      | rule                    | file                                                                                              | line | level   | position | stage                           |
-      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note    | ahead    | construction/code-generation    |
-      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
-      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
-      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
+      | rule                    | file                                                                                              | line | level | position | stage                           |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note  | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note  | ahead    | construction/code-generation    |
+      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note  | ahead    | construction/code-generation    |
+      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note  | ahead    | construction/code-generation    |
+      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note  | ahead    | construction/code-generation    |
     And the finding at requirements.md line 3 names the approval of "inception/requirements-analysis" and the current revision 2
     And the check exits non-zero
 
@@ -429,10 +423,8 @@ Feature: Stage status
     And the repo maintainer restores the approved text of "req~lockout-notice~1"
     When the coding agent runs earnest check --stage "inception/requirements-analysis"
     Then the SARIF log holds exactly these findings:
-      | rule                    | file                                                                                         | line | level | position | stage                           |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 5    | note  | current  | inception/requirements-analysis |
+      | rule             | file                                                                                         | line | level | position | stage                           |
+      | earnest/outdated | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 3    | note  | current  | inception/requirements-analysis |
     And the SARIF log gives the stage status "not done" with its approval "outdated"
     And the check exits zero
 
@@ -458,15 +450,11 @@ Feature: Stage status
     And the repo maintainer approves "inception/requirements-analysis" at the gate
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
-      | rule                    | file                                                                                              | line | level   | position | stage                           |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | error   | current  | construction/code-generation    |
-      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | error   | current  | construction/code-generation    |
-      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | error   | current  | construction/code-generation    |
-      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | behind   | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | behind   | inception/requirements-analysis |
+      | rule              | file                                                                                              | line | level   | position | stage                        |
+      | earnest/outdated  | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | error   | current  | construction/code-generation |
+      | earnest/outdated  | src/checkout/auth.py                                                                              | 4    | error   | current  | construction/code-generation |
+      | earnest/outdated  | tests/test_auth.py                                                                                | 4    | error   | current  | construction/code-generation |
+      | earnest/unplanned | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | warning | current  | construction/code-generation |
     And the check exits non-zero
 
   Scenario: A held hash that no approval names is no baseline (SC5)
@@ -567,30 +555,14 @@ Feature: Stage status
   `stage_slug` or `<phase>/<slug>`, and `--intent` names the record. A `--stage`
   that names no stage on the route, or an ambiguous bare slug, exits 2 with one
   line (a unit-tier test).
-- M3 rows (a ratified revision, before M3): on `task/add-limiter-window` the
-  out-of-task check and impact of M3 read the overlay's prose edits, as `01`'s
-  rules stand. The maintainer kept prose in scope rather than narrow the
-  rules, so three exact tables gain the rows the rules force, and nothing else
-  in M2 changes:
-  - "After a revision bump every place left at the old revision is flagged"
-    gains `out-of-task` at `requirements.md` lines 5 and 11, and
-    `impact-degraded` at lines 3, 5 and 11. Line 3's hunk raises no
-    `out-of-task`, because the stale-approval `outdated` note lies on it.
-  - "The stage that awaits its fresh approval passes its own check" gains
-    `impact-degraded` at lines 3 and 5. Line 11 is restored, and `out-of-task`
-    counts against the task's stage, so it stays out of this stage's
-    assessment.
-  - "After a fresh approval the findings left at the old revision are in scope
-    at the next stage" gains `out-of-task` and `impact-degraded` at lines 3 and
-    5. With the approval current there is no `outdated` on line 3, and the
-    requirements stage, now approved and behind the frontier, gives the notes
-    position behind.
-  - The appended audit row of "approves … at the gate" lies in a file the
-    scanner skips, so it raises nothing.
-  - The readings are those of M3 (each changed hunk outside every tag region is
-    a region; one `impact-degraded` note per such line, counting against the
-    stage whose artifact holds it). Every new row is a warning or a note, so no
-    exit code changes.
+- M3 and these tables: the out-of-task check and impact run only with a
+  current task and a change baseline (the Out-of-task rule of `01`). The base
+  state file names no current task and no scenario here passes `--task`, so
+  no table of M2 holds an `out-of-task` or `impact-degraded` row, although
+  `change/` edits prose on a branch named `task/add-limiter-window`. Earnest
+  never reads that branch; it is fixture mechanics. An earlier revision of M3
+  read the branch and added eleven rows to three of these tables; the
+  maintainer's decision that no check runs against Git branches removed them.
 - Messages carry the change to make (T6, SC10): the `outdated` note at
   `requirements.md` line 3 names the stage to re-approve; `unbumped-change` names
   "bump the revision to 2, or restore the text"; `unplanned` names "add a `task`
@@ -863,21 +835,21 @@ Feature: Unit status
   `tests/steps/test_task_change.py`.
 - Fixture: `tests/fixtures/seeded-change/`. The base commit of M2 gains the two
   base-file additions below. The task change is M2's `change/` overlay with
-  the `task/` overlay committed on top of it, both on
-  `task/add-limiter-window`. The `task/` overlay changes three lines of
-  `src/checkout/auth.py`.
+  the `task/` overlay committed on top of it. The `task/` overlay changes
+  three lines of `src/checkout/auth.py`.
 - Success criteria asserted: SC6, SC7. Readings: the Out-of-task rule and
   the Impact rule in `01`, with D11 and D12.
 
-The out-of-task check and impact run only with a current task named by
-`--task`, or on a `task/` branch. M3's own cases have their own tables here.
-Off a `task/` branch, with no `--task`, nothing of M3 appears. The rules read
-changed Markdown prose as they read code, so on `task/add-limiter-window`
+The out-of-task check and impact run only with a current task and a change
+baseline. The current task comes from `--task`, or else from the state file's
+`Current Task` line. The baseline is the commit of the last approved stage
+check that the record holds. Earnest reads no Git branch, by the maintainer's
+decision. M3's own cases have their own tables here. Without a current task,
+or without a baseline, nothing of M3 appears beyond one summary line, so M2's
+scenarios, whose state file names no current task, keep their tables. The
+rules read changed Markdown prose as they read code, so with a current task
 M2's `change/` overlay also raises out-of-task and `impact-degraded`
-findings. Three of M2's tables gain those rows (see the Notes for the task
-plan of M2). The maintainer chose this over narrowing the rules, so that
-`01`'s rules stand exactly as written, and the `task/` overlay stacks on
-`change/`. M3's tables therefore hold the rows of both overlays.
+findings, and M3's tables hold the rows of both overlays.
 
 ### What `seeded-change` adds for M3
 
@@ -899,7 +871,7 @@ both files stay where M2 seeds them, and the base findings of M2 and M2b are
 unchanged.
 
 The `task/` overlay, `task/src/checkout/auth.py`, is committed on top of
-`change/` on `task/add-limiter-window`, whose task is `task~add-limiter~1`
+`change/`. The current task in most scenarios is `task~add-limiter~1`
 (`Delivers: req~rate-limit~1`, read on type and name):
 
 | File | Line | Change | Finding |
@@ -908,7 +880,7 @@ The `task/` overlay, `task/src/checkout/auth.py`, is committed on top of
 | `src/checkout/auth.py` | 6 | `return min(window, LIMIT)`, in the region of the tag on line 4, which `change/` leaves at `req~rate-limit~1` | none: the region is already reported `outdated`, and lies inside the task; impact selects `test_count_failed_logins` and `test_audit_lockout` from the map |
 | `src/checkout/auth.py` | 11 | `return "Try again in fifteen minutes."`, in the `req~lockout-notice~1` region | `out-of-task`; impact selects `test_lockout_message` |
 
-The rows that `change/` adds on the task branch:
+The rows that `change/` adds with a current task and a baseline:
 
 | File | Line | Change | Finding |
 | --- | --- | --- | --- |
@@ -918,44 +890,51 @@ The rows that `change/` adds on the task branch:
 
 The prose `impact-degraded` findings count against
 `inception/requirements-analysis`, the stage whose artifact holds the line.
-The stage check of `construction/code-generation` that M3's scenarios run
-first records no body hash for the requirements, so no `unbumped-change`
-appears in M3's tables.
+A scenario records its baseline with a stage check of
+`inception/requirements-analysis` on `main` and a fresh approval of it at the
+gate, whose row copies the run header's hash; the seeded approval row's
+placeholder hash matches no header. That stage check holds the requirements'
+body hashes, and the approval freezes them, so the body edit of `change/`
+raises M2's `unbumped-change` error at line 8 in M3's tables, and those checks
+exit non-zero. The baseline is the base commit, so the diff and the coverage
+map are those of the base.
 
 ### Readings the M3 scenarios pin
 
 | Reading | Basis |
 | --- | --- |
-| The diff since the task's base commit runs to the work tree, untracked files included, so uncommitted work counts | UC3 ("about to commit") and the Runtime and permission model in `01` |
+| The diff since the change baseline runs to the work tree, untracked files included, so uncommitted work counts, and the work tree may be on any branch or none | UC3 ("about to commit"), the Runtime and permission model, and the Out-of-task rule in `01` (the maintainer's decision: no check against Git branches) |
 | The out-of-task check and impact read changed lines only in files the scanner reads, the evaluated tree. An appended audit row or a state-file edit raises nothing | a region exists only in a scanned source, and `02` keeps skipped files out of the evaluated tree (maintainer decision i) |
 | A changed region is a tag region that holds a changed line, or one hunk of changed lines outside every tag region, Markdown prose included; its finding is located at its first changed line | the Region rule read strictly, with prose kept in scope as `01` stands (maintainer decisions a and R1h′) |
 | A region is already reported `outdated` when an `outdated` finding is located on one of its lines, the stale-approval note included | D11 in `01` |
 | An `out-of-task` finding counts against the stage that holds the current task, at position current, so its message opens `in scope at construction/code-generation` even while that stage is ahead | Frontier and position in `01`: "current: … the current task" |
 | `impact-degraded` is one note per changed line in no tag region, blank lines included. A line in a stage artifact counts against that stage, taking that stage's position; a code or test line in no tag region reaches no stage | the Impact rule in `01`, read literally (maintainer decisions R1h′ and ii); M2's placement of a finding in a stage artifact |
 | The first two exits clear the finding: a region whose tags a task item added in the diff delivers, on type and name, is not out-of-task, and the hunk that adds the task item raises none; the finding stands after a declared block | the Out-of-task rule in `01` (E1, as the maintainer re-derived it) |
-| A branch `task/<rest>` resolves to the longest task name that `<rest>` equals or begins with followed by `-`: `task/add-limiter-window` and `task/add-limiter` resolve to `task~add-limiter~1`, and `task/add-limiterx` and `task/unknown-x` to no task | resolution 3 (E4, as the maintainer confirmed it) |
 | A modified line is seen through the base line its diff hunk pairs it with; an added line beyond the pairing is one the map never saw | the Impact rule and D12 in `01` |
 | A test tag matches a requirement on type and name, so `[utest->req~rate-limit~1]` still selects its test after the bump | the Out-of-task rule's revision-blind matching, and M2's reading of `Delivers:` |
 | The impacted requirements are those the tags of the changed tag regions name, at their current revision; the features are the `feat` items they cover, none on the `bugfix` route, whose chain root is `req` | the Impact rule and Stages in `01` (E2) |
 | Tests are named by pytest node id, the per-test context with its phase suffix dropped | pytest-cov's `--cov-context=test` |
 | The full suite is every test the coverage map holds a context for; when impact selects the full suite with no map, `properties.impact` records `tests` as `[]` with `degraded` true, and the summary says so explicitly, as `tests: the full suite` | D12 in `01` (Lead decision) |
 | A change that only deletes lines forms no region and raises no `out-of-task`; deleting another requirement's code is a known limit | the Out-of-task rule in `01`, read literally (Lead decision) |
-| A line deleted since the base selects the tests that covered it in a map taken at the base; with no such data (no map, a map taken at another commit, or no context for the line in the base map) it raises `impact-degraded` at the line the deletion follows, naming its base line, and selects the full suite. No table here deletes a line, so no row of M2 or M3 changes | the Impact rule in `01` (Manager decision) |
-| A file deleted since the base, whose path the scanner would read, is read whole as deleted lines; its `impact-degraded` notes sit at line 1 of the deleted path, a deleted stage artifact counting against its stage and deleted code reaching no stage. A deleted audit shard or state file raises nothing, and no deleted file raises `out-of-task` | the Impact rule in `01` (Lead decision) |
+| A line deleted since the baseline selects the tests that covered it in the baseline's map; with no such data (no map for the baseline, or no context for the line in that map) it raises `impact-degraded` at the line the deletion follows, naming its baseline line, and selects the full suite. No table here deletes a line | the Impact rule in `01` (Manager decision) |
+| A file deleted since the baseline, whose path the scanner would read, is read whole as deleted lines; its `impact-degraded` notes sit at line 1 of the deleted path, a deleted stage artifact counting against its stage and deleted code reaching no stage. A deleted audit shard or state file raises nothing, and no deleted file raises `out-of-task` | the Impact rule in `01` (Lead decision) |
 | Only the hunk of a task item that delivers one of the changed regions' tags is the proposal; a hunk adding a task that delivers none is out-of-task | the Out-of-task rule in `01`: "the hunk that adds such a task item" |
 | A line can lie in two tag regions, when the regions of one id merge across another tag's group; each changed region is then its own finding, read on its own tags | the Region rule in `01`, read literally |
-| `out-of-task` and `impact-degraded` stay out of the assessment document, so the hash of a stage check on a task branch is the same whether a coverage map exists | the Assessment hash section of `01` |
+| `out-of-task` and `impact-degraded` stay out of the assessment document, so the hash of a stage check is the same whether a current task, a baseline or a coverage map exists | the Assessment hash section of `01` |
 | A stage check of a dirty work tree, or a map run that times out, ends with pytest exit code 2 to 5 or leaves no data, takes no map; the summary names the cause and the record's `coverage` stays as it was | the Impact rule in `01` |
-| With no base commit, no default branch or an orphan branch, the check drops the task change and prints one note, never exit 2 | the Out-of-task rule in `01` |
+| The current task is `--task`, else the one `- **Current Task**:` line of an intent's state file, under `## Project Information`, naming a task of that intent on type and name; no such line, several, or a value naming no task gives no current task and one summary line | the Out-of-task rule in `01`, a reading new with the maintainer's decision: AI-DLC's state file is the stage state Earnest already reads raw, outside the evaluated tree, so moving the task changes no hash and no diff |
+| The change baseline is the `commit` of the run header of the stage, current or outdated in its approval, whose approval row's `Assessment Hash` equals its header's `hash`, taking the latest such row in audit order; the seeded approval row's placeholder hash matches no header, so a scenario records a baseline by a stage check and a fresh approval at the gate. No baseline, or a commit Git no longer holds, gives one summary line | the Out-of-task rule in `01` (the maintainer's decision), read through the record's run headers and the audit rows as M2 keeps them |
+| Without a current task, or without a baseline, the check holds no `out-of-task` or `impact-degraded` finding, no `properties.impact` and no impact section, and the reason is a summary line, not a SARIF result | the Out-of-task and Impact rules in `01`: impact runs with the out-of-task check, as the baseline belongs to the current task's intent |
 
 ### Task change feature
 
 ```gherkin
 Feature: Task change
-  On a task branch the coding agent learns from the check alone which changed
-  regions lie outside its current task, with the three ways out of each, and
-  which requirements, features and tests the change impacts, flagged when a
-  changed line has no coverage data (UC3, UC6; SC6, SC7).
+  Working on its current task, the coding agent learns from the check alone
+  which regions changed since the last approved stage check lie outside the
+  task, with the three ways out of each, and which requirements, features and
+  tests the change impacts, flagged when a changed line has no coverage data.
+  Earnest reads no Git branch (UC3, UC6; SC6, SC7).
 
   Background:
     Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
@@ -967,9 +946,11 @@ Feature: Task change
     And the run header for "construction/code-generation" gives the layers "trace"
     And Git lists no new file
 
-  Scenario: Each changed region outside the task is flagged, prose and code alike (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+  Scenario: Each changed region since the approved stage check that lies outside the task is flagged, prose and code alike (SC6)
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
       | rule                    | file                                                                                              | line | level   | position | stage                           |
@@ -978,6 +959,7 @@ Feature: Task change
       | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
       | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
@@ -986,11 +968,13 @@ Feature: Task change
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 2    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
-    And the check exits zero
+    And the check exits non-zero
 
   Scenario: An out-of-task finding names the task and offers exactly three exits (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     When the coding agent runs earnest check
     Then each earnest/out-of-task finding names "task~add-limiter~1" and offers exactly these exits:
       | exit                                         |
@@ -1000,8 +984,10 @@ Feature: Task change
     And the summary lists every out-of-task finding with its exits
 
   Scenario: Tagging the region under a requirement the task delivers clears its finding (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     And the coding agent tags line 2 of "src/checkout/auth.py" under "req~rate-limit~2", uncommitted
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
@@ -1011,17 +997,20 @@ Feature: Task change
       | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
       | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
-    And the check exits zero
+    And the check exits non-zero
 
   Scenario: Proposing a task that delivers the region's requirement clears its finding (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     And the coding agent proposes the task "task~tell-wait~1", delivering "req~lockout-notice~1", in the plan, uncommitted
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
@@ -1031,6 +1020,7 @@ Feature: Task change
       | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
       | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
@@ -1047,8 +1037,10 @@ Feature: Task change
     And the SARIF log's plan lists "task~tell-wait~1" as "not done"
 
   Scenario: Declaring the change blocked leaves the repository and the finding as they were (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     And the coding agent declares the change at line 11 of "src/checkout/auth.py" blocked, in a message to the maintainer
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
@@ -1058,6 +1050,7 @@ Feature: Task change
       | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
       | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
@@ -1068,10 +1061,11 @@ Feature: Task change
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
     And the repository is unchanged since the task change
 
-  Scenario Outline: A task name with hyphens resolves to the longest task name the branch names (SC6)
-    Given the repo maintainer adds the task "task~add~1", delivering "req~audit-log~1", to the plan on main
-    And the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the branch "<branch>"
+  Scenario: The state file's current task is the task the check reads (SC6)
+    Given the coding agent's state file names "task~notify-lockout~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
       | rule                    | file                                                                                              | line | level   | position | stage                           |
@@ -1079,32 +1073,8 @@ Feature: Task change
       | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
-      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
-      | earnest/out-of-task     | src/checkout/auth.py                                                                              | 2    | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
-      | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
-    And each earnest/out-of-task finding names "task~add-limiter~1"
-
-    Examples:
-      | branch                  |
-      | task/add-limiter-window |
-      | task/add-limiter        |
-
-  Scenario: The task named on the command line wins over the branch (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
-    When the coding agent runs earnest check --task "task~notify-lockout~1"
-    Then the SARIF log holds exactly these findings:
-      | rule                    | file                                                                                              | line | level   | position | stage                           |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
-      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note    | ahead    | construction/code-generation    |
-      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
-      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
       | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
@@ -1114,10 +1084,12 @@ Feature: Task change
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
     And each earnest/out-of-task finding names "task~notify-lockout~1"
 
-  Scenario: Off a task branch the named task diffs from the default branch, uncommitted work included (SC6)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is left uncommitted on main
-    When the coding agent runs earnest check --task "task~add-limiter~1"
+  Scenario: The task named on the command line wins over the state file (SC6)
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
+    When the coding agent runs earnest check --task "task~notify-lockout~1"
     Then the SARIF log holds exactly these findings:
       | rule                    | file                                                                                              | line | level   | position | stage                           |
       | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
@@ -1125,18 +1097,43 @@ Feature: Task change
       | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
       | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
       | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
       | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
       | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
       | earnest/out-of-task     | src/checkout/auth.py                                                                              | 2    | warning | current  | construction/code-generation    |
-      | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
       | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
+    And each earnest/out-of-task finding names "task~notify-lockout~1"
 
-  Scenario: Off a task branch, with no task named, the check reports nothing of the task change (SC6, SC7)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the branch "feature/limiter"
+  Scenario Outline: With no single current task the check reports nothing of the task change (SC6, SC7)
+    Given the coding agent's state file names <marked> as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule                    | file                                                                                              | line | level | position | stage                           |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note  | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note  | ahead    | construction/code-generation    |
+      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note  | ahead    | construction/code-generation    |
+      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note  | ahead    | construction/code-generation    |
+      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note  | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error | current  | inception/requirements-analysis |
+    And the summary states once that there is no current task
+    And the summary prints no impact section
+    And the SARIF log carries no impact
+
+    Examples:
+      | marked                                                |
+      | no task                                               |
+      | both "task~add-limiter~1" and "task~notify-lockout~1" |
+
+  Scenario: With no approved stage check recorded the check reports nothing of the task change (SC6, SC7)
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "construction/code-generation"
+    And the coding agent's task change is committed
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
       | rule              | file                                                                                              | line | level | position | stage                           |
@@ -1145,12 +1142,39 @@ Feature: Task change
       | earnest/outdated  | src/checkout/auth.py                                                                              | 4    | note  | ahead    | construction/code-generation    |
       | earnest/outdated  | tests/test_auth.py                                                                                | 4    | note  | ahead    | construction/code-generation    |
       | earnest/unplanned | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note  | ahead    | construction/code-generation    |
+    And the summary states once that no approved stage check is recorded
     And the summary prints no impact section
     And the SARIF log carries no impact
 
+  Scenario: An uncommitted change is diffed against the commit the approved stage check recorded (SC6)
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is left uncommitted on main
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule                    | file                                                                                              | line | level   | position | stage                           |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
+      | earnest/outdated        | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note    | ahead    | construction/code-generation    |
+      | earnest/outdated        | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
+      | earnest/outdated        | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
+      | earnest/unplanned       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 13   | note    | ahead    | construction/code-generation    |
+      | earnest/unbumped-change | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | error   | current  | inception/requirements-analysis |
+      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | warning | current  | construction/code-generation    |
+      | earnest/out-of-task     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | warning | current  | construction/code-generation    |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 5    | note    | current  | inception/requirements-analysis |
+      | earnest/impact-degraded | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 11   | note    | current  | inception/requirements-analysis |
+      | earnest/out-of-task     | src/checkout/auth.py                                                                              | 2    | warning | current  | construction/code-generation    |
+      | earnest/out-of-task     | src/checkout/auth.py                                                                              | 11   | warning | current  | construction/code-generation    |
+      | earnest/impact-degraded | src/checkout/auth.py                                                                              | 2    | note    | current  | -                               |
+    And the check exits non-zero
+
   Scenario: The impact section names the requirements, features and tests to run, from the coverage map (SC7)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     And the coding agent restores the requirements, and lines 2 and 11 of "src/checkout/auth.py", to their base text, uncommitted
     When the coding agent runs earnest check
     Then the SARIF log holds exactly these findings:
@@ -1165,8 +1189,10 @@ Feature: Task change
     And the SARIF log carries the same impact
 
   Scenario: A changed line with no coverage data selects the full suite and says so (SC7)
-    Given the coding agent has run earnest check --stage "construction/code-generation"
-    And the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coding agent's task change is committed
     When the coding agent runs earnest check
     Then the summary's impact section reads:
       | field        | value                                                                                                                          |
@@ -1178,7 +1204,11 @@ Feature: Task change
     And each earnest/impact-degraded finding says impact selected the full suite
 
   Scenario: Without a coverage map a changed line selects the tests tagged to its requirement (SC7)
-    Given the coding agent's task change is committed on the task branch
+    Given the coding agent's state file names "task~add-limiter~1" as the current task
+    And the coding agent has run earnest check --stage "inception/requirements-analysis"
+    And the repo maintainer approves "inception/requirements-analysis" at the gate
+    And the coverage maps under ".earnest/coverage/" are gone
+    And the coding agent's task change is committed
     And the coding agent restores the requirements, and lines 2 and 11 of "src/checkout/auth.py", to their base text, uncommitted
     When the coding agent runs earnest check
     Then the summary's impact section reads:
@@ -1187,23 +1217,28 @@ Feature: Task change
       | features     | none                                         |
       | tests        | tests/test_auth.py::test_count_failed_logins |
       | degraded     | no                                           |
-    And the summary states that no coverage map exists for the base commit
+    And the summary states that no coverage map exists for the baseline commit
 ```
 
 ### Notes for the M3 task plan
 
 - Shared steps: "the SARIF log holds exactly these findings:" also reads a
   `stage` column of `-` as a finding that carries no `properties.stage`.
-  "the coding agent has run earnest check --stage …" and "the check exits zero"
-  are already in `tests/conftest.py`. The steps new to M3 live in
-  `tests/steps/test_task_change.py`.
-- Overlays:
-  - "the coding agent's task change is committed on the task branch" commits
-    `change/` (through M2's `commit_overlay`), then `task/` as a second
-    commit, on `task/add-limiter-window`.
-  - "… left uncommitted on main" writes both overlays' files into the work tree
-    of `main`.
-  - "… committed on the branch `feature/limiter`" commits both there.
+  "the coding agent has run earnest check --stage …", "the repo maintainer
+  approves … at the gate" and "the check exits zero" and "non-zero" are
+  already shared. The steps new to M3 live in `tests/steps/test_task_change.py`.
+- The current task: "the coding agent's state file names `<id>` as the
+  current task" writes `- **Current Task**: <id>` as the last line of the
+  state file's `## Project Information` section, uncommitted; "names no task"
+  writes none, and "names both …" writes two such lines. The state file is
+  skipped by the scanner, so the edit is neither dirty nor in the diff.
+- Overlays and branches:
+  - "the coding agent's task change is committed" commits `change/` (through
+    M2's `commit_overlay`), then `task/` as a second commit, on
+    `task/add-limiter-window`. The branch is fixture mechanics; Earnest never
+    reads it, and no assertion depends on its name.
+  - "… left uncommitted on main" writes both overlays' files into the work
+    tree of `main`.
   - The base builder leaves `task/` out, as it does `change/` and `units/`.
 - Edits:
   - "tags line 2 … under `req~rate-limit~2`" rewrites line 2 as
@@ -1215,12 +1250,8 @@ Feature: Task change
     `Tell the member how long to wait.`, a blank line and
     `Delivers: req~lockout-notice~1`.
   - "declares … blocked" writes nothing to the repository.
-  - "… committed on the branch `<branch>`" of the outline commits both
-    overlays on that branch, as the task branch step does on
-    `task/add-limiter-window`.
-  - "adds the task `task~add~1` … on main" appends the same six-line shape
-    with `Delivers: req~audit-log~1` and commits it on `main`, before the stage
-    check and the branch.
+  - "the coverage maps under `.earnest/coverage/` are gone" deletes the files
+    the scenario's own stage check wrote there, and nothing else.
 - The map run:
   - `check --stage` runs the repository's tests with the interpreter that runs
     Earnest, under pytest-cov with `--cov-context=test`.
@@ -1230,7 +1261,7 @@ Feature: Task change
     trust model.
   - A failing test still gives a map.
   - The record's `coverage` is the commit, and the run header's `layers` stays
-    `trace`.
+    `trace`. Impact reads the map of the baseline commit alone.
 - Messages (T6, SC10):
   - `out-of-task` names the current task, the region's tags or "no tag", and
     the three exits in the order of the Out-of-task rule.
@@ -1239,16 +1270,20 @@ Feature: Task change
     tests and degraded. When impact selects the full suite with no map, the
     tests line reads `tests: the full suite`, while `properties.impact`
     records `tests: []` and `degraded: true`.
+  - Without a current task or a baseline the summary gives one line naming
+    which is missing; it is no SARIF result.
   - The wording is the plan's to fix, and the scenarios assert the places and
     the facts above.
-- The unit and integration tiers cover what the feature leaves out: the
-  default branch from `refs/remotes/origin/HEAD`, a branch that resolves to no
-  task (`task/add-limiterx`, `task/unknown-x`), several hunks in one file,
-  deleted lines, a changed skipped file such as an audit shard, the full suite
-  with no map, and the parse of the pytest-cov contexts.
+- The unit and integration tiers cover what the feature leaves out: a
+  `Current Task` value that names no task, several intents each naming a task,
+  a baseline from a per-unit stage, a later stage check that replaces the
+  approved header, an approval row without `Assessment Hash`, a baseline
+  commit Git no longer holds, several hunks in one file, deleted lines and
+  files, a changed skipped file such as an audit shard, the full suite with no
+  map, and the parse of the pytest-cov contexts.
 - Regression guard:
-  - M1 and M2b run on `main` and gain no row.
-  - M2's three amended tables, and its other scenarios unchanged, stay green.
+  - M1, M2 and M2b gain no row: their state files name no current task.
+  - M2's tables are those of `main`.
 
 ## Scope (v1)
 
@@ -1268,4 +1303,4 @@ Feature: Task change
 
 | Question | Owner | Resolved by |
 | --- | --- | --- |
-| How M3's overlay changes meet the exact findings tables of M2's bump and fresh-approval scenarios | maintainer | resolved before M3. M2's three tables gain the out-of-task and `impact-degraded` rows that `01`'s rules force on `change/`'s prose (the Notes for the task plan of M2), and M3's code edits sit in the `task/` overlay stacked on `change/`, with their own tables in `task_change.feature`. Off a `task/` branch, with no `--task`, nothing of M3 appears. The rules stay unnarrowed, by the maintainer's decision |
+| How M3's overlay changes meet the exact findings tables of M2's bump and fresh-approval scenarios | maintainer | resolved before M3. The out-of-task check and impact run only with a current task and a change baseline, and read no Git branch (the maintainer's decision), so M2's scenarios, whose state file names no current task, keep the tables of `main`. M3's code edits sit in the `task/` overlay stacked on `change/`, with their own tables in `task_change.feature`, where M3's steps name the current task and record an approved stage check |

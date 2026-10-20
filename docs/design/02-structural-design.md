@@ -249,11 +249,11 @@ its line says "Owns", and each such rule has exactly one owner.
   lives in the modules below
   ([[library-plus-thin-cli-keeps-the-api-as-the-system]]). Container entry
   point.
-- `git.py`: reads through Git the commit, the current branch, the default
-  branch (`refs/remotes/origin/HEAD`'s, else `main`), the merge-base of HEAD
-  with it, the lines changed since a commit up to the work tree, and the files
+- `git.py`: reads through Git the commit, whether a commit exists, the lines
+  changed since a commit up to the work tree, and the files
   Git lists for the work tree: tracked files plus
-  untracked files that are not ignored. Container input, shared by the scanner,
+  untracked files that are not ignored. It reads no branch, branch name,
+  merge-base or `origin/HEAD` (the Out-of-task rule of `01`). Container input, shared by the scanner,
   the out-of-task check, impact, override drift and the run header. Lists no
   path under `.earnest/`, and reports the changed paths from one `git
   --no-optional-locks status --porcelain=v1 -z --untracked-files=all
@@ -312,8 +312,10 @@ its line says "Owns", and each such rule has exactly one owner.
   approvals from the `GATE_APPROVED` rows of the audit shards, and the
   `unplanned`, `cycle` and `route-mismatch` findings. Owns Stages, Computed
   status, Frontier and position, and the Out-of-task rule. The out-of-task check
-  lives here because the current task, its `Delivers:` ids and the position of
-  its findings are all plan state. Positions each finding behind, at or ahead of
+  lives here because the current task, its `Delivers:` ids, the change
+  baseline and the position of its findings are all plan state: it reads the
+  `Current Task` line of each state file and finds the baseline from the
+  approvals and the run headers of the record. Positions each finding behind, at or ahead of
   the frontier, including `unplanned` and `cycle` as Frontier and position
   gives them and the stale-approval note. Reads each record directory's
   `aidlc-state.md` and `audit/*.md` shards itself, by raw read, because the
@@ -364,9 +366,10 @@ its line says "Owns", and each such rule has exactly one owner.
 - `conftest.py`: shared fixtures and the steps two or more features share. It
   copies a fixture's files, less its `change/`, `task/` and `units/` overlays,
   into `tmp_path` and commits them with `git` as a base commit on `main`, and a
-  separate step commits the `change/` overlay on a `task/…` branch, because the
+  separate step commits the `change/` overlay on a second branch, because the
   record must be written between the two commits. An M3 step commits the
-  `task/` overlay on top of `change/`, on the same branch. The units variant leaves out
+  `task/` overlay on top of `change/`, on the same branch. The branches are
+  fixture mechanics: Earnest never reads them. The units variant leaves out
   the intent's record directory too and adds the `units/` overlay's in the same
   commit.
 - `sarif.py`: the plain helpers shared by the step modules and the unit and
@@ -393,21 +396,20 @@ its line says "Owns", and each such rule has exactly one owner.
   `pythonpath = src`, and each base test calls the code its tag covers (and
   `test_audit_lockout` calls `count_failed_logins` too), so the per-test
   contexts give the known dependencies the task change feature reads.
-- `fixtures/seeded-change/change/`: the second commit, on a `task/…` branch: a
-  revision bump that leaves a tag, an edge and an approval at the old revision,
-  a body edit without a bump, and a region changed under an override (M4).
-  The overlay's branch is named after a task
-  the base commit holds, `task/add-limiter-window` (`01` names the convention
-  `task/<name>-…`), so M3's out-of-task check finds a current task. The
-  overlay holds the bump and the body edit, both Markdown prose. From M3 the
-  out-of-task check and impact read that prose on the task branch, so its
-  out-of-task and `impact-degraded` findings enter plain `check` and the stage
-  check, and `04` adds them to M2's exact tables.
+- `fixtures/seeded-change/change/`: the second commit, on the branch
+  `task/add-limiter-window`, which Earnest never reads: a revision bump that
+  leaves a tag, an edge and an approval at the old revision, a body edit
+  without a bump, and a region changed under an override (M4). The overlay
+  holds the bump and the body edit, both Markdown prose. The base state file
+  names no current task, so M2's scenarios raise no out-of-task or impact
+  finding and keep their tables; M3's steps name a current task and record an
+  approved stage check, and then the out-of-task check and impact read the
+  overlay's prose too.
 - `fixtures/seeded-change/task/`: M3's code edits, three changed lines of
   `src/checkout/auth.py`: one inside the task, one outside it, and one in no
-  tag region. An M3 step commits them on top of `change/` on
-  `task/add-limiter-window`, so M3's tables hold the rows of both overlays,
-  while M2's scenarios never see the code edits.
+  tag region. An M3 step commits them on top of `change/`, so M3's tables
+  hold the rows of both overlays, while M2's scenarios never see the code
+  edits.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
   by `earnest calibrate`; its format is an open question.
