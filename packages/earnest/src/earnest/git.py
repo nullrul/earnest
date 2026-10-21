@@ -85,11 +85,20 @@ def head_commit(root: Path) -> str:
 
 def has_commit(root: Path, sha: object) -> bool:
     """Return whether sha, a hex string, names a commit the repository holds; anything that is no string names none."""
-    return (
-        isinstance(sha, str)
-        and _SHA.fullmatch(sha) is not None
-        and _maybe(root, "cat-file", "-e", f"{sha}^{{commit}}") is not None
-    )
+    return full_commit(root, sha) is not None
+
+
+def full_commit(root: Path, sha: object) -> str | None:
+    """Return the full id of the one commit whose id begins with sha, or None: no such commit, or more than one.
+
+    `--disambiguate` lists objects alone, so a branch or tag named as the hex is never read; a full id is taken as an
+    object id before any ref. Under 4 hex digits, or anything that is no string, names no commit.
+    """
+    if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
+        return None
+    listed = (_maybe(root, "rev-parse", f"--disambiguate={sha}") or "").split()
+    commits = [each for each in listed if (_maybe(root, "cat-file", "-t", each) or "").strip() == "commit"]
+    return commits[0] if len(commits) == 1 else None
 
 
 def changed_lines(

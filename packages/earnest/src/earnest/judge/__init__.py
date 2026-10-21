@@ -291,9 +291,12 @@ def drifted(root: Path, written: Override, found: Sequence[Region]) -> str | Non
 
     A commit Git does not hold shows nothing of the code since it, so the override counts as drifted. None: it holds.
     """
-    if not git.has_commit(root, written.commit):
+    commit = git.full_commit(root, written.commit)  # the object, never a branch named as the prefix
+    if commit is None:
         return f"Git holds no commit {written.commit}, so nothing shows the code held still since the override"
-    hunks = git.changed_lines(root, written.commit, {region.path for region in found}, keep_deletions=True)
+    hunks = git.changed_lines(root, commit, {region.path for region in found}, keep_deletions=True)
+    # shortcut: a region's end replaced by a new tag line is not caught, as the hunks map no old line to the region;
+    # read old_line() against the region at the override's commit if such an edit must count as drift
     if any(_touches(hunk, region) for region in found for hunk in hunks.get(region.path, ())):
         return f"its code changed since {written.commit}, the commit the override stands at"
     return None

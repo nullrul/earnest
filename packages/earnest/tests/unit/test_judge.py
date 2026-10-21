@@ -374,6 +374,65 @@ def test_a_deletion_before_the_region_does_not_drift(tmp_path):
     assert "earnest/override-drift" not in rules(ask(index, model, tmp_path))
 
 
+def test_an_override_at_a_prefix_a_branch_also_names_reads_the_commit_not_the_branch(tmp_path):
+    at = commit_code(tmp_path)
+    (tmp_path / "src/a.py").write_text("line 1\nline 2\nchanged\nline 4\nline 5\n")
+    git_in(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qam", "change")
+    git_in(tmp_path, "branch", at[:7])  # fixture mechanics: the branch points at the change, which matches the tree
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    result = ask(overridden(f"Override: req~greet~1 implemented at {at[:7]}, why"), model, tmp_path)
+    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    assert "its code changed" in found.message
+
+
+def under_tested_override(tmp_path, path, text):
+    """Commit the code, rewrite path as text, and return a judge run under a `tested` override."""
+    at = commit_code(tmp_path)
+    (tmp_path / path).write_text(text)
+    model = Counting(stub(tmp_path, {"req~greet~1": GREET}))
+    return model, ask(overridden(f"Override: req~greet~1 tested at {at}, why"), model, tmp_path)
+
+
+def test_a_tested_override_stands_for_tested_and_drifts_when_its_test_changes(tmp_path):
+    model, result = under_tested_override(tmp_path, "tests/a.py", "line 1\nchanged\nline 3\nline 4\n")
+    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    assert found.subject == "req~greet~1"
+    assert model.asked == [("req~greet~1", "implemented"), ("req~greet~1", "tested")]
+    tested = [each for each in result.observations if each["question"] == "tested"]
+    assert [each["author"] for each in tested] == ["maintainer"]
+
+
+def test_a_tested_override_holds_when_only_the_code_changes(tmp_path):
+    model, result = under_tested_override(tmp_path, "src/a.py", "line 1\nline 2\nchanged\nline 4\nline 5\n")
+    assert "earnest/override-drift" not in rules(result)
+    assert model.asked == [("req~greet~1", "implemented")]
+
+
+def two_tags(tmp_path, tail):
+    """Commit src/a.py with one tag, append tail at the work tree, and return the rules under an override of A.
+
+    The Region rule ends a region at the line before the next tag, so a tag line appended after A starts B's region.
+    """
+    at = commit_code(tmp_path)
+    lines = [f"line {number}" for number in range(1, 6)] + tail
+    (tmp_path / "src/a.py").write_text("".join(f"{line}\n" for line in lines))
+    tags = [Line(1, "# [impl->req~greet~1]")] + [Line(6, line) for line in tail if line.startswith("# [")]
+    a = Source(
+        "src/a.py", COMMENT, tuple(tags), code_lines=frozenset(range(2, len(lines) + 1)) - {6}, line_count=len(lines)
+    )
+    text = REQS.replace("them.\n", f"them.\nOverride: req~greet~1 implemented at {at}, why\n", 1)
+    found = build_index([Source(SPEC, MARKDOWN, split_lines(text)), a, code("tests/a.py", "utest->req~greet~1", 4)])
+    return rules(ask(found, stub(tmp_path, {"req~greet~1": GREET, "req~prose~1": GREET}), tmp_path))
+
+
+def test_a_code_line_inserted_right_after_the_region_drifts(tmp_path):
+    assert "earnest/override-drift" in two_tags(tmp_path, ["line 6"])
+
+
+def test_a_tag_line_inserted_right_after_the_region_starts_another_region_and_does_not_drift(tmp_path):
+    assert "earnest/override-drift" not in two_tags(tmp_path, ["# [impl->req~prose~1]", "line 7"])
+
+
 def test_an_expired_duplicate_is_still_a_duplicate(tmp_path):
     at = commit_code(tmp_path)
     index = overridden(

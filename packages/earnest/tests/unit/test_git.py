@@ -142,6 +142,29 @@ def test_has_commit_tells_a_commit_from_an_unknown_sha(files_repo):
     assert not git.has_commit(repo, "--all")
 
 
+def test_full_commit_expands_a_prefix_to_the_object_and_never_to_a_branch_of_that_name(files_repo):
+    repo = files_repo({"a.md": "a\n"})
+    first = git.head_commit(repo)
+    (repo / "a.md").write_text("b\n", encoding="utf-8")
+    _commit_all(repo)
+    git_output(repo, "branch", first[:7])  # fixture mechanics: a branch named as the first commit's prefix
+    assert git.full_commit(repo, first[:7]) == first
+    assert git.has_commit(repo, first[:7])
+
+
+@pytest.mark.parametrize("prefix", ["abc", "0000000", ""])
+def test_full_commit_is_none_for_a_short_or_unknown_prefix(files_repo, prefix):
+    assert git.full_commit(files_repo({"a.md": "a\n"}), prefix) is None
+
+
+def test_full_commit_is_none_for_a_branch_name_that_is_no_object_prefix(files_repo):
+    repo = files_repo({"a.md": "a\n"})
+    git_output(repo, "branch", "facade")  # fixture mechanics: hex that names a branch and, almost surely, no object
+    if not git.head_commit(repo).startswith("facade"):
+        assert git.full_commit(repo, "facade") is None
+        assert not git.has_commit(repo, "facade")
+
+
 @pytest.mark.parametrize("commit", [None, 123, ["0" * 40]])
 def test_has_commit_is_false_for_a_commit_that_is_no_string(files_repo, commit):
     assert not git.has_commit(files_repo({"a.md": "a\n"}), commit)  # a record edited by hand, read as no baseline
