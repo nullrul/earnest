@@ -1,0 +1,21 @@
+{
+  "req~lockout-notice~1": {
+    "implemented": {
+      "location": {"file": "src/checkout/auth.py", "line": 11},
+      "reasoning": "lockout_message returns a fixed text that never says when the member may try again.",
+      "result": "not-satisfied"
+    },
+    "tested": {
+      "location": {"file": "tests/test_auth.py", "line": 11},
+      "reasoning": "test_lockout_message asserts that the message tells the member to try again.",
+      "result": "satisfied"
+    }
+  },
+  "req~rate-limit~1": {
+    "tested": {
+      "location": {"file": "tests/test_auth.py", "line": 6},
+      "reasoning": "test_count_failed_logins counts three failed logins and never reaches the fifth, so no lockout is asserted.",
+      "result": "not-satisfied"
+    }
+  }
+}

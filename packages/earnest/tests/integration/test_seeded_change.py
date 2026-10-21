@@ -1,8 +1,10 @@
 """Integration: the seeded-change fixture holds the seeds, the overlay and the units variant that the scenarios read."""
 
+import json
 from pathlib import Path
 
 from earnest.index import MARKDOWN, Source, build_index, split_lines
+from tests.conftest import FIXTURES, commit_on_main
 from tests.sarif import PLAN_FILE, RECORD, REQUIREMENTS, SHARD, git_output
 
 
@@ -213,3 +215,68 @@ def test_units_fixture_lines_sit_where_the_scenarios_read_them(units_repo):
         "**Unit**: u1\n**Gate Scope**: per-stage\n**Gate Stages**: functional-design\n**Attempt Generation**: 1\n"
         in shard
     )
+
+
+# The M4 overlays: `override/` and `override-change/`, committed on main on top of the base commit.
+
+BASE_SHA = "89f3937"  # the overrides name it, so a change to any base fixture file breaks them
+
+
+def test_base_commit_has_the_sha_the_overrides_name(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    assert git_output(repo, "rev-parse", "--short=7", "HEAD").strip() == BASE_SHA
+
+
+def test_base_copy_leaves_the_m4_overlays_and_verdicts_out(fixture_repo):
+    files = git_output(fixture_repo("seeded-change"), "ls-files").split()
+    assert not any(path.startswith(("override/", "override-change/")) or "judge-verdicts" in path for path in files)
+
+
+def test_override_overlay_sits_on_main_at_the_seeded_lines(fixture_repo):
+    repo = commit_on_main(fixture_repo("seeded-change"), "seeded-change", "override")
+    assert git_output(repo, "rev-parse", "--short=7", "HEAD~1").strip() == BASE_SHA
+    assert git_output(repo, "diff", "--name-only", "HEAD~1", "HEAD").split() == [REQUIREMENTS]
+    requirements = lines_of(repo, REQUIREMENTS)
+    assert len(requirements) == 20  # 19 lines and the final newline
+    assert [requirements[n - 1] for n in (3, 10, 17)] == [
+        "`req~rate-limit~1`",
+        "`req~lockout-notice~1`",
+        "`req~audit-log~1`",
+    ]
+    assert requirements[7] == (
+        "Override: req~rate-limit~1 implemented at 89f3937, the gateway enforces the lockout; this code only counts"
+        " the window."
+    )
+    assert requirements[14] == (
+        'Override: req~lockout-notice~1 implemented at 89f3937, the support desk approved "Try again later." as the'
+        " wording."
+    )
+    assert requirements[18] == "Lockouts go into the audit log."
+    assert all(requirements[n - 1] == "" for n in (2, 4, 7, 9, 11, 14, 16, 18))
+
+
+def test_override_change_overlay_bumps_one_requirement_and_moves_the_other_code(fixture_repo):
+    repo = commit_on_main(fixture_repo("seeded-change"), "seeded-change", "override")
+    commit_on_main(repo, "seeded-change", "override-change")
+    diff = git_output(repo, "diff", "--unified=0", "HEAD~1", "HEAD")
+    assert [line for line in diff.splitlines() if line.startswith("diff --git")] == [
+        f"diff --git a/{REQUIREMENTS} b/{REQUIREMENTS}",
+        "diff --git a/src/checkout/auth.py b/src/checkout/auth.py",
+    ]
+    hunks = [line.split(" @@")[0] + " @@" for line in diff.splitlines() if line.startswith("@@")]
+    assert hunks == ["@@ -3 +3 @@", "@@ -5 +5 @@", "@@ -11 +11 @@"]
+    assert lines_of(repo, "src/checkout/auth.py")[10] == '    return "Try again shortly."'
+    assert lines_of(repo, REQUIREMENTS)[2] == "`req~rate-limit~2`"
+    assert git_output(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+
+
+def test_canned_verdicts_answer_the_three_questions():
+    verdicts = json.loads((FIXTURES / "seeded-change" / "judge-verdicts.json").read_text(encoding="utf-8"))
+    asked = {
+        (req, question): answer["result"] for req, answers in verdicts.items() for question, answer in answers.items()
+    }
+    assert asked == {
+        ("req~rate-limit~1", "tested"): "not-satisfied",
+        ("req~lockout-notice~1", "implemented"): "not-satisfied",
+        ("req~lockout-notice~1", "tested"): "satisfied",
+    }

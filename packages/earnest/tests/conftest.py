@@ -66,7 +66,8 @@ def _commit(repo: Path) -> Path:
     return repo
 
 
-_OVERLAYS = ("change", "task", "units")  # the fixture directories that no base commit holds
+# the fixture paths that no base commit holds; `judge-verdicts.json` stays in the package, outside the repository
+_OVERLAYS = ("change", "task", "units", "override", "override-change", "judge-verdicts.json")
 
 
 def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:
@@ -81,7 +82,7 @@ def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]
 
 @pytest.fixture
 def fixture_repo(tmp_path: Path) -> Callable[[str], Path]:
-    """Return a builder that copies tests/fixtures/<name>, less its `change/`, `task/` and `units/` overlays, and commits it."""
+    """Return a builder that copies tests/fixtures/<name>, less its overlays and canned verdicts, and commits it."""
 
     def build(name: str) -> Path:
         repo = tmp_path / name
@@ -148,6 +149,14 @@ def write_overlays(repo: Path, name: str, *overlays: str) -> list[str]:
     return written
 
 
+def commit_on_main(repo: Path, name: str, overlay: str) -> Path:
+    """Commit a fixture's overlay, and only its files, on main, on top of HEAD; no branch is made."""
+    files = write_overlays(repo, name, overlay)
+    _git(repo, "add", "--", *files)
+    _git(repo, "commit", "-q", "--no-verify", "-m", overlay)
+    return repo
+
+
 @pytest.fixture
 def commit_task_change(commit_overlay) -> Callable[[Path, str], Path]:
     """Return a builder that commits seeded-change's `change/` overlay, then its `task/` overlay, on a new branch."""
@@ -171,6 +180,11 @@ _COLUMNS = {
     "position": lambda result: result["properties"]["position"],
     "stage": lambda result: result["properties"].get("stage"),
 }
+
+
+def location_cell(location):
+    """Return a SARIF physical location as a `location` cell reads it: `<file>:<line>`."""
+    return f"{location['artifactLocation']['uri']}:{location['region']['startLine']}"
 
 
 # The same, with the file relative to the intent's record; a result outside the record keeps its full path.
