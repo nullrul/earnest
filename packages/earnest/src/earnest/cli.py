@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from earnest import adapters, git, impact, plan, reporter, structural
+from earnest import adapters, ears, git, impact, plan, reporter, structural
 from earnest.index import Index, Item, Source, build_index
 from earnest.reporter import Finding, Run
 
@@ -106,7 +106,8 @@ def _analyse(world: _World) -> _Analysis:
     frozen = plan.frozen_bodies(world.record.bodies, built)
     own = [found for each in plans for found in (*plan.plan_findings(each, index), *plan.approval_findings(each))]
     derived = plan.place(plans, index, own)
-    findings = [*plan.place(plans, index, structural.check(index, produces=produces, frozen=frozen)), *derived]
+    checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
+    findings = [*plan.place(plans, index, checked), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None
     held = world.record.bodies

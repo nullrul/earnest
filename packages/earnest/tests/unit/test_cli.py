@@ -207,7 +207,9 @@ def test_check_stage_of_a_per_unit_stage_writes_its_run_header(files_repo, monke
 def test_plain_check_of_a_units_intent_without_a_table_places_its_needs_at_units_generation(
     files_repo, monkeypatch, capsys
 ):
-    repo = files_repo({"i/aidlc-state.md": UNITS, "i/inception/requirements-analysis/r.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo(
+        {"i/aidlc-state.md": UNITS, "i/inception/requirements-analysis/r.md": "`req~a~1`\n\nThe system shall work.\n"}
+    )
     code, out, _ = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     results = sarif_run(out)["results"]
@@ -269,7 +271,7 @@ def test_an_unreadable_stage_progress_row_fails_every_command(files_repo, monkey
 
 def test_a_renamed_stage_progress_heading_is_a_finding_not_a_silent_pass(files_repo, monkeypatch, capsys):
     state = STATE.replace("## Stage Progress", "## Stage  Progress")
-    repo = files_repo({"i/aidlc-state.md": state, "docs/a.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo({"i/aidlc-state.md": state, "docs/a.md": "`req~a~1`\n\nThe system shall work.\n"})
     code, out, err = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     results = sarif_run(out)["results"]
@@ -281,7 +283,7 @@ def test_a_renamed_stage_progress_heading_is_a_finding_not_a_silent_pass(files_r
 
 
 def test_plain_check_of_a_units_intent_without_a_table_is_no_silent_pass(files_repo, monkeypatch, capsys):
-    repo = files_repo({"i/aidlc-state.md": UNITS, "docs/a.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo({"i/aidlc-state.md": UNITS, "docs/a.md": "`req~a~1`\n\nThe system shall work.\n"})
     code, out, err = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     log = sarif_run(out)
@@ -366,7 +368,7 @@ def test_without_a_current_task_line_only_the_task_option_names_the_task(fixture
 
 
 def test_a_repository_without_a_plan_prints_no_task_change_line(files_repo, monkeypatch, capsys):
-    repo = files_repo({"docs/a.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo({"docs/a.md": "`req~a~1`\n\nThe system shall work.\n"})
     _, _, err = run(repo, monkeypatch, capsys, "check")
     assert "task change" not in err
 

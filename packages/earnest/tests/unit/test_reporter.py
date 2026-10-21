@@ -35,6 +35,11 @@ def test_each_rule_has_its_sarif_level():
         "earnest/route-mismatch": "error",
         "earnest/out-of-task": "warning",
         "earnest/impact-degraded": "note",
+        "earnest/req-not-ears": "error",
+        "earnest/judge-not-satisfied": "warning",
+        "earnest/judge-uncalibrated": "warning",
+        "earnest/override-expired": "warning",
+        "earnest/override-drift": "warning",
     }
 
 

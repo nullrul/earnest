@@ -137,6 +137,7 @@ class Item:
     line: int
     needs: tuple[str, ...] | None = None
     body_hash: str = field(default="", compare=False)
+    body: str = field(default="", compare=False)  # the body's lines less its key lines, joined by line feeds
 
 
 @dataclass(frozen=True)
@@ -322,7 +323,8 @@ def _markdown(source: Source) -> _Parsed:
     for item_id, number, lines in spans:
         keyed = [line for line in lines if line.number not in source.fenced]
         needs, item_links, key_misses = _keys(source.path, item_id, keyed)
-        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced)))
+        body = "\n".join(line.text for line in lines if line.number in source.fenced or _KEY.match(line.text) is None)
+        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced), body))
         links.extend(item_links)
         misses.extend(key_misses)
     return items, links, misses

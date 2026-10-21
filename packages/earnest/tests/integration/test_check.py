@@ -36,7 +36,9 @@ def test_a_check_from_a_subdirectory_reads_the_whole_work_tree_untracked_files_i
     files_repo, monkeypatch, capsys
 ):
     repo = files_repo(CHAIN)
-    (repo / "docs" / "more notes.md").write_text("# More\n\n`req~x~1`\n\nCovers: feat~f~1\n", encoding="utf-8")
+    (repo / "docs" / "more notes.md").write_text(
+        "# More\n\n`req~x~1`\n\nThe system shall work.\n\nCovers: feat~f~1\n", encoding="utf-8"
+    )
     code, run, _ = check(repo / "src", monkeypatch, capsys)
     assert code == 1
     assert {(result["ruleId"], located(result)) for result in run["results"]} == {
