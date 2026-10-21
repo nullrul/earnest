@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from earnest import cli
+from earnest import cli, judge
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
 
 
@@ -207,7 +207,9 @@ def test_check_stage_of_a_per_unit_stage_writes_its_run_header(files_repo, monke
 def test_plain_check_of_a_units_intent_without_a_table_places_its_needs_at_units_generation(
     files_repo, monkeypatch, capsys
 ):
-    repo = files_repo({"i/aidlc-state.md": UNITS, "i/inception/requirements-analysis/r.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo(
+        {"i/aidlc-state.md": UNITS, "i/inception/requirements-analysis/r.md": "`req~a~1`\n\nThe system shall work.\n"}
+    )
     code, out, _ = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     results = sarif_run(out)["results"]
@@ -269,7 +271,7 @@ def test_an_unreadable_stage_progress_row_fails_every_command(files_repo, monkey
 
 def test_a_renamed_stage_progress_heading_is_a_finding_not_a_silent_pass(files_repo, monkeypatch, capsys):
     state = STATE.replace("## Stage Progress", "## Stage  Progress")
-    repo = files_repo({"i/aidlc-state.md": state, "docs/a.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo({"i/aidlc-state.md": state, "docs/a.md": "`req~a~1`\n\nThe system shall work.\n"})
     code, out, err = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     results = sarif_run(out)["results"]
@@ -281,7 +283,7 @@ def test_a_renamed_stage_progress_heading_is_a_finding_not_a_silent_pass(files_r
 
 
 def test_plain_check_of_a_units_intent_without_a_table_is_no_silent_pass(files_repo, monkeypatch, capsys):
-    repo = files_repo({"i/aidlc-state.md": UNITS, "docs/a.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo({"i/aidlc-state.md": UNITS, "docs/a.md": "`req~a~1`\n\nThe system shall work.\n"})
     code, out, err = run(repo, monkeypatch, capsys, "check")
     assert code == 1
     log = sarif_run(out)
@@ -366,7 +368,7 @@ def test_without_a_current_task_line_only_the_task_option_names_the_task(fixture
 
 
 def test_a_repository_without_a_plan_prints_no_task_change_line(files_repo, monkeypatch, capsys):
-    repo = files_repo({"docs/a.md": "`req~a~1`\n\nBody.\n"})
+    repo = files_repo({"docs/a.md": "`req~a~1`\n\nThe system shall work.\n"})
     _, _, err = run(repo, monkeypatch, capsys, "check")
     assert "task change" not in err
 
@@ -490,3 +492,56 @@ def test_the_baseline_is_read_whatever_the_branch(fixture_repo, monkeypatch, cap
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     _, out, _ = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
     assert "earnest/out-of-task" in [result["ruleId"] for result in sarif_run(out)["results"]]
+
+
+@pytest.mark.parametrize("value", [None, "foo:x", "stub:no-such-file.json", "stub:{list}"])
+def test_judge_without_a_model_that_can_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, tmp_path, value):
+    if value == "stub:{list}":
+        (tmp_path / "list.json").write_text("[]")
+        value = f"stub:{tmp_path / 'list.json'}"
+    if value is None:
+        monkeypatch.delenv("EARNEST_JUDGE", raising=False)
+    else:
+        monkeypatch.setenv("EARNEST_JUDGE", value)
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--judge")
+    assert (code, out) == (2, "")
+    assert len(err.splitlines()) == 1
+    assert err.startswith("earnest: ")
+
+
+VERDICT = {"result": "satisfied", "reasoning": "ok", "location": {"file": "src/checkout/auth.py", "line": 5}}
+CANNED = {
+    f"req~{name}~1": dict.fromkeys(judge.QUESTIONS, VERDICT) for name in ("rate-limit", "lockout-notice", "audit-log")
+}
+
+
+def canned_model(monkeypatch, tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text(json.dumps(CANNED))
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{path}")
+
+
+def test_judge_names_its_model_and_prompt_in_the_invocation(fixture_repo, monkeypatch, capsys, tmp_path):
+    canned_model(monkeypatch, tmp_path)
+    code, out, _ = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--judge")
+    (invocation,) = sarif_run(out)["invocations"]
+    assert invocation["properties"]["layers"] == ["trace", "judge"]
+    assert invocation["properties"]["model"].startswith("stub:sha256:")
+    assert invocation["properties"]["prompt"].startswith("sha256:")
+    assert len(sarif_run(out)["properties"]["observations"]) == 6
+    assert code == 0
+
+
+def test_a_judged_stage_check_names_the_judge_layer_model_and_prompt_in_its_run_header(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    _, out, _ = run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation", "--judge")
+    properties = sarif_run(out)["invocations"][0]["properties"]
+    (held,) = json.loads((repo / ".earnest/assessment.json").read_text(encoding="utf-8"))["runs"].values()
+    assert (held["layers"], held["model"], held["prompt"]) == (
+        ["trace", "judge"],
+        properties["model"],
+        properties["prompt"],
+    )

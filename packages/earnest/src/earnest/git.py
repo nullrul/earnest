@@ -1,5 +1,6 @@
 """Repository reader: the work tree's root, the files Git lists for it, its commit, and what changed."""
 
+import os
 import re
 import shutil
 import subprocess
@@ -83,13 +84,21 @@ def head_commit(root: Path) -> str:
     return _git(root, "rev-parse", "HEAD").strip()
 
 
-def has_commit(root: Path, sha: object) -> bool:
-    """Return whether sha, a hex string, names a commit the repository holds; anything that is no string names none."""
-    return (
-        isinstance(sha, str)
-        and _SHA.fullmatch(sha) is not None
-        and _maybe(root, "cat-file", "-e", f"{sha}^{{commit}}") is not None
-    )
+def full_commit(root: Path, sha: object) -> str | None:
+    """Return the full id of the one commit whose id begins with sha, or None: no such commit, or more than one.
+
+    `--disambiguate` lists objects alone, so a branch or tag named as the hex is never read; a full id is taken as an
+    object id before any ref. Under 4 hex digits, or anything that is no string, names no commit.
+    """
+    if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
+        return None
+    listed = _maybe(root, "rev-parse", f"--disambiguate={sha}")
+    if not listed:
+        return None
+    # each listed id is a full object id, which Git reads as an object before any ref
+    typed = _maybe(root, "cat-file", "--batch-check=%(objecttype) %(objectname)", stdin=listed) or ""
+    commits = [line.split()[1] for line in typed.splitlines() if line.startswith("commit ")]
+    return commits[0] if len(commits) == 1 else None
 
 
 def changed_lines(
@@ -121,10 +130,31 @@ def changed_lines(
 
 def deleted_files(root: Path, base: str) -> list[str]:
     """Return the paths of the commit base that the work tree no longer holds, sorted, with none under `.earnest/`."""
-    listed = _git(
-        root, "--no-optional-locks", "diff-index", "--name-only", "-z", "--no-renames", "--diff-filter=D", base, "--"
-    )
+    return changed_files(root, base, "--diff-filter=D")
+
+
+def changed_files(root: Path, base: str, *filters: str) -> list[str]:
+    """Return the tracked paths that differ between the commit base and the work tree, sorted, none under `.earnest/`."""
+    listed = _git(root, "--no-optional-locks", "diff-index", "--name-only", "-z", "--no-renames", *filters, base, "--")
     return sorted({path for path in listed.split("\0") if path and not _in_record_directory(path)})
+
+
+def tree_paths(root: Path, commit: str) -> frozenset[str]:
+    """Return the file paths a full commit id's tree holds.
+
+    Raises:
+        GitError: Git cannot read the commit's tree.
+    """
+    return frozenset(path for path in _git(root, "ls-tree", "-r", "-z", "--name-only", commit).split("\0") if path)
+
+
+def blob(root: Path, commit: str, path: str) -> bytes:
+    """Return the bytes of a path its full commit id's tree holds.
+
+    Raises:
+        GitError: Git cannot read the object, though the tree names it.
+    """
+    return _git(root, "cat-file", "blob", f"{commit}:{path}").encode("utf-8", "surrogateescape")
 
 
 def old_line(hunks: Sequence[Hunk], line: int) -> int | None:
@@ -161,10 +191,10 @@ def _line_count(data: bytes) -> int:
     return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
 
 
-def _maybe(cwd: Path, *args: str) -> str | None:
+def _maybe(cwd: Path, *args: str, stdin: str | None = None) -> str | None:
     """Return what a Git call prints, or None when it fails, for a question whose failure is an answer."""
     try:
-        return _git(cwd, *args)
+        return _git(cwd, *args, stdin=stdin)
     except GitError:
         return None
 
@@ -173,13 +203,18 @@ def _in_record_directory(path: str) -> bool:
     return path == _RECORD_DIRECTORY or path.startswith(_RECORD_DIRECTORY + "/")
 
 
-def _git(cwd: Path, *args: str) -> str:
+def _git(cwd: Path, *args: str, stdin: str | None = None) -> str:
     executable = shutil.which("git")
     if executable is None:
         msg = "git is not on the PATH"
         raise GitError(msg)
     # --literal-pathspecs: a path given to any call is a name, never a pattern, whatever `*`, `[` or `:` it holds
-    done = subprocess.run([executable, "--literal-pathspecs", *args], cwd=cwd, capture_output=True, check=False)  # noqa: S603
+    data = None if stdin is None else stdin.encode("utf-8", "surrogateescape")
+    # GIT_NO_LAZY_FETCH: a partial clone never fetches a missing object from its promisor remote, so no call networks
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+    done = subprocess.run(  # noqa: S603
+        [executable, "--literal-pathspecs", *args], cwd=cwd, input=data, capture_output=True, check=False, env=env
+    )
     if done.returncode != 0:
         lines = map(str.strip, done.stderr.decode(errors="replace").splitlines())
         msg = next((line for line in lines if line), f"git {next(a for a in args if not a.startswith('-'))} failed")

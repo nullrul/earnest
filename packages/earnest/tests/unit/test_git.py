@@ -135,16 +135,37 @@ def _commit_all(repo, message="next"):
     git_output(repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
 
 
-def test_has_commit_tells_a_commit_from_an_unknown_sha(files_repo):
+def test_full_commit_tells_a_commit_from_an_unknown_sha(files_repo):
     repo = files_repo({"a.md": "a\n"})
-    assert git.has_commit(repo, git.head_commit(repo))
-    assert not git.has_commit(repo, "0" * 40)
-    assert not git.has_commit(repo, "--all")
+    assert git.full_commit(repo, git.head_commit(repo)) == git.head_commit(repo)
+    assert git.full_commit(repo, "0" * 40) is None
+    assert git.full_commit(repo, "--all") is None
+
+
+def test_full_commit_expands_a_prefix_to_the_object_and_never_to_a_branch_of_that_name(files_repo):
+    repo = files_repo({"a.md": "a\n"})
+    first = git.head_commit(repo)
+    (repo / "a.md").write_text("b\n", encoding="utf-8")
+    _commit_all(repo)
+    git_output(repo, "branch", first[:7])  # fixture mechanics: a branch named as the first commit's prefix
+    assert git.full_commit(repo, first[:7]) == first
+
+
+@pytest.mark.parametrize("prefix", ["abc", "0000000", ""])
+def test_full_commit_is_none_for_a_short_or_unknown_prefix(files_repo, prefix):
+    assert git.full_commit(files_repo({"a.md": "a\n"}), prefix) is None
+
+
+def test_full_commit_is_none_for_a_branch_name_that_is_no_object_prefix(files_repo):
+    repo = files_repo({"a.md": "a\n"})
+    git_output(repo, "branch", "facade")  # fixture mechanics: hex that names a branch and, almost surely, no object
+    if not git.head_commit(repo).startswith("facade"):
+        assert git.full_commit(repo, "facade") is None
 
 
 @pytest.mark.parametrize("commit", [None, 123, ["0" * 40]])
-def test_has_commit_is_false_for_a_commit_that_is_no_string(files_repo, commit):
-    assert not git.has_commit(files_repo({"a.md": "a\n"}), commit)  # a record edited by hand, read as no baseline
+def test_full_commit_is_none_for_a_commit_that_is_no_string(files_repo, commit):
+    assert git.full_commit(files_repo({"a.md": "a\n"}), commit) is None  # a record edited by hand, read as no baseline
 
 
 def test_changed_lines_reads_modified_added_and_deleted_lines_as_hunks(files_repo):
@@ -257,3 +278,18 @@ def test_deleted_files_lists_the_paths_of_the_base_missing_from_the_work_tree(fi
     (repo / "c.py").write_text("changed\n", encoding="utf-8")
     assert git.deleted_files(repo, base) == ["a.py", "b.py", "d b[1].py"]
     assert git.changed_lines(repo, base, {"a.py"}, keep_deletions=True) == {"a.py": (git.Hunk(1, 2, 0, 0),)}
+
+
+def test_full_commit_is_none_for_a_prefix_of_an_object_that_is_no_commit(files_repo):
+    repo = files_repo({"a.md": "a\n"})
+    blob = git_output(repo, "rev-parse", "HEAD:a.md").strip()
+    assert git.full_commit(repo, blob[:8]) is None
+
+
+def test_every_git_call_runs_with_lazy_fetch_off(files_repo, monkeypatch):
+    repo = files_repo({"a.md": "a\n"})
+    seen = []
+    run = git.subprocess.run
+    monkeypatch.setattr(git.subprocess, "run", lambda *a, **k: seen.append(k["env"]) or run(*a, **k))
+    git.head_commit(repo)
+    assert seen[0]["GIT_NO_LAZY_FETCH"] == "1"

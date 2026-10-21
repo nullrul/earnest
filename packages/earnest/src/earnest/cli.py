@@ -4,11 +4,11 @@ import argparse
 import os
 import posixpath
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from earnest import adapters, git, impact, plan, reporter, structural
+from earnest import adapters, ears, git, impact, judge, plan, reporter, structural
 from earnest.index import Index, Item, Source, build_index
 from earnest.reporter import Finding, Run
 
@@ -37,6 +37,7 @@ class _Analysis:
     derived: list[Finding]
     statuses: dict[str, dict[str, plan.StageStatus]]
     run: Run
+    cache: dict[str, object] | None = None  # the record's `judge` slot as a judge run leaves it, for `--judge` to write
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
-    or newer, an intent or stage cannot be chosen, or the reader of the log or the summary goes away.
+    or newer, an intent or stage cannot be chosen, the judge's model cannot run, or the reader of the log or the summary goes away.
     """
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     # main never dispatches on the bare command, so a bare `earnest` must stop here rather than run the check
@@ -66,12 +67,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--task",
         help="the current task, such as task~add-limiter~1; else the Current Task line of the state file names it",
     )
+    check.add_argument("--judge", action="store_true", help="ask the model EARNEST_JUDGE names each judge question")
     commands.add_parser("plan", help="print the route, each stage's status and approval, and the frontier")
     args = parser.parse_args(argv)
     try:
         world = _read()
         result = _plan(world) if args.command == "plan" else _check(world, args)
-    except (git.GitError, OSError, reporter.RecordError, plan.PlanError) as error:
+    except (git.GitError, OSError, reporter.RecordError, plan.PlanError, judge.JudgeError) as error:
         sys.stderr.write(f"earnest: {error}\n")
         return 2
     try:
@@ -97,16 +99,24 @@ def _read() -> _World:
     return _World(root, commit, sources, git.changes(root), record, (root / reporter.RECORD).exists(), intents)
 
 
-def _analyse(world: _World) -> _Analysis:
+def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
+    asked: list[Finding] = []
+    cache: dict[str, object] | None = None
+    observations: tuple[Mapping[str, object], ...] | None = None
+    if model is not None:
+        judged = judge.judge(index, levels, model, world.root, world.record.judge)
+        levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
     frozen = plan.frozen_bodies(world.record.bodies, built)
     own = [found for each in plans for found in (*plan.plan_findings(each, index), *plan.approval_findings(each))]
     derived = plan.place(plans, index, own)
-    findings = [*plan.place(plans, index, structural.check(index, produces=produces, frozen=frozen)), *derived]
+    checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
+    checked += asked
+    findings = [*plan.place(plans, index, checked), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None
     held = world.record.bodies
@@ -117,8 +127,11 @@ def _analyse(world: _World) -> _Analysis:
         plan=props,
         record_absent=not world.record_exists and bool(index.defined),
         unheld=unheld if world.record_exists else 0,
+        model=None if model is None else model.id,
+        prompt=None if model is None else judge.PROMPT_HASH,
+        observations=observations,
     )
-    return _Analysis(index, levels, plans, findings, derived, statuses, run)
+    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -191,9 +204,10 @@ def _baseline(world: _World, analysis: _Analysis, task: Item) -> tuple[str | Non
     base = plan.change_baseline(holder, world.record.runs)  # the built intent holds the per-unit approvals
     if base is None:
         return None, "no approved stage check is recorded"
-    if not git.has_commit(world.root, base):
+    full = git.full_commit(world.root, base)  # the object, never a branch named as a short sha
+    if full is None:
         return None, f"the approved stage check's commit {base} is not in the repository"
-    return base, ""
+    return full, ""
 
 
 def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
@@ -202,18 +216,22 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge else None
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
-        analysis = _task_change(world, _analyse(world), args.task)
+        analysis = _task_change(world, _analyse(world, model), args.task)
         findings, run = analysis.findings, analysis.run
+        if analysis.cache is not None:
+            world.record.judge = analysis.cache
+            reporter.write_record(world.root, world.record)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
             reporter.summary(findings, analysis.levels, run),
             _code(findings),
         )
     chosen = plan.find_intent(world.intents, _option(world, args.intent))
-    return _stage(world, _task_change(world, _analyse(world), args.task), chosen, args.stage)
+    return _stage(world, _task_change(world, _analyse(world, model), args.task), chosen, args.stage)
 
 
 def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -> _Result:
@@ -222,7 +240,7 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     found = plan.scoped(analysis.findings, current, stage)
     state = analysis.statuses[chosen.directory][stage]
     tree = plan.evaluated_tree(world.sources, world.intents)
-    digest = plan.assessment_hash(plan.assessment_document(current, stage, tree, found))
+    digest = plan.assessment_hash(plan.assessment_document(current, stage, tree, found, analysis.run))
     items = next(each for each in current.stages if each.stage == stage).items
     key = reporter.run_key(chosen.directory, stage)
     reasons = {"errors": state.errors, "openTasks": state.open_tasks, "approval": state.approval}
@@ -237,6 +255,8 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     # last-writer-wins (the same stage twice is safe); take an flock on `.earnest/lock` if sensor fires run in parallel
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
+    if analysis.cache is not None:
+        world.record.judge = analysis.cache
     reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
     # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
     reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)

@@ -47,7 +47,7 @@ milestone in `03`.
 | M6 `calibration_gate` | `calibration_gate.feature` | `test_calibration_gate.py` | `calibration` | SC4 |
 | M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
 
-The scenarios of M4 to M7 are added here when each milestone's plan is written.
+The scenarios of M5 to M7 are added here when each milestone's plan is written.
 
 ## How scenarios are written
 
@@ -1285,17 +1285,278 @@ Feature: Task change
   - M1, M2 and M2b gain no row: their state files name no current task.
   - M2's tables are those of `main`.
 
+## M4 `judge_check`
+
+- Feature: `packages/earnest/tests/features/judge_check.feature`, bound by
+  `tests/steps/test_judge_check.py`.
+- Fixture: `tests/fixtures/seeded-change/`. The base commit of M2 and M3 is
+  unchanged. Two new overlays stack on it as commits on `main`: `override/`
+  writes two `Override:` lines and a requirement that is not EARS, and
+  `override-change/` bumps one overridden requirement and changes the code
+  under the other. The canned verdicts of the stub model are the file
+  `judge-verdicts.json`, which no commit holds.
+- Success criteria asserted: SC3 (judged), SC4 (warning), SC11. Readings: the
+  Grammar, the Override rule, the Process vocabulary, the Region rule, D2, D3
+  and D14 in `01`, and the stub model of its Runtime and permission model.
+
+The judge runs only with `--judge`, and in every M4 scenario it is the stub
+model: the step sets `EARNEST_JUDGE` to `stub:` and the absolute path of the
+canned-verdict file, so no network is reached and no key is needed. No
+scenario of M1 to M3 passes `--judge`, so their tables are unchanged. The
+EARS parse runs on every check, but every requirement those milestones seed
+is one EARS sentence, so they raise no `req-not-ears`. The record holds no
+calibration until M6, so every judge run here raises `judge-uncalibrated`.
+No scenario names a current task, so the out-of-task check and impact stay
+silent, and none reads a Git branch.
+
+### What `seeded-change` adds for M4
+
+The `override/` overlay is one file,
+`…/inception/requirements-analysis/requirements.md`, committed on `main` on
+top of the base commit. The base commit's short sha is `89f3937`; the conftest
+pins its author, committer and dates, so it is the same on every run.
+
+| Line | Text | Role |
+| --- | --- | --- |
+| 1 | `# Requirements` | as in the base |
+| 3, 5-6 | `` `req~rate-limit~1` `` and its base body | EARS: response only |
+| 8 | `Override: req~rate-limit~1 implemented at 89f3937, the gateway enforces the lockout; this code only counts the window.` | replaces the judge's `implemented` question for `req~rate-limit~1` |
+| 10, 12-13 | `` `req~lockout-notice~1` `` and its base body | EARS: trigger and response |
+| 15 | `Override: req~lockout-notice~1 implemented at 89f3937, the support desk approved "Try again later." as the wording.` | replaces the judge's `implemented` question for `req~lockout-notice~1` |
+| 17 | `` `req~audit-log~1` `` | the id, at its base revision |
+| 19 | `Lockouts go into the audit log.` | not EARS: no `shall`; `req-not-ears` at line 17 |
+
+Lines 2, 4, 7, 9, 11, 14, 16 and 18 are blank. The base tags in
+`src/checkout/auth.py` and `tests/test_auth.py` are unchanged, so every
+requirement stays traced. No stage check runs before the overlay, so the
+record holds no body hash and the edit of line 19 raises no
+`unbumped-change`.
+
+The `override-change/` overlay, committed on `main` on top of `override/`:
+
+| File | Line | Change | Finding |
+| --- | --- | --- | --- |
+| `…/inception/requirements-analysis/requirements.md` | 3 | `req~rate-limit~2`, the body of lines 5-6 saying thirty minutes, as in M2's `change/` | M2's stale-approval and `outdated` rows; `override-expired` at line 8, whose override stays at revision 1 |
+| `src/checkout/auth.py` | 11 | `return "Try again shortly."`, in the `req~lockout-notice~1` region | `override-drift` at line 15: the region changed since `89f3937` |
+
+`judge-verdicts.json`, at the fixture's root, answers three questions. It
+holds no answer for `req~rate-limit~1 implemented`, so a judge that asked an
+overridden question would exit 2.
+
+| Requirement | Question | Result | Reasoning | Location |
+| --- | --- | --- | --- | --- |
+| `req~rate-limit~1` | `tested` | `not-satisfied` | `test_count_failed_logins counts three failed logins and never reaches the fifth, so no lockout is asserted.` | `tests/test_auth.py` line 6 |
+| `req~lockout-notice~1` | `implemented` | `not-satisfied` | `lockout_message returns a fixed text that never says when the member may try again.` | `src/checkout/auth.py` line 11 |
+| `req~lockout-notice~1` | `tested` | `satisfied` | `test_lockout_message asserts that the message tells the member to try again.` | `tests/test_auth.py` line 11 |
+
+### Readings the M4 scenarios pin
+
+| Reading | Basis |
+| --- | --- |
+| `--judge` takes its model from `EARNEST_JUDGE`; `stub:<path>` answers from the canned-verdict file, keyed by requirement id and revision, then by question, with `result`, `reasoning` and `location` | the Runtime and permission model in `01` (the maintainer's decision) |
+| The judge asks two questions of each traced requirement that parses as EARS: `implemented` of its `impl` regions and `tested` of its test regions, with the question text built from the clause spans. An untraced or unparsed requirement is asked nothing | D14 and D2 in `01`; the two questions match the two override kinds of the Override rule |
+| An overridden question is not asked. Its override is the observation of record: method `inspection`, author `maintainer`, result `satisfied`, the override's reason as reasoning, located at the `Override:` line | the Process vocabulary and the Override rule in `01`: an override replaces the judge's observation for one item, revision and kind |
+| The observations of record, one per question of each judged requirement, travel under the run's `properties.observations`, sorted by requirement and question; each has `method`, `subject`, `question`, `author`, `result`, `reasoning` and `location` | the SARIF 2.1.0 section of `01`, whose result observations carry method, subject, result, reasoning and location; `author` separates the judge's from the maintainer's, as the Process vocabulary does |
+| `req-not-ears` is raised on every check, judge or not, at the requirement's id line, as an error; the requirement can still be traced | D2 in `01`; `ears.py` sits in the Assessor beside the trace layer (`02`) |
+| `judge-not-satisfied` is one warning per not-satisfied observation of record, at the verdict's location when that lies in a region the question asked about, else at the requirement's id line; the finding carries the observation | the findings table and the Process vocabulary in `01` |
+| `judge-uncalibrated` is one warning per judge run, located at line 1 of `.earnest/assessment.json`, whose `calibration` slot holds no passing result; it reaches no stage, and its message names the model id and the prompt hash | the Command surface in `01`: "every judge run raises `judge-uncalibrated`" |
+| The stub's model id is `stub:sha256:` and the SHA-256 of the canned-verdict file; it and the prompt hash go into the judge cache key | the Runtime and permission model and the Process vocabulary in `01` |
+| A requirement is judged when it is traced and each of its two questions is satisfied or overridden; the judged percentage counts it among all requirements, rounded down | the Trace levels table in `01`; M1's percentages |
+| An override is read from the requirement's own item, and its `at` commit resolves through Git; its region is the requirement's regions of its kind: `impl` regions for `implemented`, test regions for `tested` | the Override rule and the Region rule in `01` |
+| An override whose revision is not the item's current one raises `override-expired` at its `Override:` line and drops out of the verdict, and is not checked for drift | the Override rule in `01` |
+| An override whose region changed between its commit and the work tree raises `override-drift` at its `Override:` line; the judge reruns the question, the override stays the observation of record, and the finding carries both observations, the override's and the rerun's. The rerun raises no `judge-not-satisfied` of its own | the Override rule and D3 in `01`: the override stands while the code holds still, and surfaces the moment it moves |
+| `override-expired`, `override-drift` and `req-not-ears` count against the stage whose artifact holds their line | M2's placement of a finding in a stage artifact |
+| `--judge` writes the record's `judge` slot, the judge cache; a second run with an unchanged key reuses the observations, and writes the same SARIF log | the Runtime and permission model and the Process vocabulary in `01` |
+
+### Judge check feature
+
+```gherkin
+Feature: Judge check
+  Against the stub model, the coding agent learns from the check which
+  requirements are not EARS, which judge verdicts are weak, with the judge's
+  reasoning and location, that the judge is uncalibrated, and how many
+  requirements are judged. An override stands as the maintainer's observation
+  until its revision expires or its code drifts (UC2, UC5; SC3, SC4, SC11).
+
+  Background:
+    Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
+    And the repo maintainer's overrides are committed
+    And the judge is the stub model with the canned verdicts of "seeded-change"
+
+  Scenario: Against the stub model the judge check reports its findings (SC3, SC4)
+    When the coding agent runs earnest check --judge
+    Then the SARIF log holds exactly these findings:
+      | rule                        | file                                                                                         | line | level   | position | stage                           |
+      | earnest/req-not-ears        | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 17   | error   | behind   | inception/requirements-analysis |
+      | earnest/unplanned           | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 17   | warning | current  | construction/code-generation    |
+      | earnest/judge-not-satisfied | tests/test_auth.py                                                                           | 6    | warning | current  | construction/code-generation    |
+      | earnest/judge-uncalibrated  | .earnest/assessment.json                                                                     | 1    | warning | current  | -                               |
+    And the check exits non-zero
+
+  Scenario: A requirement that is not one EARS sentence is flagged with the five templates and never judged
+    When the coding agent runs earnest check --judge
+    Then the earnest/req-not-ears finding names "req~audit-log~1" and lists these templates:
+      | template                                      |
+      | The system shall response.                    |
+      | When trigger, the system shall response.      |
+      | While state, the system shall response.       |
+      | If condition, then the system shall response. |
+      | Where feature, the system shall response.     |
+    And the SARIF log holds no observation of record for "req~audit-log~1"
+
+  Scenario: A not-satisfied verdict is a warning with the judge's reasoning and location (SC3)
+    When the coding agent runs earnest check --judge
+    Then the earnest/judge-not-satisfied finding carries this observation:
+      | field     | value                                                                                                       |
+      | subject   | req~rate-limit~1                                                                                            |
+      | question  | tested                                                                                                      |
+      | method    | inspection                                                                                                  |
+      | author    | judge                                                                                                       |
+      | result    | not-satisfied                                                                                               |
+      | reasoning | test_count_failed_logins counts three failed logins and never reaches the fifth, so no lockout is asserted. |
+      | location  | tests/test_auth.py:6                                                                                        |
+    And the summary lists the finding with its reasoning
+
+  Scenario: A judge run with no passing calibration says so (SC4)
+    When the coding agent runs earnest check --judge
+    Then the earnest/judge-uncalibrated finding names the stub model's id and the prompt hash
+    And the SARIF log gives the stub model's id and the prompt hash in the run's invocation
+
+  Scenario: The judged percentage counts the requirements whose every question is satisfied or overridden (SC3)
+    When the coding agent runs earnest check --judge
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level  |
+      | req~audit-log~1      | traced |
+      | req~lockout-notice~1 | judged |
+      | req~rate-limit~1     | traced |
+    And the SARIF log gives the judged percentage as 33
+    And the summary leads with "traced 100%, judged 33%, evidenced 0%; requirements: 3"
+
+  Scenario: An override is the observation of record, and the judge is not asked its question (SC11)
+    When the coding agent runs earnest check --judge
+    Then the SARIF log holds exactly these observations of record:
+      | subject              | question    | author     | result        | location                                                                                        |
+      | req~lockout-notice~1 | implemented | maintainer | satisfied     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md:15 |
+      | req~lockout-notice~1 | tested      | judge      | satisfied     | tests/test_auth.py:11                                                                           |
+      | req~rate-limit~1     | implemented | maintainer | satisfied     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md:8  |
+      | req~rate-limit~1     | tested      | judge      | not-satisfied | tests/test_auth.py:6                                                                            |
+    And the observation of record for "req~rate-limit~1" "implemented" gives the reasoning "the gateway enforces the lockout; this code only counts the window."
+    And the judge cache holds exactly these questions:
+      | subject              | question |
+      | req~lockout-notice~1 | tested   |
+      | req~rate-limit~1     | tested   |
+
+  Scenario: The judge cache answers a second run with the same log
+    When the coding agent runs earnest check --judge twice
+    Then both runs write the same SARIF log
+    And the judge cache holds exactly these questions:
+      | subject              | question |
+      | req~lockout-notice~1 | tested   |
+      | req~rate-limit~1     | tested   |
+
+  Scenario: After the change commit an override at the old revision expires (SC11)
+    Given the repo maintainer's change under the overrides is committed
+    When the coding agent runs earnest check --judge
+    Then the SARIF log holds exactly these findings:
+      | rule                       | file                                                                                              | line | level   | position | stage                           |
+      | earnest/outdated           | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 3    | note    | current  | inception/requirements-analysis |
+      | earnest/outdated           | aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md | 7    | note    | ahead    | construction/code-generation    |
+      | earnest/outdated           | src/checkout/auth.py                                                                              | 4    | note    | ahead    | construction/code-generation    |
+      | earnest/outdated           | tests/test_auth.py                                                                                | 4    | note    | ahead    | construction/code-generation    |
+      | earnest/unplanned          | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 17   | note    | ahead    | construction/code-generation    |
+      | earnest/req-not-ears       | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 17   | error   | current  | inception/requirements-analysis |
+      | earnest/override-expired   | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 8    | warning | current  | inception/requirements-analysis |
+      | earnest/override-drift     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md      | 15   | warning | current  | inception/requirements-analysis |
+      | earnest/judge-uncalibrated | .earnest/assessment.json                                                                          | 1    | warning | current  | -                               |
+    And the earnest/override-expired finding names "req~rate-limit~1" and the current revision "req~rate-limit~2"
+    And the SARIF log holds no observation of record for "req~rate-limit~2"
+    And the check exits non-zero
+
+  Scenario: After the change commit an override whose code moved drifts, and both verdicts show (SC11)
+    Given the repo maintainer's change under the overrides is committed
+    When the coding agent runs earnest check --judge
+    Then the earnest/override-drift finding names "req~lockout-notice~1" and the commit "89f3937"
+    And the earnest/override-drift finding carries these observations:
+      | author     | result        | location                                                                                        |
+      | maintainer | satisfied     | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md:15 |
+      | judge      | not-satisfied | src/checkout/auth.py:11                                                                         |
+    And the SARIF log gives each requirement one trace level:
+      | requirement          | level    |
+      | req~audit-log~1      | traced   |
+      | req~lockout-notice~1 | judged   |
+      | req~rate-limit~2     | untraced |
+    And the summary leads with "traced 66%, judged 33%, evidenced 0%; requirements: 3"
+
+  Scenario: Without --judge the check asks no model
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule                 | file                                                                                         | line | level   | position | stage                           |
+      | earnest/req-not-ears | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 17   | error   | behind   | inception/requirements-analysis |
+      | earnest/unplanned    | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 17   | warning | current  | construction/code-generation    |
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 3"
+    And no assessment record exists
+```
+
+### Notes for the M4 task plan
+
+- Shared steps: "the SARIF log holds exactly these findings:", "the SARIF log
+  gives each requirement one trace level:", "the summary leads with …", "both
+  runs write the same SARIF log", "no assessment record exists" and "the
+  check exits non-zero" are already shared. The steps new to M4 live in
+  `tests/steps/test_judge_check.py`; "the SARIF log gives the judged
+  percentage as …" sits beside M1's traced one.
+- The stub model: "the judge is the stub model with the canned verdicts of
+  `seeded-change`" sets `EARNEST_JUDGE` to `stub:` and the absolute path of
+  `tests/fixtures/seeded-change/judge-verdicts.json`, through `monkeypatch`.
+  The file stays in the package, outside the repository under check, so Git
+  lists no new file and the base commit is unchanged.
+- Overlays: the base builder leaves `override/`, `override-change/` and
+  `judge-verdicts.json` out, as it does `change/`, `task/` and `units/`, so the
+  base commit's sha stays `89f3937`. "the repo maintainer's overrides are
+  committed" commits `override/` on `main`; "the repo maintainer's change under
+  the overrides is committed" commits `override-change/` on `main` on top of
+  it. No branch is made; Earnest reads none.
+- Columns: a `location` cell is `<file>:<line>`, read from the observation's
+  SARIF `physicalLocation`. The observations-of-record table compares only the
+  columns it gives, as the findings table does.
+- "the judge cache holds exactly these questions" reads the record's `judge`
+  slot: one entry per question the judge was asked, keyed as the Process
+  vocabulary gives.
+- Messages (T6, SC10):
+  - `req-not-ears` names the requirement and lists the five templates of D2
+    in that order.
+  - `judge-not-satisfied` names the requirement and the question, and gives
+    the judge's reasoning.
+  - `judge-uncalibrated` names the model id and the prompt hash and says no
+    passing calibration exists for them.
+  - `override-expired` names the override's revision and the current one.
+  - `override-drift` names the override's commit and says the judge reran.
+  - The wording, and the question text built from the spans, are the plan's to
+    fix; the scenarios assert the places and the facts above.
+- The unit and integration tiers cover what the feature leaves out: each EARS
+  template and its spans, a body broken over lines, a malformed `Override:`
+  line (near-miss), two overrides of one id and kind (`duplicate`), an
+  override of kind `tested`, an `at` commit Git does not hold, every exit 2 of
+  `--judge` (no `EARNEST_JUDGE`, an unknown value, an unreadable or malformed
+  file, a question with no answer), the judge cache key's six parts, and a
+  stub file edit that reruns every question.
+- Regression guard:
+  - M1, M2, M2b and M3 gain no row: they never pass `--judge` and every
+    requirement they seed is EARS.
+  - The base commit's sha is pinned in `test_seeded_change.py`, as the
+    overrides name it.
+
 ## Scope (v1)
 
 - One behavior feature per milestone of `03`, eight in all, with the scenarios
-  of M1, M2, M2b and M3 in full.
+  of M1, M2, M2b, M3 and M4 in full.
 - Three test tiers under one runner, pytest, with pytest-bdd for the features.
 - Three fixture repositories, `broken-links`, `seeded-change` and
   `calibration`, each plain files with its history built at test time.
 
 ## Future directions
 
-- The scenarios of M4 to M7, each written here when its milestone's
+- The scenarios of M5 to M7, each written here when its milestone's
   plan is written.
 - A coverage threshold for the package, when the maintainer sets one.
 

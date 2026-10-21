@@ -30,7 +30,7 @@ _KEY_NAME = f"({'|'.join(KEYS)})"
 # letters fold case in ASCII alone, so a letter such as the long s, which Unicode folds to `s`, stands in for none.
 _KEY = re.compile(rf"[ \t]*(?:(?:[-*+]|[0-9]+\.)[ \t]+|>[ \t]*)*[*_]*{_KEY_NAME}[*_]*[ \t]*:", re.IGNORECASE | re.ASCII)
 _KEY_LINE = re.compile(rf"{_KEY_NAME}:(?: (\S.*))?")
-_OVERRIDE = re.compile(rf"{_ID} (?:implemented|tested) at [0-9a-f]+,.+")
+_OVERRIDE = re.compile(rf"{_ID} (implemented|tested) at ([0-9a-f]+),\s*(\S.*)")
 _SEPARATORS = re.compile(r"[\s,]+")
 _TYPE_SLOT = re.compile(r"(?:^|[\[@:>]\s*)([a-z]+)(?=\s*(?:->|[:~]|$))")
 
@@ -125,6 +125,18 @@ class Id:
 
 
 @dataclass(frozen=True)
+class Override:
+    """An `Override:` line: the id and kind it overrides, the commit it stands at, its reason, and where it was written."""
+
+    target: Id
+    kind: str
+    commit: str
+    reason: str
+    path: str
+    line: int
+
+
+@dataclass(frozen=True)
 class Item:
     """A Markdown item: its id, where its id line sits, the types on its `Needs:` line, and its body hash.
 
@@ -137,6 +149,8 @@ class Item:
     line: int
     needs: tuple[str, ...] | None = None
     body_hash: str = field(default="", compare=False)
+    body: str = field(default="", compare=False)  # the body's lines less its key lines, joined by line feeds
+    overrides: tuple[Override, ...] = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)
@@ -238,6 +252,7 @@ class Index:
 
 
 _Parsed = tuple[list[Item], list[Link], list[NearMiss]]
+_Keys = tuple[tuple[str, ...] | None, list[Link], tuple["Override", ...], list[NearMiss]]
 
 
 def split_lines(text: str) -> tuple[Line, ...]:
@@ -321,8 +336,9 @@ def _markdown(source: Source) -> _Parsed:
     spans, misses = _spans(source)
     for item_id, number, lines in spans:
         keyed = [line for line in lines if line.number not in source.fenced]
-        needs, item_links, key_misses = _keys(source.path, item_id, keyed)
-        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced)))
+        needs, item_links, overrides, key_misses = _keys(source.path, item_id, keyed)
+        body = "\n".join(line.text for line in lines if line.number in source.fenced or _KEY.match(line.text) is None)
+        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced), body, overrides))
         links.extend(item_links)
         misses.extend(key_misses)
     return items, links, misses
@@ -370,10 +386,11 @@ def _body_hash(lines: Iterable[Line], fenced: frozenset[int]) -> str:
     return digest("\n".join(kept).encode("utf-8"))
 
 
-def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] | None, list[Link], list[NearMiss]]:
-    """Read an item's key lines: its needs, its links, and every key, value or entry that fails to parse."""
+def _keys(path: str, owner: Id, lines: Iterable[Line]) -> _Keys:
+    """Read an item's key lines: its needs, its links, its overrides, and every key, value or entry that fails to parse."""
     needs: tuple[str, ...] | None = None
     links: list[Link] = []
+    overrides: list[Override] = []
     misses: list[NearMiss] = []
     for line in lines:
         text = line.text.rstrip()
@@ -384,8 +401,11 @@ def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] 
             continue
         name, value = exact.group(1), exact.group(2) or ""
         if name == "Override":
-            if not _OVERRIDE.fullmatch(value):
-                misses.append(NearMiss(path, line.number, value or text, _fix(value, name)))
+            read = _override(path, line.number, owner, value)
+            if isinstance(read, Override):
+                overrides.append(read)
+            else:
+                misses.append(read or NearMiss(path, line.number, value or text, _fix(value, name)))
         elif name == "Needs":
             types, found = _list(path, line, value, _TYPE_ENTRY, name)
             misses.extend(found)
@@ -395,7 +415,20 @@ def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] 
             ids, found = _list(path, line, value, ID_ENTRY, "id")
             misses.extend(found)
             links.extend(Link(name, owner.type, _to_id(entry), path, line.number, owner=owner) for entry in ids)
-    return needs, links, misses
+    return needs, links, tuple(overrides), misses
+
+
+def _override(path: str, number: int, owner: Id, value: str) -> Override | NearMiss | None:
+    """Read an `Override:` value under owner: an override of owner at any revision, a near-miss, or None: no parse."""
+    parsed = _OVERRIDE.fullmatch(value)
+    if parsed is None:
+        return None
+    target = _to_id(parsed)
+    if target.key != owner.key:  # an override sits under the item it names (Override rule)
+        fix = f"name the item the override sits under, `{owner}`, or move it under `{target}`"
+        return NearMiss(path, number, value, fix)
+    kind, commit, reason = parsed.group(4, 5, 6)
+    return Override(target, kind, commit, reason.strip(), path, number)
 
 
 def _list(

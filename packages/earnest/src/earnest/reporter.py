@@ -16,11 +16,16 @@ RuleId = Literal[
     "earnest/duplicate",
     "earnest/gap",
     "earnest/impact-degraded",
+    "earnest/judge-not-satisfied",
+    "earnest/judge-uncalibrated",
     "earnest/near-miss",
     "earnest/orphaned",
     "earnest/out-of-task",
     "earnest/outdated",
+    "earnest/override-drift",
+    "earnest/override-expired",
     "earnest/predated",
+    "earnest/req-not-ears",
     "earnest/route-mismatch",
     "earnest/unbumped-change",
     "earnest/unplanned",
@@ -32,11 +37,16 @@ RULES: dict[RuleId, str] = {
     "earnest/duplicate": "error",
     "earnest/gap": "error",
     "earnest/impact-degraded": "note",
+    "earnest/judge-not-satisfied": "warning",
+    "earnest/judge-uncalibrated": "warning",
     "earnest/near-miss": "error",
     "earnest/orphaned": "error",
     "earnest/out-of-task": "warning",
     "earnest/outdated": "error",
+    "earnest/override-drift": "warning",
+    "earnest/override-expired": "warning",
     "earnest/predated": "error",
+    "earnest/req-not-ears": "error",
     "earnest/route-mismatch": "error",
     "earnest/unbumped-change": "error",
     "earnest/unplanned": "warning",
@@ -75,6 +85,7 @@ class Finding:
     position: Position = field(default="current", compare=False)
     note: bool = field(default=False, compare=False)  # a note at every position, as a stale stage approval is
     child: str = field(default="", compare=False)  # for a gap, the item type whose absence it reports
+    observations: tuple[Mapping[str, object], ...] = field(default=(), compare=False)  # else the trace observation
 
     @property
     def level(self) -> str:
@@ -155,6 +166,9 @@ class Run:
     unheld: int = 0
     impact: Impact | None = None
     notes: tuple[str, ...] = ()  # summary lines the run states once, such as why it took no coverage map
+    model: str | None = None  # the judge's model id and prompt hash, when the judge layer ran
+    prompt: str | None = None
+    observations: tuple[Mapping[str, object], ...] | None = None  # the observations of record, when the judge ran
 
 
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
@@ -180,12 +194,16 @@ def sarif(findings: Sequence[Finding], levels: Mapping[str, str], run: Run) -> s
         properties["assessment"] = run.assessment
     if run.impact is not None:
         properties["impact"] = run.impact.as_property()
+    invocation: dict[str, object] = {"commit": run.commit, "dirty": run.dirty, "layers": ["trace"]}
+    if run.observations is not None:
+        properties["observations"] = list(run.observations)
+        invocation |= {"layers": ["trace", "judge"], "model": run.model, "prompt": run.prompt}
     body = {
         "tool": {"driver": {"name": "earnest"}},
         "invocations": [
             {
                 "executionSuccessful": True,
-                "properties": {"commit": run.commit, "dirty": run.dirty, "layers": ["trace"]},
+                "properties": invocation,
             },
         ],
         "results": [_result(finding) for finding in sorted(findings)],
@@ -246,23 +264,29 @@ def _intent_lines(entry: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def location(path: str, line: int) -> dict[str, object]:
+    """Return a SARIF physical location: the file as its artifact uri, and the line."""
+    return {"artifactLocation": {"uri": uri(path)}, "region": {"startLine": line}}
+
+
 def _result(finding: Finding) -> dict[str, object]:
-    location = {"artifactLocation": {"uri": uri(finding.path)}, "region": {"startLine": finding.line}}
+    where = location(finding.path, finding.line)
     observation = {
         "method": "trace",
         "subject": finding.subject,
         "result": finding.rule.removeprefix("earnest/"),
         "reasoning": finding.message,
-        "location": location,
+        "location": where,
     }
-    properties: dict[str, object] = {"position": finding.position, "observations": [observation]}
+    observations = list(finding.observations) or [observation]
+    properties: dict[str, object] = {"position": finding.position, "observations": observations}
     if finding.stage is not None:
         properties["stage"] = finding.stage
     return {
         "ruleId": finding.rule,
         "level": finding.level,
         "message": {"text": finding.text},
-        "locations": [{"physicalLocation": location}],
+        "locations": [{"physicalLocation": where}],
         "properties": properties,
     }
 
