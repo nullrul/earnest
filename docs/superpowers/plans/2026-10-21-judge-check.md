@@ -45,7 +45,7 @@ The exit command `uv run pytest tests/steps/test_judge_check.py` turns green at 
   - The runtime is the standard library alone (L4).
   - The lint bar is M2's: ruff (line length 120, complexity 10, five arguments, Google docstrings), `ruff format`, `mypy --strict`, and vulture at 80.
 - **No network, no key:** the only model M4 builds is the stub. No test reaches a provider.
-- **No Git branch:** Earnest reads no branch name, merge-base or `refs/remotes/origin/HEAD`. The fixture's commits sit on `main`; the override's `at` commit is a sha, resolved with `git rev-parse --verify <sha>^{commit}`.
+- **No Git branch:** Earnest reads no branch name, merge-base or `refs/remotes/origin/HEAD`. The fixture's commits sit on `main`; the override's `at` commit is a sha, resolved to its full object id by `git rev-parse --disambiguate=<sha>`, which lists objects alone and never a ref, and kept only when exactly one listed object is a commit.
 - **`EARNEST_JUDGE`:** `stub:<path>`, the path relative to the working directory or absolute. `--judge` exits 2 when it is unset or names no known model, when the file cannot be read or is not the object of `01`, and when a question has no answer in the file.
 - **The canned-verdict file:** one JSON object keyed by requirement id and revision (`req~rate-limit~1`), then by `implemented` or `tested`. Each answer is `{"result": "satisfied" | "not-satisfied", "reasoning": str, "location": {"file": str, "line": int}}`.
 - **Questions:** an overridden question, its override standing, is not asked; under drift it is asked again. An untraced or unparsed requirement is asked nothing.
@@ -213,7 +213,7 @@ Outside the package nothing changes. The docs commit that adds this plan also ad
 
 - [ ] **Step 1:** From the repository root, run `rtk proxy make test; echo $?` and `rtk proxy make lint; echo $?`. Expected: both print `0`.
 - [ ] **Step 2:** In `packages/earnest/`, run `rtk proxy uv run pytest tests/steps/test_judge_check.py; echo $?`. Expected: `0`.
-- [ ] **Step 3:** Run the `/pre-pr-review` skill on HEAD and record its verdict. Nothing is committed in this task.
+- [x] **Step 3:** Run the `/pre-pr-review` skill on HEAD and record its verdict. Nothing is committed in this task. Verdict at `44ec740`: four reviews (code, ponytail, simplify, security), no P0 or P1.
 
 ## Scope paths
 
