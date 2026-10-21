@@ -143,7 +143,7 @@ def load_model(value: str | None) -> Stub:
     except OSError as error:
         msg = f"the stub model's file cannot be read: {error}"
         raise JudgeError(msg) from error
-    except (ValueError, TypeError, KeyError) as error:  # UnicodeDecodeError is a ValueError
+    except (ValueError, TypeError, KeyError, RecursionError) as error:  # UnicodeDecodeError is a ValueError
         msg = f"the stub model's file {path} is not an object of canned verdicts: {error}"
         raise JudgeError(msg) from error
     return Stub("stub:" + digest(data), answers)
@@ -256,22 +256,24 @@ def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Findi
     An override stands when it names its item's current revision. One that names no defined item stands for nothing.
     """
     standing: dict[tuple[str, str], Override] = {}
+    seen: dict[tuple[str, str], Override] = {}  # the first override of each id and kind, standing or expired
     found: list[Finding] = []
     for written in (override for item in index.items for override in item.overrides):
         item = index.defined.get(written.target.key)
         if item is None:
             continue
-        if item.id != written.target:
-            found.append(expired(written, item))
-            continue
         key = (str(written.target), written.kind)
-        first = standing.setdefault(key, written)
+        first = seen.setdefault(key, written)
         if first is not written:
             message = (
                 f"`{written.target}` {written.kind} is already overridden at {first.path}:{first.line}:"
                 " keep one of the two overrides"
             )
             found.append(Finding(written.path, written.line, "earnest/duplicate", key[0], message))
+        elif item.id != written.target:
+            found.append(expired(written, item))
+        else:
+            standing[key] = written
     return standing, found
 
 
@@ -298,10 +300,10 @@ def drifted(root: Path, written: Override, found: Sequence[Region]) -> str | Non
 
 
 def _touches(hunk: git.Hunk, region: Region) -> bool:
-    """Return whether a hunk writes a line of region, or deletes lines between two of its lines."""
+    """Return whether a hunk writes a line of region, or deletes lines inside or at the end of region."""
     if hunk.new_count:
         return any(region.first <= line <= region.last for line in hunk.new_lines)
-    return region.first <= hunk.new_start < region.last
+    return region.first <= hunk.new_start <= region.last
 
 
 def drift(written: Override, why: str, observed: Mapping[str, object], rerun: Mapping[str, object]) -> Finding:

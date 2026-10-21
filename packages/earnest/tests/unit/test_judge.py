@@ -59,6 +59,10 @@ def commit_code(root):
     return done.stdout.strip()
 
 
+def git_in(root, *args):
+    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout
+
+
 def ask(found, model, root, slot=None):
     if not (root / "src").exists():
         write_code(root)
@@ -165,12 +169,12 @@ def test_observations_are_sorted_by_subject_and_question(tmp_path):
     ]
 
 
-def overridden(*lines):
+def overridden(*lines, code_lines=5):
     text = REQS.replace(
         "When a member logs in, the system shall greet them.\n",
         "When a member logs in, the system shall greet them.\n" + "".join(f"{line}\n" for line in lines),
     )
-    tags = (code("src/a.py", "impl->req~greet~1", 5), code("tests/a.py", "utest->req~greet~1", 4))
+    tags = (code("src/a.py", "impl->req~greet~1", code_lines), code("tests/a.py", "utest->req~greet~1", 4))
     return build_index([Source(SPEC, MARKDOWN, split_lines(text)), *tags])
 
 
@@ -320,3 +324,60 @@ def test_an_override_at_a_commit_git_does_not_hold_drifts(tmp_path):
     result = ask(overridden("Override: req~greet~1 implemented at deadbeef, why"), model, tmp_path)
     (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
     assert "deadbeef" in found.message
+
+
+def test_a_relative_stub_path_reads_against_the_working_directory(tmp_path, monkeypatch):
+    stub(tmp_path, {"req~greet~1": GREET})
+    monkeypatch.chdir(tmp_path)
+    model = judge.load_model("stub:verdicts.json")
+    assert model.id == first_model_id(tmp_path)
+    assert model.answers["req~greet~1"]["tested"].path == "tests/a.py"
+
+
+def test_a_file_nested_past_the_parser_s_depth_cannot_run(tmp_path):
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 100_000 + "]" * 100_000)
+    with pytest.raises(judge.JudgeError, match="not an object of canned verdicts"):
+        judge.load_model(f"stub:{path}")
+
+
+def drifts_after(tmp_path, lines):
+    """Commit the code, rewrite src/a.py as lines, and return the rules of a judge run under an `implemented` override.
+
+    The index reads src/a.py at the work tree, as a check does, so its region ends at the rewritten file's last line.
+    """
+    at = commit_code(tmp_path)
+    (tmp_path / "src/a.py").write_text("".join(f"{line}\n" for line in lines))
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    index = overridden(f"Override: req~greet~1 implemented at {at}, why", code_lines=len(lines))
+    return rules(ask(index, model, tmp_path))
+
+
+def test_deleting_the_last_line_of_an_overridden_region_drifts(tmp_path):
+    assert "earnest/override-drift" in drifts_after(tmp_path, ["line 1", "line 2", "line 3", "line 4"])
+
+
+def test_deleting_all_the_code_under_an_overridden_tag_drifts(tmp_path):
+    assert "earnest/override-drift" in drifts_after(tmp_path, ["line 1"])
+
+
+def test_a_deletion_before_the_region_does_not_drift(tmp_path):
+    # the tag moves to line 2 of src/a.py, so the deleted line 1 lies before its region, which holds still
+    commit_code(tmp_path)
+    (tmp_path / "src/a.py").write_text("# head\nline 1\nline 2\nline 3\nline 4\nline 5\n")
+    git_in(tmp_path, "add", "src")
+    git_in(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--no-verify", "-m", "head")
+    at = git_in(tmp_path, "rev-parse", "HEAD").strip()
+    (tmp_path / "src/a.py").write_text("line 1\nline 2\nline 3\nline 4\nline 5\n")
+    model = stub(tmp_path, {"req~greet~1": {"tested": GREET["tested"]}})
+    index = overridden(f"Override: req~greet~1 implemented at {at}, why")
+    assert "earnest/override-drift" not in rules(ask(index, model, tmp_path))
+
+
+def test_an_expired_duplicate_is_still_a_duplicate(tmp_path):
+    at = commit_code(tmp_path)
+    index = overridden(
+        f"Override: req~greet~2 implemented at {at}, one", f"Override: req~greet~2 implemented at {at}, two"
+    )
+    result = ask(index, stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
+    assert rules(result).count("earnest/duplicate") == 1
