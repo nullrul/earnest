@@ -173,6 +173,22 @@ def test_an_override_with_a_blank_reason_is_a_near_miss_and_no_override():
     assert [miss.line for miss in index.near_misses] == [2]
 
 
+def test_an_override_naming_another_item_is_a_near_miss_and_no_override():
+    index = build_index([markdown("`req~a~1`\nOverride: req~b~1 implemented at 3f9c2a1, why\n\n`req~b~1`\n")])
+    assert [item.overrides for item in index.items] == [(), ()]
+    (miss,) = index.near_misses
+    assert (miss.line, miss.text) == (2, "req~b~1 implemented at 3f9c2a1, why")
+    assert "`req~a~1`" in miss.fix
+    assert "`req~b~1`" in miss.fix
+
+
+def test_an_override_naming_another_revision_of_its_item_is_kept_for_the_judge_to_expire():
+    index = build_index([markdown("`req~a~2`\nOverride: req~a~1 implemented at 3f9c2a1, why\n")])
+    (override,) = index.items[0].overrides
+    assert str(override.target) == "req~a~1"
+    assert index.near_misses == ()
+
+
 def test_fenced_lines_never_start_end_or_key_an_item():
     text = "`req~a~1`\n~~~\n# heading\n`req~b~1`\nCovers: FR1.2\n~~~\nCovers: feat~f~1\n"
     index = build_index([markdown(text, frozenset({2, 3, 4, 5, 6}))])
