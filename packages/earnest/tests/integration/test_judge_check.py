@@ -25,9 +25,17 @@ def test_the_judge_slot_round_trips_and_a_rerun_with_an_unchanged_key_reuses_it(
         ("req~lockout-notice~1", "tested"),
         ("req~rate-limit~1", "tested"),
     ]
+    # an edited reasoning shows only if the second run reads the cached entry instead of asking the model again
+    data = record(repo)
+    (key,) = [key for key, entry in data["judge"]["cache"].items() if entry["item"] == "req~rate-limit~1"]
+    data["judge"]["cache"][key]["reasoning"] = "edited in the cache"
+    (repo / ".earnest" / "assessment.json").write_text(json.dumps(data), encoding="utf-8")
     second = run_earnest(repo, "check", "--judge")
-    assert second.stdout == first.stdout
-    assert record(repo)["judge"] == slot
+    observations = json.loads(second.stdout)["runs"][0]["properties"]["observations"]
+    (cached,) = [each for each in observations if (each["subject"], each["question"]) == ("req~rate-limit~1", "tested")]
+    assert cached["reasoning"] == "edited in the cache"
+    assert "edited in the cache" in second.stdout
+    assert record(repo)["judge"]["cache"][key]["reasoning"] == "edited in the cache"
 
 
 def test_a_plain_check_writes_no_record_and_reports_no_judge(fixture_repo, monkeypatch):

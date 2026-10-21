@@ -30,7 +30,7 @@ _KEY_NAME = f"({'|'.join(KEYS)})"
 # letters fold case in ASCII alone, so a letter such as the long s, which Unicode folds to `s`, stands in for none.
 _KEY = re.compile(rf"[ \t]*(?:(?:[-*+]|[0-9]+\.)[ \t]+|>[ \t]*)*[*_]*{_KEY_NAME}[*_]*[ \t]*:", re.IGNORECASE | re.ASCII)
 _KEY_LINE = re.compile(rf"{_KEY_NAME}:(?: (\S.*))?")
-_OVERRIDE = re.compile(rf"{_ID} (implemented|tested) at ([0-9a-f]+),(.+)")
+_OVERRIDE = re.compile(rf"{_ID} (implemented|tested) at ([0-9a-f]+),\s*(\S.*)")
 _SEPARATORS = re.compile(r"[\s,]+")
 _TYPE_SLOT = re.compile(r"(?:^|[\[@:>]\s*)([a-z]+)(?=\s*(?:->|[:~]|$))")
 

@@ -494,8 +494,11 @@ def test_the_baseline_is_read_whatever_the_branch(fixture_repo, monkeypatch, cap
     assert "earnest/out-of-task" in [result["ruleId"] for result in sarif_run(out)["results"]]
 
 
-@pytest.mark.parametrize("value", [None, "foo:x", "stub:no-such-file.json"])
-def test_judge_without_a_model_that_can_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, value):
+@pytest.mark.parametrize("value", [None, "foo:x", "stub:no-such-file.json", "stub:{list}"])
+def test_judge_without_a_model_that_can_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, tmp_path, value):
+    if value == "stub:{list}":
+        (tmp_path / "list.json").write_text("[]")
+        value = f"stub:{tmp_path / 'list.json'}"
     if value is None:
         monkeypatch.delenv("EARNEST_JUDGE", raising=False)
     else:
