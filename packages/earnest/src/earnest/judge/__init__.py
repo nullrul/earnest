@@ -228,6 +228,7 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot
     held = slot.get("cache")
     cache = Cache(root, model, held if isinstance(held, dict) else {})
     standing, found = overrides(index)
+    past = Past(root)
     found.insert(0, uncalibrated(model))
     observations: list[dict[str, object]] = []
     satisfied: dict[str, int] = {}
@@ -237,7 +238,7 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot
             observed = observation(
                 question, "maintainer", Verdict("satisfied", override.reason, override.path, override.line)
             )
-            if (why := drifted(root, index, override, question.regions)) is not None:
+            if (why := drifted(past, index, override, question.regions)) is not None:
                 rerun = observation(question, "judge", located(root, question, cache.ask(question, index)))
                 found.append(drift(override, why, observed, rerun))
         else:
@@ -254,10 +255,11 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot
 
 def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
     """Return the verdict, at the item's id line when its location is no relative path to a file in root's work tree."""
-    parts = PurePosixPath(verdict.path).parts
-    if not parts or parts[0] == "/" or ".." in parts or not (root / verdict.path).is_file():
+    path = PurePosixPath(verdict.path)  # drops `.` parts and doubled slashes, keeps `..`
+    parts = path.parts
+    if not parts or path.is_absolute() or ".." in parts or ".git" in parts or not (root / path).is_file():
         return replace(verdict, path=question.item.path, line=question.item.line)
-    return verdict
+    return replace(verdict, path=path.as_posix())
 
 
 def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Finding]]:
@@ -268,10 +270,9 @@ def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Findi
     standing: dict[tuple[str, str], Override] = {}
     seen: dict[tuple[str, str], Override] = {}  # the first override of each id and kind, standing or expired
     found: list[Finding] = []
-    for written in (override for item in index.items for override in item.overrides):
-        item = index.defined.get(written.target.key)
-        if item is None:
-            continue
+    # an override under a duplicate of its item stands for nothing: only the defining item's overrides count
+    defining = [each for each in index.items if index.defined.get(each.id.key) is each]
+    for item, written in ((each, override) for each in defining for override in each.overrides):
         key = (str(written.target), written.kind)
         first = seen.setdefault(key, written)
         if first is not written:
@@ -296,11 +297,47 @@ def expired(written: Override, item: Item) -> Finding:
     return Finding(written.path, written.line, "earnest/override-expired", str(written.target), message)
 
 
-def drifted(root: Path, index: Index, written: Override, found: Sequence[Region]) -> str | None:
+@dataclass
+class Past:
+    """The files of the override commits a run reads, each commit's tree and each path's tags read once."""
+
+    root: Path
+    trees: dict[str, frozenset[str] | None] = field(default_factory=dict)
+    tags: dict[tuple[str, str], tuple[Link, ...] | None] = field(default_factory=dict)
+
+    def links(self, commit: str, path: str) -> tuple[Link, ...] | None:
+        """Return the tag links of path at a full commit id; none when its tree holds no such file.
+
+        Returns:
+            None when Git cannot read the commit's tree or the path's object: fail closed, so the caller drifts.
+        """
+        if commit not in self.trees:
+            try:
+                self.trees[commit] = git.tree_paths(self.root, commit)
+            except git.GitError:
+                self.trees[commit] = None
+        tree = self.trees[commit]
+        if tree is not None and path not in tree:
+            return ()
+        if (commit, path) not in self.tags:
+            self.tags[commit, path] = None if tree is None else self._read(commit, path)
+        return self.tags[commit, path]
+
+    def _read(self, commit: str, path: str) -> tuple[Link, ...] | None:
+        try:
+            data = git.blob(self.root, commit, path)
+        except git.GitError:
+            return None
+        source = adapters.source(path, data)
+        return () if source is None else build_index([source]).links
+
+
+def drifted(past: Past, index: Index, written: Override, found: Sequence[Region]) -> str | None:
     """Return why an override drifted: a region changed or was removed since its commit, or Git lacks the commit.
 
     A commit Git does not hold shows nothing of the code since it, so the override counts as drifted. None: it holds.
     """
+    root = past.root
     commit = git.full_commit(root, written.commit)  # the object, never a branch named as the prefix
     if commit is None:
         return f"Git holds no single commit {written.commit}, so nothing shows the code held still since the override"
@@ -309,27 +346,23 @@ def drifted(root: Path, index: Index, written: Override, found: Sequence[Region]
     # read old_line() against the region at the override's commit if such an edit must count as drift
     if any(_touches(hunk, region) for region in found for hunk in hunks.get(region.path, ())):
         return f"its code changed since {written.commit}, the commit the override stands at"
-    if (path := _lost_tag(root, index, written, commit)) is not None:
-        return (
-            f"{path} lost a tag of its {written.kind} regions since {written.commit}, the commit the override stands at"
-        )
-    return None
+    return _lost_tag(past, index, written, commit)
 
 
-def _lost_tag(root: Path, index: Index, written: Override, commit: str) -> str | None:
-    """Return the first changed file that held more of the override's tags at its commit than at the work tree."""
+def _lost_tag(past: Past, index: Index, written: Override, commit: str) -> str | None:
+    """Return why a changed file drifts the override: it held more of its tags at the commit, or Git cannot read it."""
 
     def count(links: Iterable[Link]) -> int:
         kinds = KINDS[written.kind]
         return sum(link.owner is None and link.target == written.target and link.type in kinds for link in links)
 
-    for path in git.changed_files(root, commit):
-        old = git.blob(root, commit, path)
-        before = None if old is None else adapters.source(path, old)
-        if before is not None and count(build_index([before]).links) > count(
-            link for link in index.links if link.path == path
-        ):
-            return path
+    since = f"since {written.commit}, the commit the override stands at"
+    for path in git.changed_files(past.root, commit):
+        before = past.links(commit, path)
+        if before is None:
+            return f"Git cannot read {path} at {written.commit}, so nothing shows its tags held still {since}"
+        if count(before) > count(link for link in index.links if link.path == path):
+            return f"{path} lost a tag of its {written.kind} regions {since}"
     return None
 
 

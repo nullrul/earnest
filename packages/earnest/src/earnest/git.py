@@ -84,11 +84,6 @@ def head_commit(root: Path) -> str:
     return _git(root, "rev-parse", "HEAD").strip()
 
 
-def has_commit(root: Path, sha: object) -> bool:
-    """Return whether sha, a hex string, names a commit the repository holds; anything that is no string names none."""
-    return full_commit(root, sha) is not None
-
-
 def full_commit(root: Path, sha: object) -> str | None:
     """Return the full id of the one commit whose id begins with sha, or None: no such commit, or more than one.
 
@@ -144,10 +139,22 @@ def changed_files(root: Path, base: str, *filters: str) -> list[str]:
     return sorted({path for path in listed.split("\0") if path and not _in_record_directory(path)})
 
 
-def blob(root: Path, commit: str, path: str) -> bytes | None:
-    """Return the bytes of path at a full commit id, or None when the commit holds no file there."""
-    text = _maybe(root, "cat-file", "blob", f"{commit}:{path}")
-    return None if text is None else text.encode("utf-8", "surrogateescape")
+def tree_paths(root: Path, commit: str) -> frozenset[str]:
+    """Return the file paths a full commit id's tree holds.
+
+    Raises:
+        GitError: Git cannot read the commit's tree.
+    """
+    return frozenset(path for path in _git(root, "ls-tree", "-r", "-z", "--name-only", commit).split("\0") if path)
+
+
+def blob(root: Path, commit: str, path: str) -> bytes:
+    """Return the bytes of a path its full commit id's tree holds.
+
+    Raises:
+        GitError: Git cannot read the object, though the tree names it.
+    """
+    return _git(root, "cat-file", "blob", f"{commit}:{path}").encode("utf-8", "surrogateescape")
 
 
 def old_line(hunks: Sequence[Hunk], line: int) -> int | None:

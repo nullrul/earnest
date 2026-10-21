@@ -135,11 +135,11 @@ def _commit_all(repo, message="next"):
     git_output(repo, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", message)
 
 
-def test_has_commit_tells_a_commit_from_an_unknown_sha(files_repo):
+def test_full_commit_tells_a_commit_from_an_unknown_sha(files_repo):
     repo = files_repo({"a.md": "a\n"})
-    assert git.has_commit(repo, git.head_commit(repo))
-    assert not git.has_commit(repo, "0" * 40)
-    assert not git.has_commit(repo, "--all")
+    assert git.full_commit(repo, git.head_commit(repo)) == git.head_commit(repo)
+    assert git.full_commit(repo, "0" * 40) is None
+    assert git.full_commit(repo, "--all") is None
 
 
 def test_full_commit_expands_a_prefix_to_the_object_and_never_to_a_branch_of_that_name(files_repo):
@@ -149,7 +149,6 @@ def test_full_commit_expands_a_prefix_to_the_object_and_never_to_a_branch_of_tha
     _commit_all(repo)
     git_output(repo, "branch", first[:7])  # fixture mechanics: a branch named as the first commit's prefix
     assert git.full_commit(repo, first[:7]) == first
-    assert git.has_commit(repo, first[:7])
 
 
 @pytest.mark.parametrize("prefix", ["abc", "0000000", ""])
@@ -162,12 +161,11 @@ def test_full_commit_is_none_for_a_branch_name_that_is_no_object_prefix(files_re
     git_output(repo, "branch", "facade")  # fixture mechanics: hex that names a branch and, almost surely, no object
     if not git.head_commit(repo).startswith("facade"):
         assert git.full_commit(repo, "facade") is None
-        assert not git.has_commit(repo, "facade")
 
 
 @pytest.mark.parametrize("commit", [None, 123, ["0" * 40]])
-def test_has_commit_is_false_for_a_commit_that_is_no_string(files_repo, commit):
-    assert not git.has_commit(files_repo({"a.md": "a\n"}), commit)  # a record edited by hand, read as no baseline
+def test_full_commit_is_none_for_a_commit_that_is_no_string(files_repo, commit):
+    assert git.full_commit(files_repo({"a.md": "a\n"}), commit) is None  # a record edited by hand, read as no baseline
 
 
 def test_changed_lines_reads_modified_added_and_deleted_lines_as_hunks(files_repo):

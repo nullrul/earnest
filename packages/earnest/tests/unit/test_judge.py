@@ -483,11 +483,73 @@ def test_control_characters_in_the_judge_s_reasoning_are_escaped_in_the_finding_
     assert not any(character in found.message for character in "\n\r\x1b")
 
 
-@pytest.mark.parametrize("file", ["/etc/passwd", "../outside.py", "src/../src/a.py", "src/missing.py"])
+@pytest.mark.parametrize(
+    "file", ["/etc/passwd", "../outside.py", "src/../src/a.py", "src/missing.py", ".git/config", "src/.git/HEAD"]
+)
 def test_a_verdict_location_outside_the_work_tree_falls_back_to_the_id_line(tmp_path, file):
+    commit_code(tmp_path)  # a real `.git/`, so its files exist and must still be refused
     stray = answer("not-satisfied", file=file, line=3)
     result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": stray, "tested": GREET["tested"]}}), tmp_path)
     found = one(result, "earnest/judge-not-satisfied")
     assert (found.path, found.line) == (SPEC, 3)
     implemented = result.observations[0]
     assert implemented["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}
+
+
+def test_a_verdict_location_with_a_dot_component_normalises_to_its_work_tree_file(tmp_path):
+    commit_code(tmp_path)  # a `.git/` to reject beside the work tree's files
+    dotted = answer("not-satisfied", file="./src//a.py", line=3)
+    result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": dotted, "tested": GREET["tested"]}}), tmp_path)
+    found = one(result, "earnest/judge-not-satisfied")
+    assert (found.path, found.line) == ("src/a.py", 3)
+    assert result.observations[0]["location"] == {"artifactLocation": {"uri": "src/a.py"}, "region": {"startLine": 3}}
+
+
+def test_an_override_under_a_duplicate_of_its_item_counts_for_nothing(tmp_path):
+    at = commit_code(tmp_path)
+    again = f"`req~greet~1`\n\nWhen a member logs in, the system shall greet them.\nOverride: req~greet~1 implemented at {at}, why\n"
+    found = index(Source("docs/other.md", MARKDOWN, split_lines(again)))
+    model = Counting(stub(tmp_path, {"req~greet~1": GREET}))
+    result = ask(found, model, tmp_path)
+    assert ("req~greet~1", "implemented") in model.asked
+    assert all(each["author"] == "judge" for each in result.observations if each["subject"] == "req~greet~1")
+
+
+def loose_object(root, sha):
+    return root / ".git" / "objects" / sha[:2] / sha[2:]
+
+
+def test_a_changed_file_whose_blob_git_cannot_read_drifts_the_override(tmp_path):
+    write_code(tmp_path)
+    (tmp_path / "src/c.py").write_text("# [impl->req~greet~1]\nx = 1\n")
+    at = commit_code(tmp_path)
+    blob = git_output(tmp_path, "rev-parse", f"{at}:src/c.py").strip()
+    loose_object(tmp_path, blob).unlink()  # the commit lists src/c.py, but its object is gone
+    (tmp_path / "src/c.py").write_text("# [impl->req~greet~1]\nx = 2\n")
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
+    found = one(result, "earnest/override-drift")
+    assert "src/c.py" in found.message
+    assert "cannot read" in found.message
+
+
+def test_a_file_added_since_the_commit_is_absent_there_and_does_not_drift(tmp_path):
+    at = commit_code(tmp_path)
+    (tmp_path / "src/new.py").write_text("x = 1\n")
+    commit_as_fixture(tmp_path, "add", "src/new.py")
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
+    assert "earnest/override-drift" not in rules(result)
+
+
+def test_the_old_tags_of_a_commit_and_path_are_read_once_a_run(tmp_path, monkeypatch):
+    write_code(tmp_path)
+    (tmp_path / "src/c.py").write_text("x = 0\n")
+    at = commit_code(tmp_path)
+    (tmp_path / "src/c.py").write_text("x = 1\n")
+    read = []
+    original = judge.git.blob
+    monkeypatch.setattr(judge.git, "blob", lambda *args: read.append(args[1:]) or original(*args))
+    lines = (f"Override: req~greet~1 implemented at {at}, why", f"Override: req~greet~1 tested at {at}, why")
+    ask(overridden(*lines), stub(tmp_path, {}), tmp_path)
+    assert read == [(at, "src/c.py")]
