@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 
-from earnest import ears
+from earnest import ears, git
 from earnest.index import Index, Item, Override, Region, digest
 from earnest.reporter import RECORD, Finding, canonical, location
 
@@ -235,6 +235,9 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot
         held = standing.get((question.subject, question.kind))
         if held is not None:
             observed = observation(question, "maintainer", Verdict("satisfied", held.reason, held.path, held.line))
+            if (why := drifted(root, held, question.regions)) is not None:
+                rerun = observation(question, "judge", cache.ask(question, index))
+                found.append(drift(held, why, observed, rerun))
         else:
             verdict = cache.ask(question, index)
             observed = observation(question, "judge", verdict)
@@ -256,7 +259,10 @@ def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Findi
     found: list[Finding] = []
     for written in (override for item in index.items for override in item.overrides):
         item = index.defined.get(written.target.key)
-        if item is None or item.id != written.target:
+        if item is None:
+            continue
+        if item.id != written.target:
+            found.append(expired(written, item))
             continue
         key = (str(written.target), written.kind)
         first = standing.setdefault(key, written)
@@ -267,6 +273,47 @@ def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Findi
             )
             found.append(Finding(written.path, written.line, "earnest/duplicate", key[0], message))
     return standing, found
+
+
+def expired(written: Override, item: Item) -> Finding:
+    """Return `override-expired` at an override that names a revision other than its item's current one."""
+    message = (
+        f"the override of `{written.target}` {written.kind} names revision {written.target.revision}, and the item is"
+        f" at `{item.id}`: judge the new revision, or write a new override for it"
+    )
+    return Finding(written.path, written.line, "earnest/override-expired", str(written.target), message)
+
+
+def drifted(root: Path, written: Override, found: Sequence[Region]) -> str | None:
+    """Return why an override drifted: a region changed between its commit and the work tree, or Git lacks the commit.
+
+    A commit Git does not hold shows nothing of the code since it, so the override counts as drifted. None: it holds.
+    """
+    if not git.has_commit(root, written.commit):
+        return f"Git holds no commit {written.commit}, so nothing shows the code held still since the override"
+    hunks = git.changed_lines(root, written.commit, {region.path for region in found}, keep_deletions=True)
+    if any(_touches(hunk, region) for region in found for hunk in hunks.get(region.path, ())):
+        return f"its code changed since {written.commit}, the commit the override stands at"
+    return None
+
+
+def _touches(hunk: git.Hunk, region: Region) -> bool:
+    """Return whether a hunk writes a line of region, or deletes lines between two of its lines."""
+    if hunk.new_count:
+        return any(region.first <= line <= region.last for line in hunk.new_lines)
+    return region.first <= hunk.new_start < region.last
+
+
+def drift(written: Override, why: str, observed: Mapping[str, object], rerun: Mapping[str, object]) -> Finding:
+    """Return `override-drift` at the override, carrying its observation and then the judge's rerun."""
+    message = (
+        f"the override of `{written.target}` {written.kind} drifted: {why}; the judge now answers {rerun['result']};"
+        " review the code, then move the override to a new commit"
+    )
+    subject = str(written.target)
+    return Finding(
+        written.path, written.line, "earnest/override-drift", subject, message, observations=(observed, rerun)
+    )
 
 
 def not_satisfied(question: Question, verdict: Verdict, observed: Mapping[str, object]) -> Finding:

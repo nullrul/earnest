@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import subprocess
 
 import pytest
 
@@ -42,10 +43,25 @@ def answer(result="satisfied", file="src/a.py", line=3, reasoning="it does"):
     return {"result": result, "reasoning": reasoning, "location": {"file": file, "line": line}}
 
 
-def ask(found, model, root, slot=None):
+def write_code(root):
     for path, lines in (("src/a.py", 5), ("tests/a.py", 4), ("src/b.py", 3)):
         (root / path).parent.mkdir(parents=True, exist_ok=True)
         (root / path).write_text("".join(f"line {number}\n" for number in range(1, lines + 1)))
+
+
+def commit_code(root):
+    """Commit the tagged files in a new repository at root, and return the commit's sha."""
+    write_code(root)
+    identity = ("-c", "user.name=t", "-c", "user.email=t@example.com")
+    for args in (("init", "-q"), ("add", "src", "tests"), (*identity, "commit", "-q", "--no-verify", "-m", "code")):
+        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
+    done = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True)
+    return done.stdout.strip()
+
+
+def ask(found, model, root, slot=None):
+    if not (root / "src").exists():
+        write_code(root)
     return judge.judge(found, LEVELS, model, root, slot or {"cache": {}})
 
 
@@ -160,7 +176,7 @@ def overridden(*lines):
 
 def test_a_standing_override_replaces_its_question_which_is_not_asked(tmp_path):
     model = stub(tmp_path, {"req~greet~1": {"tested": answer(file="tests/a.py")}})
-    index = overridden("Override: req~greet~1 implemented at 89f3937,  the gateway greets  ")
+    index = overridden(f"Override: req~greet~1 implemented at {commit_code(tmp_path)},  the gateway greets  ")
     result = ask(index, model, tmp_path)
     implemented, tested = result.observations
     assert implemented == {
@@ -177,8 +193,9 @@ def test_a_standing_override_replaces_its_question_which_is_not_asked(tmp_path):
 
 def test_two_overrides_of_one_id_and_kind_are_a_duplicate(tmp_path):
     model = stub(tmp_path, {"req~greet~1": {"tested": answer(file="tests/a.py")}})
+    at = commit_code(tmp_path)
     index = overridden(
-        "Override: req~greet~1 implemented at 89f3937, one", "Override: req~greet~1 implemented at 89f3937, two"
+        f"Override: req~greet~1 implemented at {at}, one", f"Override: req~greet~1 implemented at {at}, two"
     )
     result = ask(index, model, tmp_path)
     (found,) = [each for each in result.findings if each.rule == "earnest/duplicate"]
@@ -189,7 +206,7 @@ def test_two_overrides_of_one_id_and_kind_are_a_duplicate(tmp_path):
 @pytest.mark.parametrize(("tested", "level"), [("satisfied", "judged"), ("not-satisfied", "traced")])
 def test_judged_means_traced_with_every_question_satisfied_or_overridden(tmp_path, tested, level):
     model = stub(tmp_path, {"req~greet~1": {"tested": answer(tested, file="tests/a.py")}})
-    index = overridden("Override: req~greet~1 implemented at 89f3937, why")
+    index = overridden(f"Override: req~greet~1 implemented at {commit_code(tmp_path)}, why")
     assert ask(index, model, tmp_path).levels == {"req~greet~1": level, "req~prose~1": "traced"}
 
 
@@ -252,3 +269,54 @@ def test_a_stub_file_edit_changes_the_model_id_and_reruns(tmp_path):
     model = Counting(stub(tmp_path, {"req~greet~1": GREET, "req~other~1": {}}))
     ask(index(), model, tmp_path, first.cache)
     assert len(model.asked) == 2
+
+
+def rules(result):
+    return [each.rule for each in result.findings]
+
+
+def test_an_override_at_another_revision_expires_and_its_question_is_asked(tmp_path):
+    model = Counting(stub(tmp_path, {"req~greet~1": GREET}))
+    result = ask(overridden(f"Override: req~greet~2 implemented at {commit_code(tmp_path)}, why"), model, tmp_path)
+    (found,) = [each for each in result.findings if each.rule == "earnest/override-expired"]
+    assert (found.path, found.line, found.subject) == (SPEC, 6, "req~greet~2")
+    assert "req~greet~1" in found.message
+    assert model.asked == [("req~greet~1", "implemented"), ("req~greet~1", "tested")]
+    assert "earnest/override-drift" not in rules(result)
+
+
+def test_an_override_whose_region_changed_drifts_and_carries_both_observations(tmp_path):
+    at = commit_code(tmp_path)
+    (tmp_path / "src/a.py").write_text("line 1\nline 2\nchanged\nline 4\nline 5\n")
+    verdicts = {"implemented": answer("not-satisfied", reasoning="it moved"), "tested": GREET["tested"]}
+    result = ask(
+        overridden(f"Override: req~greet~1 implemented at {at}, why"),
+        stub(tmp_path, {"req~greet~1": verdicts}),
+        tmp_path,
+    )
+    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    assert (found.path, found.line) == (SPEC, 6)
+    assert [(each["author"], each["result"]) for each in found.observations] == [
+        ("maintainer", "satisfied"),
+        ("judge", "not-satisfied"),
+    ]
+    assert "earnest/judge-not-satisfied" not in rules(result)
+    assert result.observations[0]["author"] == "maintainer"
+    assert result.levels["req~greet~1"] == "judged"
+
+
+def test_an_override_whose_region_held_still_does_not_drift(tmp_path):
+    at = commit_code(tmp_path)
+    (tmp_path / "src/b.py").write_text("other\n")
+    model = Counting(stub(tmp_path, {"req~greet~1": {"tested": GREET["tested"]}}))
+    result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
+    assert "earnest/override-drift" not in rules(result)
+    assert model.asked == [("req~greet~1", "tested")]
+
+
+def test_an_override_at_a_commit_git_does_not_hold_drifts(tmp_path):
+    commit_code(tmp_path)
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    result = ask(overridden("Override: req~greet~1 implemented at deadbeef, why"), model, tmp_path)
+    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    assert "deadbeef" in found.message
