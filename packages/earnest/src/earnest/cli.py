@@ -102,7 +102,7 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
-    judged = judge.judge(index, levels, model) if model is not None else None
+    judged = judge.judge(index, levels, model, world.root, world.record.judge) if model is not None else None
     if judged is not None:
         levels = judged.levels
     plans = [plan.build(current, index) for current in world.intents]
@@ -126,6 +126,7 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     )
     if judged is not None and model is not None:
         run = replace(run, model=model.id, prompt=judge.PROMPT_HASH, observations=tuple(judged.observations))
+        world.record.judge = judged.cache  # the caller writes it: `--judge` writes the record's `judge` slot
     return _Analysis(index, levels, plans, findings, derived, statuses, run)
 
 
@@ -216,6 +217,8 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
             plan.find_intent(world.intents, _option(world, args.intent))
         analysis = _task_change(world, _analyse(world, model), args.task)
         findings, run = analysis.findings, analysis.run
+        if model is not None:
+            reporter.write_record(world.root, world.record)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
             reporter.summary(findings, analysis.levels, run),

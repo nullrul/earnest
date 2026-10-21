@@ -3,13 +3,13 @@
 import json
 import os
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 
 from earnest import ears
 from earnest.index import Index, Item, Override, Region, digest
-from earnest.reporter import RECORD, Finding, location
+from earnest.reporter import RECORD, Finding, canonical, location
 
 
 QUESTIONS = ("implemented", "tested")
@@ -75,6 +75,52 @@ class Judgement:
     findings: list[Finding]
     observations: list[dict[str, object]]
     levels: dict[str, str]
+    cache: dict[str, object]  # the record's `judge` slot as this run leaves it
+
+
+@dataclass
+class Cache:
+    """The judge cache: the record's entries, and the ones this run used, which are what the slot keeps."""
+
+    root: Path
+    model: Stub
+    held: Mapping[str, object]
+    used: dict[str, object] = field(default_factory=dict)
+
+    def ask(self, question: Question, index: Index) -> Verdict:
+        """Return the cached verdict of a question whose key is unchanged, else ask the model and cache its answer."""
+        item = question.item
+        parts = {
+            "item": question.subject,
+            "question": question.kind,
+            "regions": self._hash(regions(index, item, KINDS["implemented"])),
+            "tests": self._hash(regions(index, item, KINDS["tested"])),
+            "model": self.model.id,
+            "prompt": PROMPT_HASH,
+        }
+        key = digest(canonical(parts).encode("ascii"))
+        entry = self.held.get(key)
+        verdict = (_cached(entry) if isinstance(entry, dict) else None) or self.model.ask(question)
+        where = {"file": verdict.path, "line": verdict.line}
+        self.used[key] = {**parts, "result": verdict.result, "reasoning": verdict.reasoning, "location": where}
+        return verdict
+
+    def _hash(self, found: Sequence[Region]) -> str:
+        """Return the digest of regions: each one's path, lines and text, in path and line order."""
+        chunks: list[bytes] = []
+        for region in sorted(found, key=lambda each: (each.path, each.first, each.last)):
+            text = (self.root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
+            chunks.append(f"{region.path}:{region.first}-{region.last}\n".encode("utf-8", "surrogateescape"))
+            chunks.append(b"\n".join(text) + b"\n")
+        return digest(b"".join(chunks))
+
+
+def _cached(entry: Mapping[str, object]) -> Verdict | None:
+    """Return a cache entry's verdict, or None when the entry is not one this release wrote."""
+    try:
+        return _verdict(entry)
+    except (TypeError, KeyError):
+        return None
 
 
 def load_model(value: str | None) -> Stub:
@@ -170,12 +216,17 @@ def observation(question: Question, author: str, verdict: Verdict) -> dict[str, 
     }
 
 
-def judge(index: Index, levels: Mapping[str, str], model: Stub) -> Judgement:
-    """Ask each question no standing override answers, and return the findings, observations and levels.
+def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot: Mapping[str, object]) -> Judgement:
+    """Ask each question no standing override answers, and return the findings, observations, levels and cache.
+
+    The cache is the record's `judge` slot, read from root's work tree; the questions this run asked or reused stay.
 
     Raises:
         JudgeError: the model cannot answer a question.
+        OSError: a tagged file cannot be read.
     """
+    held = slot.get("cache")
+    cache = Cache(root, model, held if isinstance(held, dict) else {})
     standing, found = overrides(index)
     found.insert(0, uncalibrated(model))
     observations: list[dict[str, object]] = []
@@ -185,16 +236,15 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub) -> Judgement:
         if held is not None:
             observed = observation(question, "maintainer", Verdict("satisfied", held.reason, held.path, held.line))
         else:
-            verdict = model.ask(question)
+            verdict = cache.ask(question, index)
             observed = observation(question, "judge", verdict)
             if verdict.result != "satisfied":
                 found.append(not_satisfied(question, verdict, observed))
         observations.append(observed)
         results.setdefault(question.subject, []).append(observed["result"])
     judged = {req for req, each in results.items() if each == ["satisfied"] * len(QUESTIONS)}
-    return Judgement(
-        found, _sorted(observations), {req: "judged" if req in judged else level for req, level in levels.items()}
-    )
+    levels = {req: "judged" if req in judged else level for req, level in levels.items()}
+    return Judgement(found, _sorted(observations), levels, {"cache": cache.used})
 
 
 def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Finding]]:
