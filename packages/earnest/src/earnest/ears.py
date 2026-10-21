@@ -17,12 +17,15 @@ TEMPLATES = (
     "If condition, then the system shall response.",
     "Where feature, the system shall response.",
 )
-# The grammar's fixed keyword order; a clause holds no comma, so the comma after it ends it.
+# The grammar's fixed keyword order; a clause holds no comma, so the comma after it ends it, and no sentence end.
 # shortcut: a precondition with a comma inside it does not parse; read nested commas if a real spec needs them
+# shortcut: a `. `, `! ` or `? ` ends the sentence, so an abbreviation such as `e.g. ` is rejected; list known
+# abbreviations if real specs use them
+_CLAUSE = r"(?:[^,.!?]|[.!?](?! ))+"
 _EARS = re.compile(
-    r"(?:Where (?P<where>[^,]+), )?"
-    r"(?:(?<![^ ])[Ww]hile (?P<while>[^,]+), )?"
-    r"(?:(?<![^ ])[Ww]hen (?P<when>[^,]+), |(?<![^ ])[Ii]f (?P<if>[^,]+), then )?"
+    rf"(?:Where (?P<where>{_CLAUSE}), )?"
+    rf"(?:(?<![^ ])[Ww]hile (?P<while>{_CLAUSE}), )?"
+    rf"(?:(?<![^ ])[Ww]hen (?P<when>{_CLAUSE}), |(?<![^ ])[Ii]f (?P<if>{_CLAUSE}), then )?"
     r"(?<![^ ])[Tt]he (?P<system>(?:(?! shall )[^.!?]|[.!?](?! ))+) shall (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
 )
 
