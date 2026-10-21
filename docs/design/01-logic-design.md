@@ -1461,7 +1461,8 @@ and `earnest check` alike): Git cannot answer, a file or the record cannot be
 read or written, the record is corrupt or newer, `.earnest` or the record is a symlink, `--intent` names a record
 directory that does not exist, `--stage` is ambiguous (no intent given and
 no record or several records, or a bare slug that several route stages share) or names a
-stage that is not on the route, or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
+stage that is not on the route, `--judge` finds no model it can run (see
+Runtime and permission model), or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
 and maintainers run `earnest check` on
 demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the
@@ -1647,7 +1648,26 @@ the trace, judge and evidence layers that ran.
 
 The judge layer sends the model provider only the requirement clause, the
 tagged code regions and the tagged tests, and only when the judge layer is
-requested. The trace layer, the out-of-task check, impact, plan and stage
+requested.
+
+`--judge` reads its model from the environment variable `EARNEST_JUDGE`,
+by the maintainer's decision; Earnest has no configuration file, so the
+variable is the one place a model is named. The value `stub:<path>` names a
+canned-verdict file, a path relative to the working directory, and a test
+plugs a stub model into `--judge` this way. The file is one JSON object keyed
+by requirement id and revision, then by question (`implemented` or
+`tested`), each answer an object with `result` (`satisfied` or
+`not-satisfied`), `reasoning` and `location` (`file` and `line`). The stub
+answers each question from the file, makes no network access and needs no
+key; its model id is `stub:sha256:` and the SHA-256 of the file's bytes, so
+an edit to the file reruns every question through the judge cache key.
+`--judge` exits 2 when `EARNEST_JUDGE` is unset or names no model Earnest
+knows, when the file cannot be read or is not that object, and when a
+question the judge asks has no answer in the file. The value that names a
+real model settles with "Judge model choice and prompt" in the Open
+questions section.
+
+The trace layer, the out-of-task check, impact, plan and stage
 status, and the frontier run entirely on the local repository.
 
 ## Open questions
@@ -1661,7 +1681,6 @@ status, and the frontier run entirely on the local repository.
 | Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the hold on an artifact that changes during a sensor run, and the check in `approve` that artifacts are unchanged since the sensor ran | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Per-unit fork work, milestone `aidlc_fork`: how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit` | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
-| How a test plugs a stub model into `--judge` | maintainer | before milestone `judge_check` of `03-implementation-plan.md` |
 | Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
 | A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
 | Which existing repository SC4's ten hand-written requirements come from | maintainer | before milestone `calibration_gate` of `03-implementation-plan.md` |
