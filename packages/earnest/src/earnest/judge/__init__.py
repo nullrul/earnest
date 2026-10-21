@@ -1,11 +1,10 @@
 """Judge: the questions each traced EARS requirement asks, the model that answers them, and its observations (D14)."""
 
 import json
-import os
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from importlib.resources import files
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from earnest import adapters, ears, git
 from earnest.index import Index, Item, Link, Override, Region, build_index, digest
@@ -104,8 +103,7 @@ class Cache:
             "prompt": PROMPT_HASH,
         }
         key = digest(canonical(parts).encode("ascii"))
-        entry = self.held.get(key)
-        verdict = (_cached(entry) if isinstance(entry, dict) else None) or self.model.ask(question)
+        verdict = _cached(self.held.get(key)) or self.model.ask(question)
         where = {"file": verdict.path, "line": verdict.line}
         self.used[key] = {**parts, "result": verdict.result, "reasoning": verdict.reasoning, "location": where}
         return verdict
@@ -120,7 +118,7 @@ class Cache:
         return digest(b"".join(chunks))
 
 
-def _cached(entry: Mapping[str, object]) -> Verdict | None:
+def _cached(entry: object) -> Verdict | None:
     """Return a cache entry's verdict, or None when the entry is not one this release wrote."""
     try:
         return _verdict(entry)
@@ -183,13 +181,10 @@ def _verdict(answer: object) -> Verdict:
     return Verdict(result, reasoning, path, line)
 
 
-def environment_model() -> Stub:
-    """Return the model `EARNEST_JUDGE` names in the environment."""
-    return load_model(os.environ.get("EARNEST_JUDGE"))
-
-
 def questions(index: Index, levels: Mapping[str, str]) -> list[Question]:
     """Return the two questions of each traced requirement whose body is one EARS sentence, in index order."""
+    # shortcut: a question carries its clause spans but no question text, as the stub reads no prompt; M6's real
+    # model builds the text from the spans and prompt.txt
     asked: list[Question] = []
     for item in index.defined.values():
         sentence = ears.parse(item.body) if levels.get(str(item.id)) == "traced" else None
@@ -235,24 +230,34 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot
     standing, found = overrides(index)
     found.insert(0, uncalibrated(model))
     observations: list[dict[str, object]] = []
-    results: dict[str, list[object]] = {}
+    satisfied: dict[str, int] = {}
     for question in questions(index, levels):
-        held = standing.get((question.subject, question.kind))
-        if held is not None:
-            observed = observation(question, "maintainer", Verdict("satisfied", held.reason, held.path, held.line))
-            if (why := drifted(root, index, held, question.regions)) is not None:
-                rerun = observation(question, "judge", cache.ask(question, index))
-                found.append(drift(held, why, observed, rerun))
+        override = standing.get((question.subject, question.kind))
+        if override is not None:
+            observed = observation(
+                question, "maintainer", Verdict("satisfied", override.reason, override.path, override.line)
+            )
+            if (why := drifted(root, index, override, question.regions)) is not None:
+                rerun = observation(question, "judge", located(root, question, cache.ask(question, index)))
+                found.append(drift(override, why, observed, rerun))
         else:
-            verdict = cache.ask(question, index)
+            verdict = located(root, question, cache.ask(question, index))
             observed = observation(question, "judge", verdict)
             if verdict.result != "satisfied":
                 found.append(not_satisfied(question, verdict, observed))
         observations.append(observed)
-        results.setdefault(question.subject, []).append(observed["result"])
-    judged = {req for req, each in results.items() if each == ["satisfied"] * len(QUESTIONS)}
-    levels = {req: "judged" if req in judged else level for req, level in levels.items()}
-    return Judgement(found, _sorted(observations), levels, {"cache": cache.used})
+        satisfied[question.subject] = satisfied.get(question.subject, 0) + (observed["result"] == "satisfied")
+    levels = {req: "judged" if satisfied.get(req) == len(QUESTIONS) else level for req, level in levels.items()}
+    observations.sort(key=lambda each: (str(each["subject"]), str(each["question"])))
+    return Judgement(found, observations, levels, {"cache": cache.used})
+
+
+def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
+    """Return the verdict, at the item's id line when its location is no relative path to a file in root's work tree."""
+    parts = PurePosixPath(verdict.path).parts
+    if not parts or parts[0] == "/" or ".." in parts or not (root / verdict.path).is_file():
+        return replace(verdict, path=question.item.path, line=question.item.line)
+    return verdict
 
 
 def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Finding]]:
@@ -351,8 +356,15 @@ def not_satisfied(question: Question, verdict: Verdict, observed: Mapping[str, o
     """Return `judge-not-satisfied` at the verdict's location when a region asked about holds it, else at the id line."""
     inside = any(_holds(region, verdict.path, verdict.line) for region in question.regions)
     path, line = (verdict.path, verdict.line) if inside else (question.item.path, question.item.line)
-    message = f"the judge answered `{question.subject}` {question.kind} with not-satisfied: {verdict.reasoning}"
+    message = (
+        f"the judge answered `{question.subject}` {question.kind} with not-satisfied: {_escaped(verdict.reasoning)}"
+    )
     return Finding(path, line, "earnest/judge-not-satisfied", question.subject, message, observations=(observed,))
+
+
+def _escaped(text: str) -> str:
+    """Return the model's text with each control character, a newline or an ANSI escape, written as its escape."""
+    return "".join(character if character.isprintable() else ascii(character)[1:-1] for character in text)
 
 
 def _holds(region: Region, path: str, line: int) -> bool:
@@ -368,7 +380,3 @@ def uncalibrated(model: Stub) -> Finding:
         " run earnest calibrate before relying on the judge's verdicts"
     )
     return Finding(RECORD, 1, "earnest/judge-uncalibrated", model.id, message)
-
-
-def _sorted(observations: Sequence[dict[str, object]]) -> list[dict[str, object]]:
-    return sorted(observations, key=lambda each: (str(each["subject"]), str(each["question"])))

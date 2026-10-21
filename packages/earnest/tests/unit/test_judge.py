@@ -469,3 +469,23 @@ def test_an_items_region_hashes_are_taken_once_for_both_its_questions(tmp_path, 
     monkeypatch.setattr(judge.Cache, "_hash", lambda self, found: hashed.append(found) or original(self, found))
     ask(index(), stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
     assert len(hashed) == 2
+
+
+def test_control_characters_in_the_judge_s_reasoning_are_escaped_in_the_finding_message(tmp_path):
+    shouting = answer("not-satisfied", reasoning="bad\n\x1b[31mred\r")
+    result = ask(
+        index(), stub(tmp_path, {"req~greet~1": {"implemented": shouting, "tested": GREET["tested"]}}), tmp_path
+    )
+    (found,) = [each for each in result.findings if each.rule == "earnest/judge-not-satisfied"]
+    assert "bad\\n\\x1b[31mred\\r" in found.message
+    assert not any(character in found.message for character in "\n\r\x1b")
+
+
+@pytest.mark.parametrize("file", ["/etc/passwd", "../outside.py", "src/../src/a.py", "src/missing.py"])
+def test_a_verdict_location_outside_the_work_tree_falls_back_to_the_id_line(tmp_path, file):
+    stray = answer("not-satisfied", file=file, line=3)
+    result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": stray, "tested": GREET["tested"]}}), tmp_path)
+    (found,) = [each for each in result.findings if each.rule == "earnest/judge-not-satisfied"]
+    assert (found.path, found.line) == (SPEC, 3)
+    implemented = result.observations[0]
+    assert implemented["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}

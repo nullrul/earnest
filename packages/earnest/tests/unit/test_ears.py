@@ -63,6 +63,7 @@ def test_line_breaks_read_as_spaces():
         "When a member logs in the system shall greet them.",
         "The cache expires. Then the system shall reset.",
         "When a member logs in. Then, the system shall greet them.",
+        "The system, when locked, shall reply.",
         "While the cache is warm. If it expires, then the system shall reset.",
     ],
 )

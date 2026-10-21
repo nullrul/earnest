@@ -4,7 +4,7 @@ import argparse
 import os
 import posixpath
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -37,6 +37,7 @@ class _Analysis:
     derived: list[Finding]
     statuses: dict[str, dict[str, plan.StageStatus]]
     run: Run
+    cache: dict[str, object] | None = None  # the record's `judge` slot as a judge run leaves it, for `--judge` to write
 
 
 @dataclass(frozen=True)
@@ -102,16 +103,19 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
-    judged = judge.judge(index, levels, model, world.root, world.record.judge) if model is not None else None
-    if judged is not None:
-        levels = judged.levels
+    asked: list[Finding] = []
+    cache: dict[str, object] | None = None
+    observations: tuple[Mapping[str, object], ...] | None = None
+    if model is not None:
+        judged = judge.judge(index, levels, model, world.root, world.record.judge)
+        levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
     frozen = plan.frozen_bodies(world.record.bodies, built)
     own = [found for each in plans for found in (*plan.plan_findings(each, index), *plan.approval_findings(each))]
     derived = plan.place(plans, index, own)
     checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
-    checked += judged.findings if judged is not None else []
+    checked += asked
     findings = [*plan.place(plans, index, checked), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None
@@ -123,11 +127,11 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
         plan=props,
         record_absent=not world.record_exists and bool(index.defined),
         unheld=unheld if world.record_exists else 0,
+        model=None if model is None else model.id,
+        prompt=None if model is None else judge.PROMPT_HASH,
+        observations=observations,
     )
-    if judged is not None and model is not None:
-        run = replace(run, model=model.id, prompt=judge.PROMPT_HASH, observations=tuple(judged.observations))
-        world.record.judge = judged.cache  # the caller writes it: `--judge` writes the record's `judge` slot
-    return _Analysis(index, levels, plans, findings, derived, statuses, run)
+    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -212,13 +216,14 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:
-    model = judge.environment_model() if args.judge else None
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge else None
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
         analysis = _task_change(world, _analyse(world, model), args.task)
         findings, run = analysis.findings, analysis.run
-        if model is not None:
+        if analysis.cache is not None:
+            world.record.judge = analysis.cache
             reporter.write_record(world.root, world.record)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
@@ -250,6 +255,8 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     # last-writer-wins (the same stage twice is safe); take an flock on `.earnest/lock` if sensor fires run in parallel
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
+    if analysis.cache is not None:
+        world.record.judge = analysis.cache
     reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
     # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
     reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)

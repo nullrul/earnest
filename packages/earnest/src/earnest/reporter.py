@@ -270,12 +270,13 @@ def location(path: str, line: int) -> dict[str, object]:
 
 
 def _result(finding: Finding) -> dict[str, object]:
+    where = location(finding.path, finding.line)
     observation = {
         "method": "trace",
         "subject": finding.subject,
         "result": finding.rule.removeprefix("earnest/"),
         "reasoning": finding.message,
-        "location": location(finding.path, finding.line),
+        "location": where,
     }
     observations = list(finding.observations) or [observation]
     properties: dict[str, object] = {"position": finding.position, "observations": observations}
@@ -285,7 +286,7 @@ def _result(finding: Finding) -> dict[str, object]:
         "ruleId": finding.rule,
         "level": finding.level,
         "message": {"text": finding.text},
-        "locations": [{"physicalLocation": location(finding.path, finding.line)}],
+        "locations": [{"physicalLocation": where}],
         "properties": properties,
     }
 

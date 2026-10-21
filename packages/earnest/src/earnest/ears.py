@@ -17,7 +17,7 @@ TEMPLATES = (
     "If condition, then the system shall response.",
     "Where feature, the system shall response.",
 )
-# The grammar's fixed keyword order; a clause holds no comma, so the comma after it ends it, and no sentence end.
+# The grammar's fixed keyword order; a clause, and the system, holds no comma and no sentence end.
 # shortcut: a precondition with a comma inside it does not parse; read nested commas if a real spec needs them
 # shortcut: a `. `, `! ` or `? ` ends the sentence, so an abbreviation such as `e.g. ` is rejected; list known
 # abbreviations if real specs use them
@@ -26,7 +26,7 @@ _EARS = re.compile(
     rf"(?:Where (?P<where>{_CLAUSE}), )?"
     rf"(?:(?<![^ ])[Ww]hile (?P<while>{_CLAUSE}), )?"
     rf"(?:(?<![^ ])[Ww]hen (?P<when>{_CLAUSE}), |(?<![^ ])[Ii]f (?P<if>{_CLAUSE}), then )?"
-    r"(?<![^ ])[Tt]he (?P<system>(?:(?! shall )[^.!?]|[.!?](?! ))+) shall (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
+    r"(?<![^ ])[Tt]he (?P<system>(?:(?! shall )[^,.!?]|[.!?](?! ))+) shall (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
 )
 
 
