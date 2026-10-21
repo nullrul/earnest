@@ -37,8 +37,12 @@ def cell(observation, column):
     return location_cell(observation["location"]) if column == "location" else observation[column]
 
 
-def matches(observation, row):
-    return all(cell(observation, column) == value for column, value in row.items())
+def same_rows(found, datatable):
+    """Assert the observations are the table's rows, in order, compared on the table's columns."""
+    table = rows(datatable)
+    columns = list(table[0])
+    actual = [tuple(cell(observation, column) for column in columns) for observation in found]
+    assert actual == [tuple(row[column] for column in columns) for row in table]
 
 
 # Background and the steps that change the repository.
@@ -145,10 +149,7 @@ def summary_leads(run, text):
 
 @then("the SARIF log holds exactly these observations of record:")
 def exact_observations(run, datatable):
-    table = rows(datatable)
-    columns = list(table[0])
-    actual = [tuple(cell(observation, column) for column in columns) for observation in observations(run)]
-    assert actual == [tuple(row[column] for column in columns) for row in table]
+    same_rows(observations(run), datatable)
 
 
 @then(parsers.parse('the observation of record for "{req}" "{question}" gives the reasoning "{reasoning}"'))
@@ -164,23 +165,18 @@ def cache_holds(repo, datatable):
     assert actual == sorted((row["subject"], row["question"]) for row in rows(datatable))
 
 
-@then(parsers.parse('the earnest/override-expired finding names "{old}" and the current revision "{current}"'))
-def expired_names(run, old, current):
-    text = finding(run, "earnest/override-expired")["message"]["text"]
-    assert old in text
-    assert current in text
-
-
-@then(parsers.parse('the earnest/override-drift finding names "{req}" and the commit "{commit}"'))
-def drift_names(run, req, commit):
-    text = finding(run, "earnest/override-drift")["message"]["text"]
-    assert req in text
-    assert commit in text
+@then(
+    parsers.re(
+        r'the (?P<rule>earnest/override-(?:expired|drift)) finding names "(?P<first>[^"]+)"'
+        r' and the (?:current revision|commit) "(?P<second>[^"]+)"'
+    )
+)
+def override_finding_names(run, rule, first, second):
+    text = finding(run, rule)["message"]["text"]
+    assert first in text
+    assert second in text
 
 
 @then("the earnest/override-drift finding carries these observations:")
 def drift_carries(run, datatable):
-    carried = finding(run, "earnest/override-drift")["properties"]["observations"]
-    table = rows(datatable)
-    assert len(carried) == len(table)
-    assert all(matches(observation, row) for observation, row in zip(carried, table, strict=True)), carried
+    same_rows(finding(run, "earnest/override-drift")["properties"]["observations"], datatable)

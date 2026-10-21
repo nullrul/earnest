@@ -2,12 +2,13 @@
 
 import hashlib
 import json
-import subprocess
 
 import pytest
 
 from earnest import judge
 from earnest.index import COMMENT, MARKDOWN, Line, Source, build_index, split_lines
+from tests.conftest import _git as commit_as_fixture
+from tests.sarif import git_output
 
 
 SPEC = "docs/req.md"
@@ -52,15 +53,15 @@ def write_code(root):
 def commit_code(root):
     """Commit the tagged files in a new repository at root, and return the commit's sha."""
     write_code(root)
-    identity = ("-c", "user.name=t", "-c", "user.email=t@example.com")
-    for args in (("init", "-q"), ("add", "src", "tests"), (*identity, "commit", "-q", "--no-verify", "-m", "code")):
-        subprocess.run(["git", *args], cwd=root, check=True, capture_output=True)
-    done = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, check=True, capture_output=True, text=True)
-    return done.stdout.strip()
+    for args in (("init", "-q"), ("add", "src", "tests"), ("commit", "-q", "--no-verify", "-m", "code")):
+        commit_as_fixture(root, *args)
+    return git_output(root, "rev-parse", "HEAD").strip()
 
 
-def git_in(root, *args):
-    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout
+def one(result, rule):
+    """Return the one finding of a rule in a judge run."""
+    (found,) = [each for each in result.findings if each.rule == rule]
+    return found
 
 
 def ask(found, model, root, slot=None):
@@ -137,7 +138,7 @@ def test_each_traced_ears_requirement_asks_two_questions_and_others_none():
 def test_a_not_satisfied_verdict_sits_at_its_location_inside_an_asked_region(tmp_path):
     model = stub(tmp_path, {"req~greet~1": {"implemented": answer("not-satisfied"), "tested": answer()}})
     result = ask(index(), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/judge-not-satisfied"]
+    found = one(result, "earnest/judge-not-satisfied")
     assert (found.path, found.line, found.subject) == ("src/a.py", 3, "req~greet~1")
     assert "it does" in found.message
     assert found.observations[0]["author"] == "judge"
@@ -147,14 +148,14 @@ def test_a_not_satisfied_verdict_outside_the_asked_regions_sits_at_the_id_line(t
     outside = answer("not-satisfied", file="src/a.py", line=9)
     model = stub(tmp_path, {"req~greet~1": {"implemented": answer(), "tested": outside}})
     result = ask(index(), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/judge-not-satisfied"]
+    found = one(result, "earnest/judge-not-satisfied")
     assert (found.path, found.line) == (SPEC, 3)
 
 
 def test_one_uncalibrated_finding_per_run_at_line_one_of_the_record(tmp_path):
     model = stub(tmp_path, {"req~greet~1": {"implemented": answer(), "tested": answer()}})
     result = ask(index(), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/judge-uncalibrated"]
+    found = one(result, "earnest/judge-uncalibrated")
     assert (found.path, found.line) == (".earnest/assessment.json", 1)
     assert model.id in found.message
     assert judge.PROMPT_HASH in found.message
@@ -202,7 +203,7 @@ def test_two_overrides_of_one_id_and_kind_are_a_duplicate(tmp_path):
         f"Override: req~greet~1 implemented at {at}, one", f"Override: req~greet~1 implemented at {at}, two"
     )
     result = ask(index, model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/duplicate"]
+    found = one(result, "earnest/duplicate")
     assert (found.path, found.line) == (SPEC, 7)
     assert result.observations[0]["reasoning"] == "one"
 
@@ -282,7 +283,7 @@ def rules(result):
 def test_an_override_at_another_revision_expires_and_its_question_is_asked(tmp_path):
     model = Counting(stub(tmp_path, {"req~greet~1": GREET}))
     result = ask(overridden(f"Override: req~greet~2 implemented at {commit_code(tmp_path)}, why"), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/override-expired"]
+    found = one(result, "earnest/override-expired")
     assert (found.path, found.line, found.subject) == (SPEC, 6, "req~greet~2")
     assert "req~greet~1" in found.message
     assert model.asked == [("req~greet~1", "implemented"), ("req~greet~1", "tested")]
@@ -298,7 +299,7 @@ def test_an_override_whose_region_changed_drifts_and_carries_both_observations(t
         stub(tmp_path, {"req~greet~1": verdicts}),
         tmp_path,
     )
-    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    found = one(result, "earnest/override-drift")
     assert (found.path, found.line) == (SPEC, 6)
     assert [(each["author"], each["result"]) for each in found.observations] == [
         ("maintainer", "satisfied"),
@@ -322,7 +323,7 @@ def test_an_override_at_a_commit_git_does_not_hold_drifts(tmp_path):
     commit_code(tmp_path)
     model = stub(tmp_path, {"req~greet~1": GREET})
     result = ask(overridden("Override: req~greet~1 implemented at deadbeef, why"), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    found = one(result, "earnest/override-drift")
     assert "Git holds no single commit deadbeef" in found.message
 
 
@@ -353,21 +354,21 @@ def drifts_after(tmp_path, lines):
     return rules(ask(index, model, tmp_path))
 
 
-def test_deleting_the_last_line_of_an_overridden_region_drifts(tmp_path):
-    assert "earnest/override-drift" in drifts_after(tmp_path, ["line 1", "line 2", "line 3", "line 4"])
-
-
-def test_deleting_all_the_code_under_an_overridden_tag_drifts(tmp_path):
-    assert "earnest/override-drift" in drifts_after(tmp_path, ["line 1"])
+@pytest.mark.parametrize(
+    "lines",
+    [["line 1", "line 2", "line 3", "line 4"], ["line 1"]],
+    ids=["the region's last line", "all the code under the tag"],
+)
+def test_deleting_lines_at_the_end_of_an_overridden_region_drifts(tmp_path, lines):
+    assert "earnest/override-drift" in drifts_after(tmp_path, lines)
 
 
 def test_a_deletion_before_the_region_does_not_drift(tmp_path):
     # the tag moves to line 2 of src/a.py, so the deleted line 1 lies before its region, which holds still
     commit_code(tmp_path)
     (tmp_path / "src/a.py").write_text("# head\nline 1\nline 2\nline 3\nline 4\nline 5\n")
-    git_in(tmp_path, "add", "src")
-    git_in(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--no-verify", "-m", "head")
-    at = git_in(tmp_path, "rev-parse", "HEAD").strip()
+    commit_as_fixture(tmp_path, "commit", "-qam", "head")
+    at = git_output(tmp_path, "rev-parse", "HEAD").strip()
     (tmp_path / "src/a.py").write_text("line 1\nline 2\nline 3\nline 4\nline 5\n")
     model = stub(tmp_path, {"req~greet~1": {"tested": GREET["tested"]}})
     index = overridden(f"Override: req~greet~1 implemented at {at}, why")
@@ -377,11 +378,11 @@ def test_a_deletion_before_the_region_does_not_drift(tmp_path):
 def test_an_override_at_a_prefix_a_branch_also_names_reads_the_commit_not_the_branch(tmp_path):
     at = commit_code(tmp_path)
     (tmp_path / "src/a.py").write_text("line 1\nline 2\nchanged\nline 4\nline 5\n")
-    git_in(tmp_path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qam", "change")
-    git_in(tmp_path, "branch", at[:7])  # fixture mechanics: the branch points at the change, which matches the tree
+    commit_as_fixture(tmp_path, "commit", "-qam", "change")
+    git_output(tmp_path, "branch", at[:7])  # fixture mechanics: the branch points at the change, which matches the tree
     model = stub(tmp_path, {"req~greet~1": GREET})
     result = ask(overridden(f"Override: req~greet~1 implemented at {at[:7]}, why"), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    found = one(result, "earnest/override-drift")
     assert "its code changed" in found.message
 
 
@@ -395,7 +396,7 @@ def under_tested_override(tmp_path, path, text):
 
 def test_a_tested_override_stands_for_tested_and_drifts_when_its_test_changes(tmp_path):
     model, result = under_tested_override(tmp_path, "tests/a.py", "line 1\nchanged\nline 3\nline 4\n")
-    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    found = one(result, "earnest/override-drift")
     assert found.subject == "req~greet~1"
     assert model.asked == [("req~greet~1", "implemented"), ("req~greet~1", "tested")]
     tested = [each for each in result.observations if each["question"] == "tested"]
@@ -425,12 +426,13 @@ def two_tags(tmp_path, tail):
     return rules(ask(found, stub(tmp_path, {"req~greet~1": GREET, "req~prose~1": GREET}), tmp_path))
 
 
-def test_a_code_line_inserted_right_after_the_region_drifts(tmp_path):
-    assert "earnest/override-drift" in two_tags(tmp_path, ["line 6"])
-
-
-def test_a_tag_line_inserted_right_after_the_region_starts_another_region_and_does_not_drift(tmp_path):
-    assert "earnest/override-drift" not in two_tags(tmp_path, ["# [impl->req~prose~1]", "line 7"])
+@pytest.mark.parametrize(
+    ("tail", "drifts"),
+    [(["line 6"], True), (["# [impl->req~prose~1]", "line 7"], False)],
+    ids=["a code line extends the region", "a tag line starts another region"],
+)
+def test_a_line_inserted_right_after_the_region(tmp_path, tail, drifts):
+    assert ("earnest/override-drift" in two_tags(tmp_path, tail)) is drifts
 
 
 def test_an_expired_duplicate_is_still_a_duplicate(tmp_path):
@@ -449,7 +451,7 @@ def test_an_override_whose_tag_was_removed_from_another_file_drifts(tmp_path):
     (tmp_path / "src/c.py").unlink()  # file B loses its tag and region; src/a.py, file A, holds still
     model = stub(tmp_path, {"req~greet~1": GREET})
     result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    found = one(result, "earnest/override-drift")
     assert "src/c.py" in found.message
 
 
@@ -476,7 +478,7 @@ def test_control_characters_in_the_judge_s_reasoning_are_escaped_in_the_finding_
     result = ask(
         index(), stub(tmp_path, {"req~greet~1": {"implemented": shouting, "tested": GREET["tested"]}}), tmp_path
     )
-    (found,) = [each for each in result.findings if each.rule == "earnest/judge-not-satisfied"]
+    found = one(result, "earnest/judge-not-satisfied")
     assert "bad\\n\\x1b[31mred\\r" in found.message
     assert not any(character in found.message for character in "\n\r\x1b")
 
@@ -485,7 +487,7 @@ def test_control_characters_in_the_judge_s_reasoning_are_escaped_in_the_finding_
 def test_a_verdict_location_outside_the_work_tree_falls_back_to_the_id_line(tmp_path, file):
     stray = answer("not-satisfied", file=file, line=3)
     result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": stray, "tested": GREET["tested"]}}), tmp_path)
-    (found,) = [each for each in result.findings if each.rule == "earnest/judge-not-satisfied"]
+    found = one(result, "earnest/judge-not-satisfied")
     assert (found.path, found.line) == (SPEC, 3)
     implemented = result.observations[0]
     assert implemented["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}

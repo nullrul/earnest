@@ -1,13 +1,12 @@
 """Integration: `check --judge` writes the judge cache to the record's `judge` slot and answers a rerun from it."""
 
 import json
-from pathlib import Path
 
-from tests.conftest import commit_on_main
+from tests.conftest import FIXTURES, commit_on_main
 from tests.sarif import record, run_earnest
 
 
-VERDICTS = Path(__file__).parent.parent / "fixtures" / "seeded-change" / "judge-verdicts.json"
+VERDICTS = FIXTURES / "seeded-change" / "judge-verdicts.json"
 
 
 def judged_repo(fixture_repo, monkeypatch):

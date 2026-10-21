@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from earnest import cli
+from earnest import cli, judge
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
 
 
@@ -511,8 +511,7 @@ def test_judge_without_a_model_that_can_run_exits_two_with_one_line(fixture_repo
 
 VERDICT = {"result": "satisfied", "reasoning": "ok", "location": {"file": "src/checkout/auth.py", "line": 5}}
 CANNED = {
-    f"req~{name}~1": {"implemented": VERDICT, "tested": VERDICT}
-    for name in ("rate-limit", "lockout-notice", "audit-log")
+    f"req~{name}~1": dict.fromkeys(judge.QUESTIONS, VERDICT) for name in ("rate-limit", "lockout-notice", "audit-log")
 }
 
 
