@@ -280,3 +280,18 @@ def test_deleted_files_lists_the_paths_of_the_base_missing_from_the_work_tree(fi
     (repo / "c.py").write_text("changed\n", encoding="utf-8")
     assert git.deleted_files(repo, base) == ["a.py", "b.py", "d b[1].py"]
     assert git.changed_lines(repo, base, {"a.py"}, keep_deletions=True) == {"a.py": (git.Hunk(1, 2, 0, 0),)}
+
+
+def test_full_commit_is_none_for_a_prefix_of_an_object_that_is_no_commit(files_repo):
+    repo = files_repo({"a.md": "a\n"})
+    blob = git_output(repo, "rev-parse", "HEAD:a.md").strip()
+    assert git.full_commit(repo, blob[:8]) is None
+
+
+def test_every_git_call_runs_with_lazy_fetch_off(files_repo, monkeypatch):
+    repo = files_repo({"a.md": "a\n"})
+    seen = []
+    run = git.subprocess.run
+    monkeypatch.setattr(git.subprocess, "run", lambda *a, **k: seen.append(k["env"]) or run(*a, **k))
+    git.head_commit(repo)
+    assert seen[0]["GIT_NO_LAZY_FETCH"] == "1"

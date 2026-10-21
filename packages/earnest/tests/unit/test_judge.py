@@ -323,7 +323,7 @@ def test_an_override_at_a_commit_git_does_not_hold_drifts(tmp_path):
     model = stub(tmp_path, {"req~greet~1": GREET})
     result = ask(overridden("Override: req~greet~1 implemented at deadbeef, why"), model, tmp_path)
     (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
-    assert "deadbeef" in found.message
+    assert "Git holds no single commit deadbeef" in found.message
 
 
 def test_a_relative_stub_path_reads_against_the_working_directory(tmp_path, monkeypatch):

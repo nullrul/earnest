@@ -1,5 +1,6 @@
 """Repository reader: the work tree's root, the files Git lists for it, its commit, and what changed."""
 
+import os
 import re
 import shutil
 import subprocess
@@ -96,8 +97,12 @@ def full_commit(root: Path, sha: object) -> str | None:
     """
     if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
         return None
-    listed = (_maybe(root, "rev-parse", f"--disambiguate={sha}") or "").split()
-    commits = [each for each in listed if (_maybe(root, "cat-file", "-t", each) or "").strip() == "commit"]
+    listed = _maybe(root, "rev-parse", f"--disambiguate={sha}")
+    if not listed:
+        return None
+    # each listed id is a full object id, which Git reads as an object before any ref
+    typed = _maybe(root, "cat-file", "--batch-check=%(objecttype) %(objectname)", stdin=listed) or ""
+    commits = [line.split()[1] for line in typed.splitlines() if line.startswith("commit ")]
     return commits[0] if len(commits) == 1 else None
 
 
@@ -179,10 +184,10 @@ def _line_count(data: bytes) -> int:
     return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
 
 
-def _maybe(cwd: Path, *args: str) -> str | None:
+def _maybe(cwd: Path, *args: str, stdin: str | None = None) -> str | None:
     """Return what a Git call prints, or None when it fails, for a question whose failure is an answer."""
     try:
-        return _git(cwd, *args)
+        return _git(cwd, *args, stdin=stdin)
     except GitError:
         return None
 
@@ -191,13 +196,18 @@ def _in_record_directory(path: str) -> bool:
     return path == _RECORD_DIRECTORY or path.startswith(_RECORD_DIRECTORY + "/")
 
 
-def _git(cwd: Path, *args: str) -> str:
+def _git(cwd: Path, *args: str, stdin: str | None = None) -> str:
     executable = shutil.which("git")
     if executable is None:
         msg = "git is not on the PATH"
         raise GitError(msg)
     # --literal-pathspecs: a path given to any call is a name, never a pattern, whatever `*`, `[` or `:` it holds
-    done = subprocess.run([executable, "--literal-pathspecs", *args], cwd=cwd, capture_output=True, check=False)  # noqa: S603
+    data = None if stdin is None else stdin.encode("utf-8", "surrogateescape")
+    # GIT_NO_LAZY_FETCH: a partial clone never fetches a missing object from its promisor remote, so no call networks
+    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+    done = subprocess.run(  # noqa: S603
+        [executable, "--literal-pathspecs", *args], cwd=cwd, input=data, capture_output=True, check=False, env=env
+    )
     if done.returncode != 0:
         lines = map(str.strip, done.stderr.decode(errors="replace").splitlines())
         msg = next((line for line in lines if line), f"git {next(a for a in args if not a.startswith('-'))} failed")

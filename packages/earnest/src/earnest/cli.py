@@ -200,9 +200,10 @@ def _baseline(world: _World, analysis: _Analysis, task: Item) -> tuple[str | Non
     base = plan.change_baseline(holder, world.record.runs)  # the built intent holds the per-unit approvals
     if base is None:
         return None, "no approved stage check is recorded"
-    if not git.has_commit(world.root, base):
+    full = git.full_commit(world.root, base)  # the object, never a branch named as a short sha
+    if full is None:
         return None, f"the approved stage check's commit {base} is not in the repository"
-    return base, ""
+    return full, ""
 
 
 def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:

@@ -138,3 +138,19 @@ def test_on_a_units_route_a_per_unit_stage_check_approved_at_its_unit_s_gate_is_
         "tests/test_auth.py::test_lockout_message"
     ]
     assert held["commit"] != git_output(repo, "rev-parse", "HEAD").strip()
+
+
+def test_a_short_recorded_baseline_reads_its_commit_never_a_branch_of_that_name(fixture_repo):
+    repo = fixture_repo("seeded-change")
+    base = record_baseline(repo)
+    held = record(repo)
+    for header_ in held["runs"].values():
+        header_["commit"] = base[:7]  # a record edited by hand; the approval's hash still matches the stored header
+    (repo / ".earnest/assessment.json").write_text(json.dumps(held), encoding="utf-8")
+    lines = lines_of(repo, AUTH)
+    del lines[10]
+    write_lines(repo, AUTH, lines)
+    commit_all(repo, "delete")
+    git_output(repo, "branch", base[:7])  # fixture mechanics: a branch named as the baseline, at the change
+    found = json.loads(run_earnest(repo, "check", *TASK).stdout)["runs"][0]
+    assert found["properties"]["impact"]["tests"] == ["tests/test_auth.py::test_lockout_message"]
