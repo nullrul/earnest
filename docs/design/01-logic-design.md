@@ -1653,7 +1653,8 @@ requested.
 `--judge` reads its model from the environment variable `EARNEST_JUDGE`,
 by the maintainer's decision; Earnest has no configuration file, so the
 variable is the one place a model is named. The value `stub:<path>` names a
-canned-verdict file, a path relative to the working directory, and a test
+canned-verdict file, by an absolute path or one relative to the working
+directory, and a test
 plugs a stub model into `--judge` this way. The file is one JSON object keyed
 by requirement id and revision, then by question (`implemented` or
 `tested`), each answer an object with `result` (`satisfied` or

@@ -211,10 +211,12 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Context to load: `01`: Grammar, Override rule, Process vocabulary,
   Region rule, D2, D3, D14. `02`: `ears.py` and `judge/` in Module boundaries;
   L4.
-- Gating open questions: stub judge model (`01`). The judge model choice and
-  prompt row of `01` settles at M6.
-- Task plan: `docs/superpowers/plans/<date>-judge-check.md`, written when M4
-  is next.
+- Gating open questions: none left. The stub judge model is the
+  canned-verdict file that `EARNEST_JUDGE` names, settled in `01` (Runtime
+  and permission model). The judge model choice and prompt row of `01`
+  settles at M6.
+- Task plan:
+  [2026-10-21-judge-check.md](../superpowers/plans/2026-10-21-judge-check.md).
 
 ### M5 `evidence_check`
 

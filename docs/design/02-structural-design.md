@@ -94,6 +94,9 @@ earnest/
           change/
           task/
           units/
+          override/
+          override-change/
+          judge-verdicts.json
         calibration/
 ```
 
@@ -388,7 +391,7 @@ its line says "Owns", and each such rule has exactly one owner.
   Markdown, Python, TypeScript and Gherkin.
 - `fixtures/seeded-change/`: SC5, SC6, SC7, SC9, SC11 and SC1. An
   AI-DLC-shaped repository: stage artifacts in a record directory with its
-  `Scope`, `GATE_APPROVED` rows, overrides, and Python code whose tests give
+  `Scope`, `GATE_APPROVED` rows, and Python code whose tests give
   per-test coverage contexts, the known dependencies of SC7. In M2 its record
   directory holds a state file, an audit log with one `GATE_APPROVED` row and the
   artifacts of a three-stage route; the base commit's tags and edges give the
@@ -399,8 +402,8 @@ its line says "Owns", and each such rule has exactly one owner.
 - `fixtures/seeded-change/change/`: the second commit, on the branch
   `task/add-limiter-window`, which Earnest never reads: a revision bump that
   leaves a tag, an edge and an approval at the old revision, a body edit
-  without a bump, and a region changed under an override (M4). The overlay
-  holds the bump and the body edit, both Markdown prose. The base state file
+  without a bump. The overlay holds the bump and the body edit, both Markdown
+  prose. The base state file
   names no current task, so M2's scenarios raise no out-of-task or impact
   finding and keep their tables; M3's steps name a current task and record an
   approved stage check, and then the out-of-task check and impact read the
@@ -410,6 +413,22 @@ its line says "Owns", and each such rule has exactly one owner.
   tag region. An M3 step commits them on top of `change/`, so M3's tables
   hold the rows of both overlays, while M2's scenarios never see the code
   edits.
+- `fixtures/seeded-change/override/`: M4's overrides, committed on `main`
+  on top of the base commit, whose pinned sha they name. They sit in their own
+  overlay because no commit can hold its own sha, and because `Override:`
+  lines added to the base or to `change/` would shift the line numbers M2's
+  and M3's tables assert. Its `requirements.md` adds an `Override:` line under
+  `req~rate-limit~1` and one under `req~lockout-notice~1`, and rewrites the
+  body of `req~audit-log~1` as a sentence that is not EARS.
+- `fixtures/seeded-change/override-change/`: M4's change commit, on `main` on
+  top of `override/`: it bumps `req~rate-limit~1`, which expires its override,
+  and changes one line of `src/checkout/auth.py` in the `req~lockout-notice~1`
+  region, which drifts that override. M1 to M3 never commit either overlay,
+  so their tables stand. Both overlays are fixture mechanics: a step may
+  commit them, and Earnest itself never reads a branch.
+- `fixtures/seeded-change/judge-verdicts.json`: the stub model's canned
+  verdicts, in the format of the Runtime and permission model of `01`. No
+  commit holds it; M4's steps point `EARNEST_JUDGE` at it in place.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
   by `earnest calibrate`; its format is an open question.
