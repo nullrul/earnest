@@ -492,3 +492,31 @@ def test_the_baseline_is_read_whatever_the_branch(fixture_repo, monkeypatch, cap
     write(repo, "src/checkout/auth.py", (repo / "src/checkout/auth.py").read_text(encoding="utf-8") + "\nX = 1\n")
     _, out, _ = run(repo, monkeypatch, capsys, "check", "--task", "task~add-limiter~1")
     assert "earnest/out-of-task" in [result["ruleId"] for result in sarif_run(out)["results"]]
+
+
+@pytest.mark.parametrize("value", [None, "foo:x", "stub:no-such-file.json"])
+def test_judge_without_a_model_that_can_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, value):
+    if value is None:
+        monkeypatch.delenv("EARNEST_JUDGE", raising=False)
+    else:
+        monkeypatch.setenv("EARNEST_JUDGE", value)
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--judge")
+    assert (code, out) == (2, "")
+    assert len(err.splitlines()) == 1
+    assert err.startswith("earnest: ")
+
+
+def test_judge_names_its_model_and_prompt_in_the_invocation(fixture_repo, monkeypatch, capsys, tmp_path):
+    verdict = {"result": "satisfied", "reasoning": "ok", "location": {"file": "src/checkout/auth.py", "line": 5}}
+    canned = {f"req~{name}~1": {"implemented": verdict, "tested": verdict} for name in ("rate-limit", "lockout-notice")}
+    canned["req~audit-log~1"] = {"implemented": verdict, "tested": verdict}
+    path = tmp_path / "verdicts.json"
+    path.write_text(json.dumps(canned))
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{path}")
+    code, out, _ = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--judge")
+    (invocation,) = sarif_run(out)["invocations"]
+    assert invocation["properties"]["layers"] == ["trace", "judge"]
+    assert invocation["properties"]["model"].startswith("stub:sha256:")
+    assert invocation["properties"]["prompt"].startswith("sha256:")
+    assert len(sarif_run(out)["properties"]["observations"]) == 6
+    assert code == 0

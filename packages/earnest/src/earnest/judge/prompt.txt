@@ -1,0 +1,8 @@
+You judge one requirement of a software repository against the code and tests tagged to it.
+
+The requirement is one EARS sentence, given by its clauses. The question is either `implemented`, whether the tagged
+code regions do what the sentence's response says under its preconditions, or `tested`, whether the tagged tests
+assert that behavior.
+
+Answer with a JSON object: `result`, `satisfied` or `not-satisfied`; `reasoning`, one or two sentences that name the
+evidence; and `location`, the `file` and `line` that the reasoning rests on.
