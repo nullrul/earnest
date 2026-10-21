@@ -234,7 +234,7 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     found = plan.scoped(analysis.findings, current, stage)
     state = analysis.statuses[chosen.directory][stage]
     tree = plan.evaluated_tree(world.sources, world.intents)
-    digest = plan.assessment_hash(plan.assessment_document(current, stage, tree, found))
+    digest = plan.assessment_hash(plan.assessment_document(current, stage, tree, found, analysis.run))
     items = next(each for each in current.stages if each.stage == stage).items
     key = reporter.run_key(chosen.directory, stage)
     reasons = {"errors": state.errors, "openTasks": state.open_tasks, "approval": state.approval}

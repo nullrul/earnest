@@ -1284,7 +1284,7 @@ _TASK_CHANGE = frozenset({"earnest/out-of-task", "earnest/impact-degraded"})  # 
 
 
 def assessment_document(
-    plan: Plan, stage: str, tree: Sequence[Source], findings: Sequence[Finding]
+    plan: Plan, stage: str, tree: Sequence[Source], findings: Sequence[Finding], run: Run | None = None
 ) -> dict[str, object]:
     """Return the assessment document that the assessment hash covers, version 1.
 
@@ -1304,15 +1304,20 @@ def assessment_document(
     return {
         "v": 1,
         "stage": run_key(plan.intent.directory, stage),
-        "layers": ["trace"],
-        "model": None,
-        "prompt": None,
+        **dict(zip(("layers", "model", "prompt"), _layers(run), strict=True)),
         "items": sorted([str(item.id), item.body_hash] for item in state.items),
         "findings": sorted(
             [found.rule, uri(found.path), found.line, found.subject, found.message] for found in counted
         ),
         "tree": tree_digest(tree),
     }
+
+
+def _layers(run: Run | None) -> tuple[list[str], str | None, str | None]:
+    """Return the layers a run ran, with the judge's model id and prompt hash, both null when the judge did not run."""
+    if run is None or run.model is None:
+        return ["trace"], None, None
+    return ["trace", "judge"], run.model, run.prompt
 
 
 def assessment_hash(document: Mapping[str, object]) -> str:
@@ -1360,9 +1365,9 @@ def header(plan: Plan, stage: str, status: StageStatus, run: Run, digest: str) -
         commit=run.commit,
         dirty=run.dirty,
         timestamp=run.timestamp,
-        layers=("trace",),
-        model=None,
-        prompt=None,
+        layers=tuple(_layers(run)[0]),
+        model=run.model,
+        prompt=run.prompt,
         items=tuple(sorted(str(item.id) for item in state.items)),
         status=status.status,
         reasons={"errors": status.errors, "openTasks": status.open_tasks, "approval": status.approval},
