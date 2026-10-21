@@ -78,25 +78,30 @@ def scan(root: Path, paths: Iterable[str]) -> list[Source]:
     directories = record_directories(listed)
     sources: list[Source] = []
     for path in listed:
-        adapter = _SCANS.get(PurePosixPath(path).suffix)
         file = root / path
-        if adapter is None or skipped(path, directories) or file.is_symlink() or not file.is_file():
+        if not reads(path) or skipped(path, directories) or file.is_symlink() or not file.is_file():
             continue
-        surface, read, code = adapter
-        data = file.read_bytes()
-        if b"\0" in data[:8000] or (surface == COMMENT and b"~" not in data):
-            continue
-        text = data.decode("utf-8-sig", errors="replace")
-        lines, fenced = read(text)
-        sources.append(
-            Source(
-                path=path,
-                surface=surface,
-                lines=lines,
-                fenced=fenced,
-                code_lines=code(text) if code else frozenset(),
-                digest=digest(data),
-                line_count=len(split_lines(text)),
-            )
-        )
+        if (found := source(path, file.read_bytes())) is not None:
+            sources.append(found)
     return sources
+
+
+def source(path: str, data: bytes) -> Source | None:
+    """Return the source of a file's bytes by its suffix's adapter, or None: no adapter, binary, or code with no `~`."""
+    adapter = _SCANS.get(PurePosixPath(path).suffix)
+    if adapter is None:
+        return None
+    surface, read, code = adapter
+    if b"\0" in data[:8000] or (surface == COMMENT and b"~" not in data):
+        return None
+    text = data.decode("utf-8-sig", errors="replace")
+    lines, fenced = read(text)
+    return Source(
+        path=path,
+        surface=surface,
+        lines=lines,
+        fenced=fenced,
+        code_lines=code(text) if code else frozenset(),
+        digest=digest(data),
+        line_count=len(split_lines(text)),
+    )

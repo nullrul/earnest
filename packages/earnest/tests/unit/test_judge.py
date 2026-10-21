@@ -440,3 +440,32 @@ def test_an_expired_duplicate_is_still_a_duplicate(tmp_path):
     )
     result = ask(index, stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
     assert rules(result).count("earnest/duplicate") == 1
+
+
+def test_an_override_whose_tag_was_removed_from_another_file_drifts(tmp_path):
+    write_code(tmp_path)
+    (tmp_path / "src/c.py").write_text("# [impl->req~greet~1]\nx = 1\n")
+    at = commit_code(tmp_path)
+    (tmp_path / "src/c.py").unlink()  # file B loses its tag and region; src/a.py, file A, holds still
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
+    (found,) = [each for each in result.findings if each.rule == "earnest/override-drift"]
+    assert "src/c.py" in found.message
+
+
+def test_a_removed_tag_of_the_other_kind_does_not_drift_the_override(tmp_path):
+    write_code(tmp_path)
+    (tmp_path / "src/c.py").write_text("# [utest->req~greet~1]\nx = 1\n")
+    at = commit_code(tmp_path)
+    (tmp_path / "src/c.py").unlink()
+    model = stub(tmp_path, {"req~greet~1": GREET})
+    result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
+    assert "earnest/override-drift" not in rules(result)
+
+
+def test_an_items_region_hashes_are_taken_once_for_both_its_questions(tmp_path, monkeypatch):
+    hashed = []
+    original = judge.Cache._hash
+    monkeypatch.setattr(judge.Cache, "_hash", lambda self, found: hashed.append(found) or original(self, found))
+    ask(index(), stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
+    assert len(hashed) == 2

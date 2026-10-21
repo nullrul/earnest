@@ -130,10 +130,19 @@ def changed_lines(
 
 def deleted_files(root: Path, base: str) -> list[str]:
     """Return the paths of the commit base that the work tree no longer holds, sorted, with none under `.earnest/`."""
-    listed = _git(
-        root, "--no-optional-locks", "diff-index", "--name-only", "-z", "--no-renames", "--diff-filter=D", base, "--"
-    )
+    return changed_files(root, base, "--diff-filter=D")
+
+
+def changed_files(root: Path, base: str, *filters: str) -> list[str]:
+    """Return the tracked paths that differ between the commit base and the work tree, sorted, none under `.earnest/`."""
+    listed = _git(root, "--no-optional-locks", "diff-index", "--name-only", "-z", "--no-renames", *filters, base, "--")
     return sorted({path for path in listed.split("\0") if path and not _in_record_directory(path)})
+
+
+def blob(root: Path, commit: str, path: str) -> bytes | None:
+    """Return the bytes of path at a full commit id, or None when the commit holds no file there."""
+    text = _maybe(root, "cat-file", "blob", f"{commit}:{path}")
+    return None if text is None else text.encode("utf-8", "surrogateescape")
 
 
 def old_line(hunks: Sequence[Hunk], line: int) -> int | None:

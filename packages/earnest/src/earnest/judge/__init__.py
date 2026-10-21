@@ -2,19 +2,19 @@
 
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path
 
-from earnest import ears, git
-from earnest.index import Index, Item, Override, Region, digest
+from earnest import adapters, ears, git
+from earnest.index import Index, Item, Link, Override, Region, build_index, digest
 from earnest.reporter import RECORD, Finding, canonical, location
 
 
-QUESTIONS = ("implemented", "tested")
-# The artifact types whose regions each question asks about.
+# The questions, and the artifact types whose regions each asks about.
 KINDS = {"implemented": frozenset({"impl"}), "tested": frozenset({"utest", "itest", "stest"})}
+QUESTIONS = tuple(KINDS)
 PROMPT_HASH = digest(files(__package__).joinpath("prompt.txt").read_bytes())
 _RESULTS = ("satisfied", "not-satisfied")
 
@@ -86,15 +86,20 @@ class Cache:
     model: Stub
     held: Mapping[str, object]
     used: dict[str, object] = field(default_factory=dict)
+    hashes: dict[str, tuple[str, str]] = field(default_factory=dict)  # each item's code and test region hashes
 
     def ask(self, question: Question, index: Index) -> Verdict:
         """Return the cached verdict of a question whose key is unchanged, else ask the model and cache its answer."""
         item = question.item
+        if (hashes := self.hashes.get(question.subject)) is None:
+            code = self._hash(regions(index, item, KINDS["implemented"]))
+            hashes = self.hashes[question.subject] = (code, self._hash(regions(index, item, KINDS["tested"])))
+        code, tests = hashes
         parts = {
             "item": question.subject,
             "question": question.kind,
-            "regions": self._hash(regions(index, item, KINDS["implemented"])),
-            "tests": self._hash(regions(index, item, KINDS["tested"])),
+            "regions": code,
+            "tests": tests,
             "model": self.model.id,
             "prompt": PROMPT_HASH,
         }
@@ -235,7 +240,7 @@ def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot
         held = standing.get((question.subject, question.kind))
         if held is not None:
             observed = observation(question, "maintainer", Verdict("satisfied", held.reason, held.path, held.line))
-            if (why := drifted(root, held, question.regions)) is not None:
+            if (why := drifted(root, index, held, question.regions)) is not None:
                 rerun = observation(question, "judge", cache.ask(question, index))
                 found.append(drift(held, why, observed, rerun))
         else:
@@ -286,8 +291,8 @@ def expired(written: Override, item: Item) -> Finding:
     return Finding(written.path, written.line, "earnest/override-expired", str(written.target), message)
 
 
-def drifted(root: Path, written: Override, found: Sequence[Region]) -> str | None:
-    """Return why an override drifted: a region changed between its commit and the work tree, or Git lacks the commit.
+def drifted(root: Path, index: Index, written: Override, found: Sequence[Region]) -> str | None:
+    """Return why an override drifted: a region changed or was removed since its commit, or Git lacks the commit.
 
     A commit Git does not hold shows nothing of the code since it, so the override counts as drifted. None: it holds.
     """
@@ -299,6 +304,27 @@ def drifted(root: Path, written: Override, found: Sequence[Region]) -> str | Non
     # read old_line() against the region at the override's commit if such an edit must count as drift
     if any(_touches(hunk, region) for region in found for hunk in hunks.get(region.path, ())):
         return f"its code changed since {written.commit}, the commit the override stands at"
+    if (path := _lost_tag(root, index, written, commit)) is not None:
+        return (
+            f"{path} lost a tag of its {written.kind} regions since {written.commit}, the commit the override stands at"
+        )
+    return None
+
+
+def _lost_tag(root: Path, index: Index, written: Override, commit: str) -> str | None:
+    """Return the first changed file that held more of the override's tags at its commit than at the work tree."""
+
+    def count(links: Iterable[Link]) -> int:
+        kinds = KINDS[written.kind]
+        return sum(link.owner is None and link.target == written.target and link.type in kinds for link in links)
+
+    for path in git.changed_files(root, commit):
+        old = git.blob(root, commit, path)
+        before = None if old is None else adapters.source(path, old)
+        if before is not None and count(build_index([before]).links) > count(
+            link for link in index.links if link.path == path
+        ):
+            return path
     return None
 
 
