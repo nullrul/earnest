@@ -156,6 +156,15 @@ def test_a_valid_needs_line_and_an_override_line_parse_cleanly():
     index = build_index([markdown(text)])
     assert index.items[0].needs == ("impl", "utest")
     assert index.near_misses == ()
+    (override,) = index.items[0].overrides
+    assert (str(override.target), override.kind, override.commit) == ("req~a~1", "implemented", "3f9c2a1")
+    assert (override.reason, override.path, override.line) == ("lives in the gateway", "docs/a.md", 3)
+
+
+def test_a_malformed_override_line_is_a_near_miss_and_no_override():
+    index = build_index([markdown("`req~a~1`\nOverride: req~a~1 implemented 3f9c2a1, why\n")])
+    assert index.items[0].overrides == ()
+    assert [miss.line for miss in index.near_misses] == [2]
 
 
 def test_fenced_lines_never_start_end_or_key_an_item():

@@ -140,3 +140,47 @@ def test_observations_are_sorted_by_subject_and_question(tmp_path):
         ("req~greet~1", "implemented", "inspection"),
         ("req~greet~1", "tested", "inspection"),
     ]
+
+
+def overridden(*lines):
+    text = REQS.replace(
+        "When a member logs in, the system shall greet them.\n",
+        "When a member logs in, the system shall greet them.\n" + "".join(f"{line}\n" for line in lines),
+    )
+    tags = (code("src/a.py", "impl->req~greet~1", 5), code("tests/a.py", "utest->req~greet~1", 4))
+    return build_index([Source(SPEC, MARKDOWN, split_lines(text)), *tags])
+
+
+def test_a_standing_override_replaces_its_question_which_is_not_asked(tmp_path):
+    model = stub(tmp_path, {"req~greet~1": {"tested": answer(file="tests/a.py")}})
+    index = overridden("Override: req~greet~1 implemented at 89f3937,  the gateway greets  ")
+    result = judge.judge(index, LEVELS, model)
+    implemented, tested = result.observations
+    assert implemented == {
+        "method": "inspection",
+        "subject": "req~greet~1",
+        "question": "implemented",
+        "author": "maintainer",
+        "result": "satisfied",
+        "reasoning": "the gateway greets",
+        "location": {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 6}},
+    }
+    assert tested["author"] == "judge"
+
+
+def test_two_overrides_of_one_id_and_kind_are_a_duplicate(tmp_path):
+    model = stub(tmp_path, {"req~greet~1": {"tested": answer(file="tests/a.py")}})
+    index = overridden(
+        "Override: req~greet~1 implemented at 89f3937, one", "Override: req~greet~1 implemented at 89f3937, two"
+    )
+    result = judge.judge(index, LEVELS, model)
+    (found,) = [each for each in result.findings if each.rule == "earnest/duplicate"]
+    assert (found.path, found.line) == (SPEC, 7)
+    assert result.observations[0]["reasoning"] == "one"
+
+
+@pytest.mark.parametrize(("tested", "level"), [("satisfied", "judged"), ("not-satisfied", "traced")])
+def test_judged_means_traced_with_every_question_satisfied_or_overridden(tmp_path, tested, level):
+    model = stub(tmp_path, {"req~greet~1": {"tested": answer(tested, file="tests/a.py")}})
+    index = overridden("Override: req~greet~1 implemented at 89f3937, why")
+    assert judge.judge(index, LEVELS, model).levels == {"req~greet~1": level, "req~prose~1": "traced"}

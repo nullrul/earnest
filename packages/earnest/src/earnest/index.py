@@ -3,7 +3,7 @@
 import difflib
 import hashlib
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from functools import cached_property
 from typing import Literal
@@ -30,7 +30,7 @@ _KEY_NAME = f"({'|'.join(KEYS)})"
 # letters fold case in ASCII alone, so a letter such as the long s, which Unicode folds to `s`, stands in for none.
 _KEY = re.compile(rf"[ \t]*(?:(?:[-*+]|[0-9]+\.)[ \t]+|>[ \t]*)*[*_]*{_KEY_NAME}[*_]*[ \t]*:", re.IGNORECASE | re.ASCII)
 _KEY_LINE = re.compile(rf"{_KEY_NAME}:(?: (\S.*))?")
-_OVERRIDE = re.compile(rf"{_ID} (?:implemented|tested) at [0-9a-f]+,.+")
+_OVERRIDE = re.compile(rf"{_ID} (implemented|tested) at ([0-9a-f]+),(.+)")
 _SEPARATORS = re.compile(r"[\s,]+")
 _TYPE_SLOT = re.compile(r"(?:^|[\[@:>]\s*)([a-z]+)(?=\s*(?:->|[:~]|$))")
 
@@ -125,6 +125,18 @@ class Id:
 
 
 @dataclass(frozen=True)
+class Override:
+    """An `Override:` line: the id and kind it overrides, the commit it stands at, its reason, and where it was written."""
+
+    target: Id
+    kind: str
+    commit: str
+    reason: str
+    path: str
+    line: int
+
+
+@dataclass(frozen=True)
 class Item:
     """A Markdown item: its id, where its id line sits, the types on its `Needs:` line, and its body hash.
 
@@ -138,6 +150,7 @@ class Item:
     needs: tuple[str, ...] | None = None
     body_hash: str = field(default="", compare=False)
     body: str = field(default="", compare=False)  # the body's lines less its key lines, joined by line feeds
+    overrides: tuple[Override, ...] = field(default=(), compare=False)
 
 
 @dataclass(frozen=True)
@@ -324,7 +337,8 @@ def _markdown(source: Source) -> _Parsed:
         keyed = [line for line in lines if line.number not in source.fenced]
         needs, item_links, key_misses = _keys(source.path, item_id, keyed)
         body = "\n".join(line.text for line in lines if line.number in source.fenced or _KEY.match(line.text) is None)
-        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced), body))
+        overrides = tuple(_overrides(source.path, keyed))
+        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced), body, overrides))
         links.extend(item_links)
         misses.extend(key_misses)
     return items, links, misses
@@ -398,6 +412,15 @@ def _keys(path: str, owner: Id, lines: Iterable[Line]) -> tuple[tuple[str, ...] 
             misses.extend(found)
             links.extend(Link(name, owner.type, _to_id(entry), path, line.number, owner=owner) for entry in ids)
     return needs, links, misses
+
+
+def _overrides(path: str, lines: Iterable[Line]) -> Iterator[Override]:
+    """Read an item's `Override:` lines that parse by the Grammar; `_keys` reports the rest as near-misses."""
+    for line in lines:
+        exact = _KEY_LINE.fullmatch(line.text.rstrip())
+        if exact and exact.group(1) == "Override" and (parsed := _OVERRIDE.fullmatch(exact.group(2) or "")):
+            kind, commit, reason = parsed.group(4, 5, 6)
+            yield Override(_to_id(parsed), kind, commit, reason.strip(), path, line.number)
 
 
 def _list(

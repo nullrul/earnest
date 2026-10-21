@@ -8,7 +8,7 @@ from importlib.resources import files
 from pathlib import Path
 
 from earnest import ears
-from earnest.index import Index, Item, Region, digest
+from earnest.index import Index, Item, Override, Region, digest
 from earnest.reporter import RECORD, Finding, location
 
 
@@ -171,20 +171,52 @@ def observation(question: Question, author: str, verdict: Verdict) -> dict[str, 
 
 
 def judge(index: Index, levels: Mapping[str, str], model: Stub) -> Judgement:
-    """Ask each question, and return the findings, the observations of record and the levels the answers give.
+    """Ask each question no standing override answers, and return the findings, observations and levels.
 
     Raises:
         JudgeError: the model cannot answer a question.
     """
-    found: list[Finding] = [uncalibrated(model)]
+    standing, found = overrides(index)
+    found.insert(0, uncalibrated(model))
     observations: list[dict[str, object]] = []
+    results: dict[str, list[object]] = {}
     for question in questions(index, levels):
-        verdict = model.ask(question)
-        observed = observation(question, "judge", verdict)
+        held = standing.get((question.subject, question.kind))
+        if held is not None:
+            observed = observation(question, "maintainer", Verdict("satisfied", held.reason, held.path, held.line))
+        else:
+            verdict = model.ask(question)
+            observed = observation(question, "judge", verdict)
+            if verdict.result != "satisfied":
+                found.append(not_satisfied(question, verdict, observed))
         observations.append(observed)
-        if verdict.result != "satisfied":
-            found.append(not_satisfied(question, verdict, observed))
-    return Judgement(found, _sorted(observations), dict(levels))
+        results.setdefault(question.subject, []).append(observed["result"])
+    judged = {req for req, each in results.items() if each == ["satisfied"] * len(QUESTIONS)}
+    return Judgement(
+        found, _sorted(observations), {req: "judged" if req in judged else level for req, level in levels.items()}
+    )
+
+
+def overrides(index: Index) -> tuple[dict[tuple[str, str], Override], list[Finding]]:
+    """Return the standing overrides by id and kind, and a `duplicate` for each repeat of an id and kind.
+
+    An override stands when it names its item's current revision. One that names no defined item stands for nothing.
+    """
+    standing: dict[tuple[str, str], Override] = {}
+    found: list[Finding] = []
+    for written in (override for item in index.items for override in item.overrides):
+        item = index.defined.get(written.target.key)
+        if item is None or item.id != written.target:
+            continue
+        key = (str(written.target), written.kind)
+        first = standing.setdefault(key, written)
+        if first is not written:
+            message = (
+                f"`{written.target}` {written.kind} is already overridden at {first.path}:{first.line}:"
+                " keep one of the two overrides"
+            )
+            found.append(Finding(written.path, written.line, "earnest/duplicate", key[0], message))
+    return standing, found
 
 
 def not_satisfied(question: Question, verdict: Verdict, observed: Mapping[str, object]) -> Finding:
