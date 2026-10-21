@@ -23,7 +23,7 @@ _EARS = re.compile(
     r"(?:Where (?P<where>[^,]+), )?"
     r"(?:(?<![^ ])[Ww]hile (?P<while>[^,]+), )?"
     r"(?:(?<![^ ])[Ww]hen (?P<when>[^,]+), |(?<![^ ])[Ii]f (?P<if>[^,]+), then )?"
-    r"(?<![^ ])[Tt]he (?P<system>(?:(?! shall ).)+) shall (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
+    r"(?<![^ ])[Tt]he (?P<system>(?:(?! shall )[^.!?]|[.!?](?! ))+) shall (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
 )
 
 

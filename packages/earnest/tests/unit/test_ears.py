@@ -61,6 +61,7 @@ def test_line_breaks_read_as_spaces():
         "The system shall log in",
         "",
         "When a member logs in the system shall greet them.",
+        "The cache expires. Then the system shall reset.",
     ],
 )
 def test_a_body_that_is_not_one_ears_sentence_does_not_parse(body):
