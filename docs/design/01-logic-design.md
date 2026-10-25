@@ -1669,7 +1669,7 @@ the trace, judge and evidence layers that ran.
 
 The judge layer sends the model provider only the requirement clause, the
 tagged code regions and the tagged tests, and only when the judge layer is
-requested.
+requested or `earnest calibrate` runs.
 
 `--judge` reads its model from the environment variable `EARNEST_JUDGE`,
 by the maintainer's decision; Earnest has no configuration file, so the

@@ -176,7 +176,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `src/earnest/judge/__init__.py` | `Model`, `Row`, `Calibration`, `calibrate`, `slot`, `load_verdicts`, `calibrated`; `Model` in place of `Stub` in signatures; `judge` takes the `Record` | 3, 5 |
 | `src/earnest/cli.py` | the `calibrate` subcommand, dispatched before `_read()`; `judge` passed the `Record` | 4, 5 |
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py` | each task's tests | 3-5 |
-| `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py` | Task 7's model, its root, and its dependency | 7 |
+| `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `uv.lock`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge.py` | Task 7's model, its root, and its dependency | 7 |
 
 `reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs change. Scope paths below cover Tasks 1 to 7; Task 0's docs are named in its Files line.
 
@@ -199,7 +199,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 - [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25).
 - [x] **Step 2:** Write the M6 section of `04`: the feature, the fixture, the readings, and the five scenario titles, marked PROPOSED.
-- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commit after it.
+- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commit after it.
 - [x] **Step 4:** Check that the index builds with a subdirectory as its root. Result at `ddfc072`: `git.work_tree_files` on `tests/fixtures/seeded-change` lists 22 files relative to it, and `adapters.scan`, `build_index` and `structural.traced` give 3 requirements, 3 traced. On `tests/fixtures/broken-links` they list 8 files and give 4 requirements, 2 traced. `earnest check` run from `packages/earnest/` writes SARIF byte-identical to a run from the repository root.
 - [ ] **Step 5:** Once Task 1's fixture exists, add the Gherkin of the five scenarios with exact tables, and notes for this plan, to `04`'s M6 section.
 
@@ -224,7 +224,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 - [ ] **Step 1:** Write `stub-pass.json` as `verdicts.json` with one result flipped on each of two requirements, and `stub-fail.json` with three.
 - [ ] **Step 2:** Add both stubs to `_OVERLAYS` in `conftest.py`, so the existing `fixture_repo("calibration")` leaves them out and commits once on `main` under the pinned identity and dates. Write no second builder.
 - [ ] **Step 3:** Copy the M6 Gherkin of `04` into `calibration_gate.feature` verbatim.
-- [ ] **Step 4:** Move `verdicts_file` and the `stub_judge` step from `test_judge_check.py` into `conftest.py`, so both features share them. `verdicts_file(name)` hard-codes `judge-verdicts.json`, so it gains a file parameter, `verdicts_file(name, file="judge-verdicts.json")`. A new step, `the judge is the stub model with the canned verdicts "{file}" of "{name}"`, sits beside M4's step text, which keeps working. Then write the step module. The working directory is the built fixture, so the calibration and the later `check --judge` share one record.
+- [ ] **Step 4:** Move `verdicts_file` and the `stub_judge` step from `test_judge_check.py` into `conftest.py`, so both features share them. `verdicts_file(name)` hard-codes `judge-verdicts.json`, so it gains a file parameter, `verdicts_file(name, file="judge-verdicts.json")`. A new step, `the judge is the stub model with the canned verdicts "{file}" of "{name}"`, sits beside M4's step text, which keeps working. `model_id` in `test_judge_check.py` still calls `verdicts_file`, so that module imports it with `from tests.conftest import verdicts_file`, as `tests/unit/test_judge.py` already imports from `tests.conftest`. Then write the step module. The working directory is the built fixture, so the calibration and the later `check --judge` share one record.
 - [ ] **Step 5:** Run the regression run, then `uv run pytest tests/steps/test_calibration_gate.py`. Expected: the regression run is green, and all 5 M6 scenarios fail.
 - [ ] **Step 6:** Commit `test: RED calibration_gate behavior gate`.
 
@@ -285,7 +285,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 **Interfaces:**
 
 - Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`.
-- `judge(index, levels, model, root, record: Record)` takes the whole record in place of its `judge` slot, still five arguments. It reads the cache from `record.judge`, and inserts `uncalibrated(model)` first only when `not calibrated(record.calibration, model)`, so no caller can skip the gate. `cli.py` passes `world.record`. Remove the `shortcut:` comment in `uncalibrated`.
+- `judge(index, levels, model, root, record: Record)` takes the whole record in place of its `judge` slot, still five arguments. This departs from `02`'s "hands each assessor the part of the record it reads" (`cli.py` in Module boundaries), because the judge now reads two slots, `judge` and `calibration`, and passing both would make six arguments, over the lint limit. Task 0 notes the exception in `02`. It reads the cache from `record.judge`, and inserts `uncalibrated(model)` first only when `not calibrated(record.calibration, model)`, so no caller can skip the gate. `cli.py` passes `world.record`. Remove the `shortcut:` comment in `uncalibrated`.
 
 - [ ] **Step 1:** Write failing tests:
   - `test_calibrated_needs_pass`;
@@ -306,7 +306,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 This builds the model of gating answer 3. Load the `claude-api` skill before writing the call.
 
-**Files:** Modify `packages/earnest/src/earnest/judge/__init__.py`, `packages/earnest/src/earnest/cli.py` (the root passed to `load_model`), `packages/earnest/pyproject.toml`; Test `packages/earnest/tests/unit/test_judge_anthropic.py`, `packages/earnest/tests/unit/test_cli.py`.
+**Files:** Modify `packages/earnest/src/earnest/judge/__init__.py`, `packages/earnest/src/earnest/cli.py` (the root passed to `load_model`), `packages/earnest/pyproject.toml`, `packages/earnest/uv.lock` (rewritten by `uv` when the dependency is added); Test `packages/earnest/tests/unit/test_judge_anthropic.py`, `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/unit/test_judge.py` (its one-argument `load_model` calls pass a root).
 
 - [ ] **Step 1:** Write failing tests with a mocked client:
   - `load_model(value, root)` gains the root whose files the regions name. `check` passes the repository root, and `calibrate` passes `<fixture>`, since the fixture's region paths are relative to it, not to the working directory. Also, `anthropic:claude-opus-5-5` loads a model whose id is that value; it keeps `ask(question) -> Verdict`, so `judge` and `calibrate` are unchanged;
@@ -324,6 +324,7 @@ This builds the model of gating answer 3. Load the `claude-api` skill before wri
   "packages/earnest/src/earnest/judge/__init__.py",
   "packages/earnest/src/earnest/cli.py",
   "packages/earnest/pyproject.toml",
+  "packages/earnest/uv.lock",
   "packages/earnest/tests/conftest.py",
   "packages/earnest/tests/features/calibration_gate.feature",
   "packages/earnest/tests/steps/test_calibration_gate.py",

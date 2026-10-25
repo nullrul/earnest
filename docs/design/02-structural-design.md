@@ -252,7 +252,9 @@ its line says "Owns", and each such rule has exactly one owner.
 - `__init__.py`: the package version.
 - `cli.py`: the Command surface of `01`, `earnest check`, `earnest plan` and
   `earnest calibrate`, through `argparse`. It wires the pipeline, hands each
-  assessor the part of the record it reads, and sets the exit code; the logic
+  assessor the part of the record it reads (the judge, which reads both its
+  `judge` and `calibration` slots, gets the whole record), and sets the exit
+  code; the logic
   lives in the modules below
   ([[library-plus-thin-cli-keeps-the-api-as-the-system]]). Container entry
   point.
@@ -451,7 +453,8 @@ its line says "Owns", and each such rule has exactly one owner.
   verdicts for M5; no commit holds it, as for `judge-verdicts.json`.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
-  by `earnest calibrate`; its format is gating answer 1 of the M6 task plan.
+  by `earnest calibrate`; its format is gating answer 1 of the
+  [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md).
 
 ## Layout and reuse-scaffolds decision
 
