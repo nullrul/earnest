@@ -77,6 +77,7 @@ earnest/
       unit/
         __init__.py
         test_<module>.py
+        stryker-report.json
         adapters/
           __init__.py
           test_<language>.py

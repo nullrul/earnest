@@ -1691,6 +1691,8 @@ Feature: Evidence check
     `EARNEST_JUDGE` names `evidence-verdicts.json`.
   - `the repo maintainer runs earnest plan`, as "the coding agent runs earnest
     plan" does, with the maintainer as actor.
+  - `the coding agent has an uncommitted edit to the test of "<req>"`: an
+    edit, left uncommitted, to the test that tags the requirement.
   - Steps reused from other step modules ("the repository is unchanged",
     "the plan lists these units:", "the SARIF log gives each requirement one
     trace level:", "the summary leads with …", and the base-commit and units-variant Givens) are imported
