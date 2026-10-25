@@ -1674,7 +1674,7 @@ Feature: Evidence check
 - The units scenarios sit on the units variant because only it has a unit;
   there `evidence-failed` against `req~lockout-notice~1` is ahead of
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
-- "the SARIF log holds no finding at "<file>" line <n>" is a new step: it
+- `the SARIF log holds no finding at "<file>" line <n>` is a new step: it
   asserts that no SARIF result is located at that file and line, whatever its
   rule.
 - "the coding agent has run earnest check --evidence" asserts that the run
