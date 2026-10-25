@@ -284,13 +284,14 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 **Interfaces:**
 
-- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`. It is true only when `slot["pass"] is True` and `model` and `prompt` are equal strings; a unit test gives it a slot with `"pass": "false"` and expects false, since the record reader checks the slot only shallowly.
+- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`. It is `slot.get("pass") is True and slot.get("model") == model.id and slot.get("prompt") == PROMPT_HASH`, using `.get` because the record reader copies the slot without checking its fields.
 - `judge(index, levels, model, root, record: Record)` takes the whole record in place of its `judge` slot, still five arguments. This departs from `02`'s "hands each assessor the part of the record it reads" (`cli.py` in Module boundaries), because the judge now reads two slots, `judge` and `calibration`, and passing both would make six arguments, over the lint limit. Task 0 notes the exception in `02`. It reads the cache from `record.judge`, and inserts `uncalibrated(model)` first only when `not calibrated(record.calibration, model)`, so no caller can skip the gate. `cli.py` passes `world.record`. Remove the `shortcut:` comment in `uncalibrated`.
 
 - [ ] **Step 1:** Write failing tests:
   - `test_calibrated_needs_pass`;
   - `test_calibrated_needs_same_model_and_prompt`: a slot under another model id, or another prompt hash, returns false;
-  - `test_calibrated_none`: a missing slot returns false.
+  - `test_calibrated_none`: a missing slot returns false;
+  - `test_calibrated_malformed_slot`: a slot with `"pass": "false"`, and a slot with no `pass` key, each return false without raising.
 - [ ] **Step 2:** Implement. Update the one existing `judge.judge(...)` call, the `ask` helper at `tests/unit/test_judge.py:70`, to pass `Record(judge=slot or {"cache": {}})`, so its callers that pass a slot dict, such as `first.cache`, stay unchanged. `test_one_uncalibrated_finding_per_run_at_line_one_of_the_record` keeps passing with `Record()`, whose `calibration` is None.
 - [ ] **Step 3:** All 5 M6 scenarios pass, M4's `judge_check` stays green (its record holds no calibration), and the regression run is green. Commit `feat: a passing calibration quiets judge-uncalibrated`.
 
@@ -310,7 +311,7 @@ This builds the model of gating answer 3. Load the `claude-api` skill before wri
 
 - [ ] **Step 1:** Write failing tests with a mocked client:
   - `load_model(value, root)` gains the root whose files the regions name. `check` passes the repository root, and `calibrate` passes `<fixture>`, since the fixture's region paths are relative to it, not to the working directory. `root` does not change how a `stub:<path>` value resolves, which stays relative to the working directory. Also, `anthropic:claude-opus-5-5` loads a model whose id is that value; it keeps `ask(question) -> Verdict`, so `judge` and `calibrate` are unchanged;
-  - the question text is built from the clause spans and `prompt.txt`, and the `shortcut:` comment in `questions` is removed. All fixed wording of the question lives in `prompt.txt`, and the code adds only the question kind, the clause, and the regions and tests, so `PROMPT_HASH` changes whenever the wording does;
+  - the question text is built from the clause spans and `prompt.txt`, and the `shortcut:` comment in `questions` is removed. All instructions live in `prompt.txt`, which stays as M4 wrote it (answer 3). The code adds only labelled fields (the question kind, the clause, the regions and the tests) in a fixed layout that a unit test pins;
   - each question sends the prompt, the clause, and the tagged regions and tests (`01` Runtime and permission model: "only the requirement clause, the tagged code regions and the tagged tests"), at effort `high`, with no `temperature`;
   - a structured reply becomes a `Verdict`;
   - an API error, a refusal or a malformed reply raises `JudgeError`, so the command exits 2.
