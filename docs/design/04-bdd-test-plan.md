@@ -1732,9 +1732,9 @@ The judge is the stub model in every M6 scenario, so no network is reached.
 Its files are `stub-pass.json` and `stub-fail.json`, which sit beside
 `verdicts.json` and are left out of the fixture's commit. They copy
 `verdicts.json` with results flipped on two, and then three, requirements,
-giving eight and seven matches. A requirement matches when both of its questions agree. Every scenario
-runs with the built fixture as the working directory, so `calibrate` and
-`check --judge` read and write one record.
+giving eight and seven matches. A requirement matches when both of its
+questions agree. Every scenario runs with the built fixture as the working
+directory, so `calibrate` and `check --judge` read and write one record.
 
 ### Proposed scenarios
 

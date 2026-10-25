@@ -285,6 +285,11 @@ and "maintainer" everywhere else, and both name the same person.
 - Outcome: the maintainer runs `earnest calibrate` against a fixture; the judge
   runs over ten hand-tagged requirements, its verdicts are compared with the
   maintainer's, and the gate passes at eight or more matches (SC4).
+- Fixture: the ten requirements are `req` items in the fixture's
+  `requirements.md`, hand-tagged to its code and tests. The maintainer's
+  verdicts are its `verdicts.json`, in the canned-verdict format of the Runtime
+  and permission model. A requirement matches when the judge's `result`
+  equals the maintainer's on both `implemented` and `tested`.
 
 ### UC9 Approve a stage
 
@@ -1480,7 +1485,10 @@ demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the
 agent, the human at the gate and a CI job can each act on the exit code. While
 the record holds no passing calibration for the current model id and prompt
-hash, every judge run raises `judge-uncalibrated`.
+hash, every judge run raises `judge-uncalibrated`. `earnest calibrate` prints
+the comparison and the verdict to stdout and exits 0 on a pass, 1 on a fail,
+and 2 when it cannot run. It writes its result to the record on a pass and on
+a fail alike, so the record always holds the latest result.
 
 ### SARIF 2.1.0
 
@@ -1689,7 +1697,7 @@ status, and the frontier run entirely on the local repository.
 | Question | Owner | Resolved by |
 | --- | --- | --- |
 | Whether the judge applies tenets to observations | maintainer | after the calibration gate reports |
-| Judge model choice and prompt | maintainer | the calibration gate, which tests the candidate the maintainer approved on 2026-10-25: `EARNEST_JUDGE=anthropic:claude-opus-5-5` through the `anthropic` SDK, effort pinned to `high`, and the prompt as M4 wrote it (gating answer 3 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
+| Judge model choice and prompt | maintainer | chosen 2026-10-25, which settles it for L4 of `02`; the calibration gate confirms the choice or sends it back. The choice: `EARNEST_JUDGE=anthropic:claude-opus-5-5` through the `anthropic` SDK, effort pinned to `high`, and the prompt as M4 wrote it (gating answer 3 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
 | SC4 calibration gate | maintainer | unrun; a precondition to the first AI-DLC unit the fork runs through Earnest |
 | Whether the gate or the approve transition refuses a run header with `dirty` true | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
