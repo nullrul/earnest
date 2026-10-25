@@ -1645,6 +1645,7 @@ Feature: Evidence check
     And the repo maintainer's units evidence overlay is committed
     And the judge is the stub model with the evidence verdicts of "seeded-change"
     And the coding agent has run earnest check --evidence
+    And earnest plan lists task "task~add-limiter~1" as "done"
     When the coding agent edits the test under "req~rate-limit~1"
     And the repo maintainer runs earnest plan
     Then the plan lists task "task~add-limiter~1" as "not done"
