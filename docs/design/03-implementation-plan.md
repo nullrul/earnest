@@ -30,8 +30,8 @@ flowchart LR
 
 M1 and M2 are the foundation. M1 fixes the index and the SARIF output that
 every later milestone reads, and M2 adds the assessment record, the contract
-that revision checks, the judge cache, the coverage-map commit, calibration and
-the run header share. M2 also adds the Region rule, which M3 reads for
+that revision checks, the judge cache, the coverage-map commit, calibration, the evidence
+result and the run header share. M2 also adds the Region rule, which M3 reads for
 out-of-task and impact and M4 for the judge cache key and `override-drift`.
 M3 and M4 then run in parallel, and M7 follows M2b. M2b adds per-unit stages,
 units and team gates on routes with Units Generation; M5 and M7 wait on it,
@@ -40,7 +40,8 @@ because M5 shows a unit as done and M7 gates real intents of `classic`,
 evidence runs in `impact.py` beside impact, and `--evidence` implies `--judge`.
 M6 continues the judge branch. Evidence has its own milestone so that M6 waits
 on the judge alone, and the out-of-task check and impact have theirs so that M2
-carries only the record, the stage engine and the Region rule.
+carries only the record, the stage engine and the Region rule. M8 follows M5
+and adds TypeScript evidence through StrykerJS and Jest.
 
 M1 is the first runnable milestone, and no open question gates it or M2. The
 rows of the Open questions sections that gate later milestones are named in

@@ -39,7 +39,7 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
 
 ## mutmut 3.8, as the spike ran it
 
-- **Command line:** in the temporary copy, `python -m mutmut run`, then the results are read from files. `mutmut run` writes its whole working tree to `mutants/` under its working directory, which is why the run needs the copy.
+- **Command line:** in the temporary copy, `python -m mutmut run`, then the results are read from files. `mutmut run` writes `mutants/` under its working directory, holding the source paths, the `also_copy` entries and mutmut's defaults (`tests/`, `setup.cfg`, `pyproject.toml`, lock files), which is why the run needs the copy.
 - **Configuration:** a `[mutmut]` section in `setup.cfg` (or `[tool.mutmut]` in `pyproject.toml`) written into the copy: `source_paths` lists the files to mutate (`paths_to_mutate` and `tests_dir` still work but warn as deprecated), and `also_copy` names files the tests need beside `src/` and `tests/`, such as the fixture's `pytest.ini`, without which `pythonpath = src` is lost and no mutant is reached.
 - **Result format:** one JSON file per mutated source, `mutants/<path>.meta`, whose `exit_code_by_key` maps each mutant key to an exit code. A key is `<module>.x_<function>__mutmut_<n>` for a function and `<module>.xǁ<Class>ǁ<method>__mutmut_<n>` for a method. mutmut's own `status_by_exit_code` (3.8) reads: `1` and `3` killed; `0` survived; `5` and `33` no tests; `36`, `24`, `-24`, `152` and `255` timeout; `37` caught by type check; `-9` and `-11` segfault; `34` skipped; `35` suspicious; `2` interrupted; no code (`null`) not checked. `mutants/mutmut-stats.json` holds the test-to-function stats. `mutmut results --all true` prints the same as text.
 - **Mutant to line:** a key names the function, not the line. `mutants/<path>` holds, for each function, the unmutated copy `x_<function>__mutmut_orig` and each variant `x_<function>__mutmut_<n>` as plain functions (the spike saw functions only; Task 2 confirms where methods sit, as the key names their class). Earnest parses that file once with `ast`, compares each surviving variant's statements with `__mutmut_orig`'s, and takes the first line that differs as an offset from the `def`; it adds that offset to the `def` line of the same function, by qualified name (class and method), in the unmutated file. No subprocess per mutant, and comments above a `def` never shift the count. (`python -m mutmut show <key>` prints the same change as a diff whose hunk starts at the comments above the `def`, so its offsets are off by one under a tag; Earnest does not use it.)
@@ -132,7 +132,7 @@ The scenarios are drafted as PROPOSED in `04`'s M5 section, awaiting ratificatio
 | Task | Content | Depends on | Scenarios green after it |
 | --- | --- | --- | --- |
 | 0 | This plan, committed with the docs | none | none |
-| 1 | The ratified `04` M5 section and the `evidence_check` behavior gate, red | maintainer ratification of the scenarios | none |
+| 1 | The ratified `04` M5 section and the `evidence_check` behavior gate, red | maintainer ratification of the scenarios | "Without --evidence the check runs no test and no mutant" (the guard) |
 | 2 | The mutmut run on a temporary copy, and its results, `impact.py` | T1 | none new; the guard stays green |
 | 3 | The region filter and `evidence-failed`; the StrykerJS reader against a canned report | T2 | "Against the stub model …", "A surviving mutant outside every tagged region …" |
 | 4 | The `evidenced` level and the three percentages, `structural.py`, `reporter.py` | T3 | "Each requirement lands at exactly one trace level …" |
@@ -207,15 +207,16 @@ def audit_lockout(member: str) -> str:
 | `tests/fixtures/seeded-change/evidence-verdicts.json` | the stub's verdicts for M5 | 1 |
 | `tests/features/evidence_check.feature` | M5's 6 scenarios, verbatim from `04` | 1 |
 | `tests/steps/test_evidence_check.py` | pytest-bdd steps; the exit command | 1, 6 |
-| `tests/conftest.py` | `_OVERLAYS` gains `evidence/` and `evidence-units/`, and the builders leave them and `evidence-verdicts.json` out; the two overlay committers on `main` | 1 |
+| `tests/conftest.py` | `_OVERLAYS` gains `evidence`, `evidence-units` and `evidence-verdicts.json`, which the builders leave out; the two overlay committers on `main` | 1 |
 | `tests/integration/test_seeded_change.py` | the units variant's sha and the overlay's lines pinned | 1 |
-| `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidence keys | 2-6 |
+| `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidence keys | 2, 3, 5, 6 |
 | `src/earnest/structural.py` | the `evidenced` level | 4 |
-| `src/earnest/plan.py` | Computed status reads the `evidence` slot | 5 |
+| `src/earnest/plan.py` | Computed status reads the `evidence` slot | 5, 6 |
+| `src/earnest/judge/__init__.py` | `Cache._hash` extracted into a free function the evidence key shares | 5 |
 | `src/earnest/reporter.py` | `evidence-failed` in `RULES`; the evidenced percentage; `layers`; the `evidence` slot | 3-5 |
 | `src/earnest/cli.py` | `--evidence`, implying `--judge`; exit 2 when mutmut cannot run | 2 |
 | `pyproject.toml` | mutmut in the `dev` group, `>=3.8,<4` (added by the spike) | spike, done |
-| `tests/unit/test_impact.py`, `test_structural.py`, `test_plan.py`, `test_reporter.py`, `test_cli.py`; `tests/unit/stryker-report.json`; `tests/integration/test_evidence_check.py` | each task's tests | 2-6 |
+| `tests/unit/test_impact.py`, `test_structural.py`, `test_plan.py`, `test_judge.py`, `test_reporter.py`, `test_cli.py`; `tests/unit/stryker-report.json`; `tests/integration/test_evidence_check.py` | each task's tests | 2-6 |
 
 Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 only ratifies `04`'s M5 section. The docs commit that adds this plan also adds its link to M5's entry in `03`; marking M5 done there is outside this plan's scope.
 
@@ -237,14 +238,14 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 **Files:**
 
 - Modify: `docs/design/04-bdd-test-plan.md`
-- Create: the `evidence/` overlay and `evidence-verdicts.json` under `packages/earnest/tests/fixtures/seeded-change/`
+- Create: the `evidence/` and `evidence-units/` overlays and `evidence-verdicts.json` under `packages/earnest/tests/fixtures/seeded-change/`
 - Create: `packages/earnest/tests/features/evidence_check.feature`, `packages/earnest/tests/steps/test_evidence_check.py`
 - Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/integration/test_seeded_change.py`
 
 - [x] **Step 1:** E1 and E2 approved 2026-10-25 and recorded in `01`, `02` and `03`. Stop here unless the maintainer has also ratified `04`'s M5 scenarios.
 - [x] **Step 2:** Spike, done 2026-10-25: mutmut 3.8.0 in the `dev` group, pinned `>=3.8,<4`, run on scratch copies of the base and units fixtures (3 mutants, all killed, the same `src/` and `tests/` in both) and of the proposed overlay (15 mutants, 7 killed, 8 survived). Recorded under mutmut 3.8 and the Fixture section.
 - [ ] **Step 3:** Write the two overlays and `evidence-verdicts.json` as the Fixture section gives them, and remove the PROPOSED status of `04`'s M5 section once the maintainer ratifies it, with the changes the maintainer asks for.
-- [ ] **Step 4:** Add `evidence/` and `evidence-units/` to `_OVERLAYS` in `tests/conftest.py`, so the builders leave them and `evidence-verdicts.json` out and every pinned sha of M1 to M4 stands. Add the steps that commit `evidence/` on `main` over the base commit and `evidence-units/` on `main` over the units variant, and pin the units variant's sha and both overlays' lines in `test_seeded_change.py`.
+- [ ] **Step 4:** Add `evidence`, `evidence-units` and `evidence-verdicts.json` to `_OVERLAYS` in `tests/conftest.py`, so the builders leave them out and every pinned sha of M1 to M4 stands. Add the steps that commit `evidence/` on `main` over the base commit and `evidence-units/` on `main` over the units variant, and pin the units variant's sha and both overlays' lines in `test_seeded_change.py`.
 - [ ] **Step 5:** Copy the M5 Gherkin of `04` into `evidence_check.feature` verbatim, and write the step module. The stub step sets `EARNEST_JUDGE` to `stub:` and the absolute path of `evidence-verdicts.json`.
 - [ ] **Step 6:** Run the regression run, then `uv run pytest tests/steps/test_evidence_check.py`. Expected: the regression run is green, the guard passes, and the other 5 M5 scenarios fail.
 - [ ] **Step 7:** Commit `test: RED evidence_check behavior gate and seeded-change M5 cases`, with the docs changes in a separate `docs:` commit before it.
@@ -283,7 +284,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 ### Task 5: The `evidence` slot, written by `check` and read by `plan`
 
-**Files:** Modify `packages/earnest/src/earnest/impact.py`, `plan.py`, `reporter.py`; Test `tests/unit/test_reporter.py`, `tests/unit/test_plan.py`, `tests/integration/test_evidence_check.py`.
+**Files:** Modify `packages/earnest/src/earnest/impact.py`, `plan.py`, `reporter.py`, `judge/__init__.py`; Test `tests/unit/test_reporter.py`, `tests/unit/test_plan.py`, `tests/unit/test_judge.py`, `tests/integration/test_evidence_check.py`.
 
 - [ ] **Step 1:** Write failing tests: the slot round-trips in canonical JSON; a rerun on the same tree writes the same record; `plan` reads it and shows `task~add-limiter~1` and `unit~u1~1` done and writes nothing.
 - [ ] **Step 2:** Implement through the record's existing atomic write.
@@ -313,6 +314,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
   "packages/earnest/src/earnest/impact.py",
   "packages/earnest/src/earnest/structural.py",
   "packages/earnest/src/earnest/plan.py",
+  "packages/earnest/src/earnest/judge/__init__.py",
   "packages/earnest/src/earnest/reporter.py",
   "packages/earnest/src/earnest/cli.py",
   "packages/earnest/tests/conftest.py",
@@ -321,6 +323,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
   "packages/earnest/tests/unit/test_impact.py",
   "packages/earnest/tests/unit/test_structural.py",
   "packages/earnest/tests/unit/test_plan.py",
+  "packages/earnest/tests/unit/test_judge.py",
   "packages/earnest/tests/unit/test_reporter.py",
   "packages/earnest/tests/unit/test_cli.py",
   "packages/earnest/tests/unit/stryker-report.json",

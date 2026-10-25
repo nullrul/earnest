@@ -46,8 +46,9 @@ milestone in `03`.
 | M5 `evidence_check` | `evidence_check.feature` | `test_evidence_check.py` | `seeded-change` | SC3 (in full), SC8 (done) |
 | M6 `calibration_gate` | `calibration_gate.feature` | `test_calibration_gate.py` | `calibration` | SC4 |
 | M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
+| M8 `typescript_evidence` | `typescript_evidence.feature` | `test_typescript_evidence.py` | a TypeScript fixture, named when M8 is next | SC3 for TypeScript |
 
-The scenarios of M5 to M7 are added here when each milestone's plan is written.
+The scenarios of M6 to M8 are added here when each milestone's plan is written.
 
 ## How scenarios are written
 
@@ -1597,7 +1598,7 @@ Feature: Evidence check
   Scenario: Against the stub model the evidence check reports a surviving mutant in a tagged region (SC3)
     Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
     And the repo maintainer's evidence overlay is committed
-    And the judge is the stub model with the evidence verdicts of "seeded-change"
+    And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     When the coding agent runs earnest check --evidence
     Then the SARIF log holds exactly these findings:
       | rule                        | file                                                                                         | line | level   | position | stage                        |
@@ -1611,14 +1612,14 @@ Feature: Evidence check
   Scenario: A surviving mutant outside every tagged region raises nothing (SC3)
     Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
     And the repo maintainer's evidence overlay is committed
-    And the judge is the stub model with the evidence verdicts of "seeded-change"
+    And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     When the coding agent runs earnest check --evidence
     Then the SARIF log holds no finding at "src/checkout/auth.py" line 5
 
   Scenario: Each requirement lands at exactly one trace level, with three percentages (SC3)
     Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
     And the repo maintainer's evidence overlay is committed
-    And the judge is the stub model with the evidence verdicts of "seeded-change"
+    And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     When the coding agent runs earnest check --evidence
     Then the SARIF log gives each requirement one trace level:
       | requirement          | level     |
@@ -1628,27 +1629,32 @@ Feature: Evidence check
     And the summary leads with "traced 100%, judged 66%, evidenced 33%; requirements: 3"
 
   Scenario: After the evidence check, the plan shows the evidenced task and its unit as done (SC8)
-    Given the repo maintainer's "seeded-change" repository in its units variant
+    Given the repo maintainer's "seeded-change" repository in its future-format units variant, with the requirements, the units and the first unit's functional design approved
     And the repo maintainer's units evidence overlay is committed
-    And the judge is the stub model with the evidence verdicts of "seeded-change"
+    And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     And the coding agent has run earnest check --evidence
     When the repo maintainer runs earnest plan
     Then the plan lists these tasks:
       | task                  | status   |
       | task~add-limiter~1    | done     |
       | task~notify-lockout~1 | not done |
-    And the plan lists unit "unit~u1~1" as "done" and unit "unit~u2~1" as "not done"
-    And earnest plan writes nothing
+    And the plan lists these units:
+      | unit      | status   | directory  | frontier                                  |
+      | unit~u1~1 | done     | u1-limiter | construction/u1-limiter/code-generation   |
+      | unit~u2~1 | not done | u2-notice  | construction/u2-notice/functional-design  |
+    And the repository is unchanged
 
   Scenario: An edit under an evidenced requirement drops it below evidenced until the check reruns (SC8)
-    Given the repo maintainer's "seeded-change" repository in its units variant
+    Given the repo maintainer's "seeded-change" repository in its future-format units variant, with the requirements, the units and the first unit's functional design approved
     And the repo maintainer's units evidence overlay is committed
-    And the judge is the stub model with the evidence verdicts of "seeded-change"
+    And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     And the coding agent has run earnest check --evidence
-    And earnest plan lists task "task~add-limiter~1" as "done"
-    When the coding agent edits the test under "req~rate-limit~1"
-    And the repo maintainer runs earnest plan
-    Then the plan lists task "task~add-limiter~1" as "not done"
+    And the coding agent has an uncommitted edit to "tests/test_auth.py"
+    When the repo maintainer runs earnest plan
+    Then the plan lists these tasks:
+      | task                  | status   |
+      | task~add-limiter~1    | not done |
+      | task~notify-lockout~1 | not done |
 
   Scenario: Without --evidence the check runs no test and no mutant
     Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
@@ -1668,21 +1674,25 @@ Feature: Evidence check
 - The units scenarios sit on the units variant because only it has a unit;
   there `evidence-failed` against `req~lockout-notice~1` is ahead of
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
-- "the coding agent edits the test under …" changes `tests/test_auth.py` in
-  the work tree without a commit, so the scenario also shows that a dirty
-  tree's stale key is not counted.
+- "the coding agent has run earnest check --evidence" asserts that the run
+  wrote the record's `evidence` slot, so the two units scenarios stay red until
+  Task 5 and the stale-key scenario cannot pass without one. The previous
+  scenario shows `task~add-limiter~1` done from the same Givens; this one adds
+  only the uncommitted edit, the existing step of `stage_status.feature`, so
+  a dirty tree's stale key is not counted.
 
 ## Scope (v1)
 
-- One behavior feature per milestone of `03`, eight in all, with the scenarios
-  of M1, M2, M2b, M3 and M4 in full.
+- One behavior feature per milestone of `03`, nine in all, with the scenarios
+  of M1, M2, M2b, M3, M4 and M5 in full.
 - Three test tiers under one runner, pytest, with pytest-bdd for the features.
 - Three fixture repositories, `broken-links`, `seeded-change` and
-  `calibration`, each plain files with its history built at test time.
+  `calibration`, each plain files with its history built at test time, and a
+  TypeScript fixture at M8.
 
 ## Future directions
 
-- The scenarios of M5 to M7, each written here when its milestone's
+- The scenarios of M6 to M8, each written here when its milestone's
   plan is written.
 - A coverage threshold for the package, when the maintainer sets one.
 
