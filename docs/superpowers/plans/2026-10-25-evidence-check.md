@@ -206,7 +206,7 @@ def audit_lockout(member: str) -> str:
 | `tests/fixtures/seeded-change/evidence-units/src/checkout/auth.py` | the units variant's overlay: the same, plus the `dsn~window-counter~1` tag | 1 |
 | `tests/fixtures/seeded-change/evidence-verdicts.json` | the stub's verdicts for M5 | 1 |
 | `tests/features/evidence_check.feature` | M5's 6 scenarios, verbatim from `04` | 1 |
-| `tests/steps/test_evidence_check.py` | pytest-bdd steps; the exit command | 1, 6 |
+| `tests/steps/test_evidence_check.py` | pytest-bdd steps; the exit command | 1 |
 | `tests/conftest.py` | `_OVERLAYS` gains `evidence`, `evidence-units` and `evidence-verdicts.json`, which the builders leave out; the two overlay committers on `main` | 1 |
 | `tests/integration/test_seeded_change.py` | the units variant's sha and the overlay's lines pinned | 1 |
 | `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidence keys | 2, 3, 5, 6 |
@@ -223,7 +223,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 ## Known limits
 
 - Python only end to end (E2); StrykerJS results are read but never produced by a test.
-- Mutation testing is slow; M5 sets a timeout like `MAP_TIMEOUT` and runs only on `--evidence`. The spike ran 15 mutants at about 74 per second.
+- Mutation testing is slow; M5 runs mutmut under `MAP_TIMEOUT`, and only on `--evidence`. The spike ran 15 mutants at about 74 per second.
 - A tagged region with nothing to mutate is evidenced by its green tests alone.
 - The evidence key hashes only the requirement's own regions and tagged tests (E1, approved). An edit to code the region calls from outside every region, such as `member_key`, or to `conftest.py` or `pytest.ini`, can change which mutants survive while the key still matches, so the stored result stays counted until `check --evidence` reruns. FLAGGED for the maintainer, not changed: widening the key changes the approved E1.
 - mutmut mutates whole files and selects tests itself (D4); Earnest filters by region and never picks tests.

@@ -30,8 +30,8 @@ flowchart LR
 
 M1 and M2 are the foundation. M1 fixes the index and the SARIF output that
 every later milestone reads, and M2 adds the assessment record, the contract
-that revision checks, the judge cache, the coverage-map commit, calibration, the evidence
-result and the run header share. M2 also adds the Region rule, which M3 reads for
+that revision checks, the judge cache, the coverage-map commit, calibration and
+the run header share. M2 also adds the Region rule, which M3 reads for
 out-of-task and impact and M4 for the judge cache key and `override-drift`.
 M3 and M4 then run in parallel, and M7 follows M2b. M2b adds per-unit stages,
 units and team gates on routes with Units Generation; M5 and M7 wait on it,
@@ -231,8 +231,9 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   unit as done.
 - Exit command: `uv run pytest tests/steps/test_evidence_check.py`.
 - Deliverable: the Evidence rule in `impact.py`; `--evidence` in `cli.py`; the
-  `seeded-change` cases its feature reads; `evidence_check.feature` and its
-  step module.
+  record's `evidence` key in `reporter.py`; `plan.py` and `check` reading it
+  and the judge cache, without running a test; the `seeded-change` cases its
+  feature reads; `evidence_check.feature` and its step module.
 - Spec coverage: SC3 (in full), SC8 (done); the Evidence capability.
 - Context to load: `01`: Evidence rule, Trace levels, Computed status, D4.
   `02`: `impact.py` in Module boundaries; L4.

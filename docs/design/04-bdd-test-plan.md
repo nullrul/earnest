@@ -1580,7 +1580,7 @@ mutants survive with the second mutant of `lockout_message`.
 
 | Reading | Basis |
 | --- | --- |
-| A surviving mutant raises one `evidence-failed`, an error, at its line, against each requirement the region's tags cover | the Evidence rule and the findings table in `01` |
+| Surviving mutants raise one `evidence-failed`, an error, per line that holds one, against each requirement the region's tags cover | the Evidence rule and the findings table in `01` |
 | A surviving mutant outside every tagged region raises nothing | the Evidence rule and D4 in `01`: Earnest filters the tool's results by region |
 | `evidence-failed` counts against the Code Generation stage of the task that delivers the requirement; in the base history that stage is the frontier, so the finding is current | Frontier and position in `01`; `stage_status.feature` |
 | Evidenced is judged with a passing result under a key that matches the tree | Trace levels in `01`; E1 |
@@ -1649,7 +1649,7 @@ Feature: Evidence check
     And the repo maintainer's units evidence overlay is committed
     And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     And the coding agent has run earnest check --evidence
-    And the coding agent has an uncommitted edit to "tests/test_auth.py"
+    And the coding agent has an uncommitted edit to the test of "req~rate-limit~1"
     When the repo maintainer runs earnest plan
     Then the plan lists these tasks:
       | task                  | status   |
@@ -1674,12 +1674,18 @@ Feature: Evidence check
 - The units scenarios sit on the units variant because only it has a unit;
   there `evidence-failed` against `req~lockout-notice~1` is ahead of
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
+- "the SARIF log holds no finding at "<file>" line <n>" is a new step: it
+  asserts that no SARIF result is located at that file and line, whatever its
+  rule.
 - "the coding agent has run earnest check --evidence" asserts that the run
   wrote the record's `evidence` slot, so the two units scenarios stay red until
   Task 5 and the stale-key scenario cannot pass without one. The previous
   scenario shows `task~add-limiter~1` done from the same Givens; this one adds
-  only the uncommitted edit, the existing step of `stage_status.feature`, so
-  a dirty tree's stale key is not counted.
+  only an uncommitted edit inside `req~rate-limit~1`'s test region, a new
+  step: the existing "uncommitted edit to …" step of `stage_status.feature`
+  appends at the end of the file, which lies in `req~audit-log~1`'s region
+  (D10). The edit changes the requirement's `tests` hash, so its stored key
+  no longer matches and the entry is not counted.
 
 ## Scope (v1)
 
