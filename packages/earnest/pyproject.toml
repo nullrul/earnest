@@ -16,7 +16,6 @@ dev = [
     "mypy",
     "pre-commit",
     "ruff",
-    "taskipy",
     # pytest-bdd 8.1 calls pytest APIs that pytest 9 deprecates and pytest 10 removes: the
     # "Passing (nodeid|baseid) to" warning filter below matches pytest 9, and this pin keeps the run on pytest 9.
     "pytest>=9,<10",
@@ -97,7 +96,3 @@ exclude_lines = [
     "@overload",
     "raise NotImplementedError",
 ]
-
-[tool.taskipy.tasks]
-lint = "pre-commit run --all-files"
-build = "uv build"

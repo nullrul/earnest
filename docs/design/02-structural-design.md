@@ -446,12 +446,12 @@ Each decision refers to the tree in the File and directory tree section.
   and the Python SDK template's src layout, uv with hatchling, ruff,
   `mypy --strict` and vulture, and pytest with pytest-cov.
   `packages/earnest/Makefile` and `pyproject.toml` differ from the template
-  by their substitutions and by three deltas: dev tools are a uv dependency
+  by their substitutions and by these changes: dev tools are a uv dependency
   group, not an extra; coverage runs in `make test`, not in every pytest run;
-  and the root `deploy` target is dropped because nothing is deployable. The
-  template's `fail_under = 80` is also dropped, so `make test` reports
-  coverage with no threshold and
-  passes or fails on its tests alone. The template's TypeScript, Rust
+  and the template's `fail_under = 80` is dropped, so `make test` reports
+  coverage with no threshold and passes or fails on its tests alone. The root
+  `Makefile` drops the `deploy` target because nothing is deployable. The
+  template's TypeScript, Rust
   and Go packages stay unselected: the engine is Python, and the fork's
   TypeScript lives in the fork under upstream's Bun and Biome toolchain. From
   `~/Projects/workspace/lint-configs`, `python/ruff.toml` sets the bar the
@@ -556,7 +556,7 @@ Each decision refers to the tree in the File and directory tree section.
   and the milestone's exit command,
   `uv run pytest tests/steps/test_<milestone>.py`, passes exactly when its
   scenarios pass. `pyproject.toml` gains `pytest-bdd` in the
-  `dev` extra and `bdd_features_base_dir = "tests/features"` under
+  `dev` dependency group and `bdd_features_base_dir = "tests/features"` under
   `[tool.pytest.ini_options]`.
 - Alternatives considered: behave, a second runner outside pytest and its
   coverage report;
