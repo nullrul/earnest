@@ -233,8 +233,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Deliverable: the Evidence rule in `impact.py`, with the mutmut and StrykerJS
   report readers, the StrykerJS one covered by unit tests only; `--evidence` in
   `cli.py`; the
-  record's `evidence` key in `reporter.py`; `plan.py` and `check` reading it
-  and the judge cache, without running a test; the `seeded-change` cases its
+  record's `evidence` key in `reporter.py`; `plan.py` and `check` reading it,
+  without running a test; the `seeded-change` cases its
   feature reads; `evidence_check.feature` and its step module.
 - Spec coverage: SC3 (in full), SC8 (done); the Evidence capability.
 - Context to load: `01`: Evidence rule, Trace levels, Computed status, D4,

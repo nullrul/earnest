@@ -306,9 +306,9 @@ its line says "Owns", and each such rule has exactly one owner.
   comparing each item's body hash with the hash the record froze, and staleness
   one edge down. The lifecycle's later steps, expired overrides and outdated
   approvals, are computed under the Override rule in `judge/` and under Frontier
-  and position in `plan.py`. Owns each requirement's trace level, reading the
-  record's `judge` and `evidence` entries, with the region and test hashes, for
-  judged and evidenced, and applies
+  and position in `plan.py`. Owns each requirement's trace level up to traced;
+  `judge/` raises it to judged, and the evidenced raise reads the record's
+  `evidence` entries after the judge layer (`cli.py`). It applies
   the route rule of Stages to the Default Needs and to parentless items.
 - `ears.py`: EARS parser. Each `req` body becomes its clauses with text spans,
   the spans the judge asks about (D14), or a `req-not-ears` finding (D2).

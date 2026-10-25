@@ -486,8 +486,10 @@ Status is recomputed from the graph on every run.
 
 A requirement reaches evidenced only from a `passed` `evidence` entry of the
 assessment record whose key matches its current regions, tests and mutation tool; any other entry, or
-none, leaves it short of evidenced. `earnest check` and the read-only `earnest
-plan` both read the entry and the judge cache, and hash the regions themselves, so either shows a
+none, leaves it short of evidenced. Only a requirement the same run judged
+gets a `passed` entry, so where no model runs a matching one stands for judged
+too. `earnest check` and the read-only `earnest
+plan` both read the entry and hash the regions themselves, so either shows a
 task as done without running a test, and an edit under a requirement drops it
 below evidenced until `earnest check --evidence` runs again.
 

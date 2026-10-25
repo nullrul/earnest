@@ -23,9 +23,9 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
   - the read of mutmut's results, each surviving mutant mapped to its file and line, and kept when that line lies in a tagged region (the Region rule);
   - the evidence key and result of each requirement, for the record (E1).
 - The `regions` and `tests` hashes of E1 come from the judge cache's region hash, `Cache._hash` in `judge/__init__.py`, extracted into a free function over `index.digest`, so the judge and the evidence layer hash regions byte for byte alike.
-- `structural.py` gives a requirement the level `evidenced` when it is judged and its evidence result is `passed` under a key that matches the current tree.
+- `cli._analyse` raises a requirement to `evidenced` after the judge layer, which today sets `judged` (`judge/__init__.py`; `structural.py` gives only untraced or traced). With a model, a judged requirement whose entry is `passed` under a matching key becomes evidenced. Without one, in plain `check` and in `plan` (`cli._plan` runs `_analyse` with no model), a traced requirement with such an entry becomes evidenced directly: the writer writes `passed` only for a requirement the same run judged, so the entry stands for judged too.
 - `plan.py` reads the record's `evidence` slot through the Reporter's reader in both `check` and `plan`, so Computed status sees evidence without running it; `plan` stays read-only.
-- `reporter.py` adds `evidence-failed` to `RULES`, the evidenced percentage, `evidence` in the run header's `layers`, and writes the `evidence` slot.
+- `reporter.py` adds `evidence-failed` to `RULES` and writes the `evidence` slot; the evidenced percentage already exists (`LEVELS`, `percentages`, `summary`). `evidence` joins the layers twice: the run header's, from `plan._layers` and `plan.header`, and the SARIF invocation's, in `reporter.py`.
 - `cli.py` adds `--evidence`, which implies `--judge` and exits 2 when mutmut cannot run.
 
 **Tech Stack:** Python 3.12 standard library at runtime (`subprocess`, `json`, `ast`, `tempfile`, `shutil`, `pathlib`). mutmut is the repository's tool, run as a subprocess (L4); it joins the package's `dev` dependency group only so that the fixture's runs find it. The spike of 2026-10-25 pinned `mutmut>=3.8,<4` (3.8.0 installed); its command line and result format are under mutmut 3.8 below.
@@ -58,8 +58,8 @@ Answer: a sixth key of the assessment record, `evidence`, beside `judge`.
 
 - **Key:** one entry per requirement id with its revision (`req~rate-limit~1`), as the judge cache keys its entries.
 - **Value:** `{"key": {"regions": <sha256>, "tests": <sha256>, "tool": "mutmut <version>"}, "result": "passed" | "failed", "commit": <full sha>, "dirty": bool}`. `regions` hashes the requirement's `impl` regions and `tests` its test regions, as the judge cache key's "hash of the covered regions" and "hash of the covering tests" do; `commit` and `dirty` are those of the run header. No timestamp, so a rerun on the same tree writes the same record.
-- **Writer:** `earnest check --evidence`, through the Reporter, the record's only writer. It replaces the entry of every requirement whose files it set out to mutate: `passed` or `failed` from the mutant results, `failed` for a requirement a failing tagged test covers, and no entry (the old one dropped) for a requirement the run reached no verdict on, such as one whose mutmut run never started because a tagged test failed. Entries of requirements outside the run are kept.
-- **Readers:** `structural.py` and Computed status in `plan.py`, in both `check` and `plan`. An entry counts only when its whole key matches: its `regions` and `tests` hashes the current work tree, and its `tool` the installed mutmut; any other entry, or none, leaves the requirement short of `evidenced`. `plan` hashes the regions itself, which is model-free and runs no test, so it stays read-only.
+- **Writer:** `earnest check --evidence`, through the Reporter, the record's only writer. It replaces the entry of every requirement whose files it set out to mutate: `passed` from the mutant results only for a requirement the same run judged, else `failed` or no entry, `failed` for a requirement a failing tagged test covers, and no entry (the old one dropped) for a requirement the run reached no verdict on, such as one whose mutmut run never started because a tagged test failed. Entries of requirements outside the run are kept.
+- **Readers:** the evidenced raise in `cli._analyse` and Computed status in `plan.py`, in both `check` and `plan`. An entry counts only when its whole key matches: its `regions` and `tests` hashes the current work tree, and its `tool` the installed mutmut; any other entry, or none, leaves the requirement short of `evidenced`. `plan` hashes the regions itself, which is model-free and runs no test, so it stays read-only.
 
 Basis:
 
@@ -101,7 +101,7 @@ This narrows the question rather than closing it. Approving E2 set the `01` row'
 - **Trust:** `--evidence` runs the repository's tests against mutated code, with the trust of running its test suite (`01`, Runtime and permission model). It runs no test with `--evidence` absent.
 - **Timeouts and failures:** a mutmut run that cannot start, times out or reports no result exits 2, naming the tool and the reason. mutmut aborts its whole run when any test fails on the unmutated code, as its stats pass runs the whole suite (the spike: exit 1, "failed to collect stats"). So Earnest first runs the whole suite once on the unmutated copy: a failing tagged test raises `evidence-failed` against the requirements it covers, at its line; a failing untagged test exits 2 naming it, since no mutant result can be taken; in either case mutmut does not run.
 - **Region filter:** a surviving mutant counts only when its line lies in a tagged region (the Region rule); it raises `evidence-failed` against every requirement that region's tags cover, located at the mutant's line, one finding per line. mutmut's statuses map once: survived and no tests count as surviving, PROPOSED, since no test kills the mutant; killed, timeout, caught by type check and segfault count as killed, as mutmut counts them; skipped raises nothing; suspicious, interrupted, not checked and any code mutmut does not list exit 2, as the run is incomplete. `evidence-failed` attaches only to `req` ids, so a region tagged only for a `dsn` raises nothing.
-- **Evidenced:** judged, and an evidence result `passed` under a key that matches the current tree (E1). A requirement with no `impl` region of a mutated file is not evidenced.
+- **Evidenced:** judged, and an evidence result `passed` under a key that matches the current tree (E1); where no model runs, the matching `passed` entry stands for judged, as only a judged requirement gets one. A requirement with no `impl` region of a mutated file is not evidenced.
 - **Placement:** `evidence-failed` counts against the stage of the task that delivers the requirement, as M3 places code findings, and its level follows Frontier and position.
 - **Exit codes:** `evidence-failed` is an error. `judge-uncalibrated` still fires on every judge run until M6.
 - **Process:**
@@ -135,7 +135,7 @@ The scenarios are drafted as PROPOSED in `04`'s M5 section, awaiting ratificatio
 | 1 | The ratified `04` M5 section and the `evidence_check` behavior gate, red | maintainer ratification of the scenarios | "Without --evidence the check runs no test and no mutant" (the guard) |
 | 2 | The mutmut run on a temporary copy, and its results, `impact.py` | T1 | none new; the guard stays green |
 | 3 | The region filter and `evidence-failed`; the StrykerJS reader against a canned report | T2 | "Against the stub model …", "A surviving mutant outside every tagged region …" |
-| 4 | The `evidenced` level and the three percentages, `structural.py`, `reporter.py` | T3 | "Each requirement lands at exactly one trace level …" |
+| 4 | The `evidenced` level, `cli.py`, `plan.py`, `reporter.py` | T3 | "Each requirement lands at exactly one trace level …" |
 | 5 | The `evidence` slot, written by `check` and read by `plan` | T4 | "After the evidence check, the plan shows …" |
 | 6 | Stale keys | T5 | "An edit under an evidenced requirement …"; all 6 |
 | 7 | The full suite, lint and the pre-PR review | T6 | all 6 of M5, with M1 to M4 unchanged |
@@ -210,13 +210,13 @@ def audit_lockout(member: str) -> str:
 | `tests/conftest.py` | `_OVERLAYS` gains `evidence`, `evidence-units` and `evidence-verdicts.json`, which the builders leave out; the two overlay committers on `main` | 1 |
 | `tests/integration/test_seeded_change.py` | the units variant's sha and the overlay's lines pinned | 1 |
 | `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidence keys | 2, 3, 5, 6 |
-| `src/earnest/structural.py` | the `evidenced` level | 4 |
+| `src/earnest/cli.py`, `src/earnest/plan.py` | the `evidenced` raise after the judge layer; `evidence` in `plan._layers` | 4 |
 | `src/earnest/plan.py` | Computed status reads the `evidence` slot | 5, 6 |
 | `src/earnest/judge/__init__.py` | `Cache._hash` extracted into a free function the evidence key shares | 5 |
-| `src/earnest/reporter.py` | `evidence-failed` in `RULES`; the evidenced percentage; `layers`; the `evidence` slot | 3-5 |
+| `src/earnest/reporter.py` | `evidence-failed` in `RULES`; the invocation's layers; the `evidence` slot | 3-5 |
 | `src/earnest/cli.py` | `--evidence`, implying `--judge`; exit 2 when mutmut cannot run | 2 |
 | `pyproject.toml` | mutmut in the `dev` group, `>=3.8,<4` (added by the spike) | spike, done |
-| `tests/unit/test_impact.py`, `test_structural.py`, `test_plan.py`, `test_judge.py`, `test_reporter.py`, `test_cli.py`; `tests/unit/stryker-report.json`; `tests/integration/test_evidence_check.py` | each task's tests | 2-6 |
+| `tests/unit/test_impact.py`, `test_plan.py`, `test_judge.py`, `test_reporter.py`, `test_cli.py`; `tests/unit/stryker-report.json`; `tests/integration/test_evidence_check.py` | each task's tests | 2-6 |
 
 Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 only ratifies `04`'s M5 section. The docs commit that adds this plan also adds its link to M5's entry in `03`; marking M5 done there is outside this plan's scope.
 
@@ -274,13 +274,13 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 - [ ] **Step 2:** Implement. The message names the requirement, the file and line, and the mutation.
 - [ ] **Step 3:** The two scenarios of Task 3 pass. Commit `feat: evidence-failed for surviving mutants in tagged regions`.
 
-### Task 4: The `evidenced` level and the three percentages
+### Task 4: The `evidenced` level
 
-**Files:** Modify `packages/earnest/src/earnest/structural.py`, `reporter.py`; Test `tests/unit/test_structural.py`, `tests/unit/test_reporter.py`.
+**Files:** Modify `packages/earnest/src/earnest/cli.py`, `plan.py`, `reporter.py`; Test `tests/unit/test_cli.py`, `tests/unit/test_plan.py`, `tests/unit/test_reporter.py`.
 
-- [ ] **Step 1:** Write failing tests: evidenced needs judged and a passing result; each requirement has exactly one level; the evidenced percentage counts among all requirements, rounded down; `layers` names `evidence`.
+- [ ] **Step 1:** Write failing tests: with a model, evidenced needs judged and a matching `passed` entry; with no model, a traced requirement with a matching `passed` entry is evidenced; each requirement has exactly one level; the run header's and the invocation's layers name `evidence`.
 - [ ] **Step 2:** Implement.
-- [ ] **Step 3:** The scenario "Each requirement lands at exactly one trace level …" passes. Commit `feat: the evidenced level and percentage`.
+- [ ] **Step 3:** The scenario "Each requirement lands at exactly one trace level …" passes. Commit `feat: the evidenced level`.
 
 ### Task 5: The `evidence` slot, written by `check` and read by `plan`
 
@@ -312,7 +312,6 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 [
   "docs/design/04-bdd-test-plan.md",
   "packages/earnest/src/earnest/impact.py",
-  "packages/earnest/src/earnest/structural.py",
   "packages/earnest/src/earnest/plan.py",
   "packages/earnest/src/earnest/judge/__init__.py",
   "packages/earnest/src/earnest/reporter.py",
@@ -321,7 +320,6 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
   "packages/earnest/tests/features/evidence_check.feature",
   "packages/earnest/tests/steps/test_evidence_check.py",
   "packages/earnest/tests/unit/test_impact.py",
-  "packages/earnest/tests/unit/test_structural.py",
   "packages/earnest/tests/unit/test_plan.py",
   "packages/earnest/tests/unit/test_judge.py",
   "packages/earnest/tests/unit/test_reporter.py",
