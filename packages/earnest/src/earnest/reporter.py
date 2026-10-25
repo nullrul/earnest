@@ -176,6 +176,7 @@ class Run:
     model: str | None = None  # the judge's model id and prompt hash, when the judge layer ran
     prompt: str | None = None
     observations: tuple[Mapping[str, object], ...] | None = None  # the observations of record, when the judge ran
+    evidence: bool = False  # whether the evidence layer ran
 
 
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
@@ -204,7 +205,8 @@ def sarif(findings: Sequence[Finding], levels: Mapping[str, str], run: Run) -> s
     invocation: dict[str, object] = {"commit": run.commit, "dirty": run.dirty, "layers": ["trace"]}
     if run.observations is not None:
         properties["observations"] = list(run.observations)
-        invocation |= {"layers": ["trace", "judge"], "model": run.model, "prompt": run.prompt}
+        layers = ["trace", "judge", "evidence"] if run.evidence else ["trace", "judge"]
+        invocation |= {"layers": layers, "model": run.model, "prompt": run.prompt}
     body = {
         "tool": {"driver": {"name": "earnest"}},
         "invocations": [

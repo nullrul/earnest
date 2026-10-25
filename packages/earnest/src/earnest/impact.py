@@ -539,6 +539,50 @@ def evidence_failed(root: Path, index: Index, found: Evidence) -> list[Finding]:
     return [*_mutant_findings(index, _surviving(found.mutants)), *_test_findings(root, index, found.failing)]
 
 
+def entries(
+    root: Path, index: Index, levels: Mapping[str, str], found: Evidence, failed: Iterable[Finding]
+) -> dict[str, dict[str, object]]:
+    """Return the evidence entry of each requirement with an `impl` region in a mutated file, keyed as E1 gives.
+
+    An entry's key hashes the requirement's `impl` regions and its test regions as the judge cache does, and names
+    the tool. Its result is `failed` when failed, the run's `evidence_failed` findings, hold one against it, and `passed` when the run judged it
+    and mutmut ran; a requirement the run reached no verdict on, such as one not judged, gets no entry.
+
+    Raises:
+        OSError: a tagged file cannot be read.
+    """
+    files = set(mutation_files(index, levels))
+    against = {each.subject for each in failed}
+    kept: dict[str, dict[str, object]] = {}
+    for item in index.defined.values():
+        code = judge.regions(index, item, judge.KINDS["implemented"])
+        req = str(item.id)
+        if item.id.type != "req" or not any(region.path in files for region in code):
+            continue
+        if req in against:
+            result = "failed"
+        elif levels.get(req) == "judged" and not found.failing:  # with a failing test mutmut never ran
+            result = "passed"
+        else:
+            continue
+        tests = judge.region_hash(root, judge.regions(index, item, judge.KINDS["tested"]))
+        key = {"regions": judge.region_hash(root, code), "tests": tests, "tool": found.tool}
+        kept[req] = {"key": key, "result": result}
+    return kept
+
+
+def evidenced(levels: Mapping[str, str], held: Mapping[str, Mapping[str, object]], *, judged: bool) -> dict[str, str]:
+    """Return the levels with each requirement raised to evidenced whose entry for its id and revision is `passed`.
+
+    With a model a requirement must be judged; with none, traced, as only a judged requirement gets a `passed` entry.
+    """
+    floor = "judged" if judged else "traced"
+    return {
+        req: "evidenced" if level == floor and held.get(req, {}).get("result") == "passed" else level
+        for req, level in levels.items()
+    }
+
+
 def _surviving(mutants: Iterable[Mutant]) -> list[Mutant]:
     kept = []
     for mutant in mutants:

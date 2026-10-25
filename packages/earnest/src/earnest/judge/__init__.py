@@ -109,13 +109,17 @@ class Cache:
         return verdict
 
     def _hash(self, found: Sequence[Region]) -> str:
-        """Return the digest of regions: each one's path, lines and text, in path and line order."""
-        chunks: list[bytes] = []
-        for region in sorted(found, key=lambda each: (each.path, each.first, each.last)):
-            text = (self.root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
-            chunks.append(f"{region.path}:{region.first}-{region.last}\n".encode("utf-8", "surrogateescape"))
-            chunks.append(b"\n".join(text) + b"\n")
-        return digest(b"".join(chunks))
+        return region_hash(self.root, found)
+
+
+def region_hash(root: Path, found: Sequence[Region]) -> str:
+    """Return the digest of regions in root's work tree: each one's path, lines and text, in path and line order."""
+    chunks: list[bytes] = []
+    for region in sorted(found, key=lambda each: (each.path, each.first, each.last)):
+        text = (root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
+        chunks.append(f"{region.path}:{region.first}-{region.last}\n".encode("utf-8", "surrogateescape"))
+        chunks.append(b"\n".join(text) + b"\n")
+    return digest(b"".join(chunks))
 
 
 def _cached(entry: object) -> Verdict | None:

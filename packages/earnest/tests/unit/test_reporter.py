@@ -548,3 +548,10 @@ def test_summary_states_the_runs_notes_and_the_log_leaves_them_out():
     run = Run(commit="abc", notes=("coverage map: not taken, the work tree is dirty",))
     assert "coverage map: not taken, the work tree is dirty" in reporter.summary([], {}, run).splitlines()
     assert reporter.sarif([], {}, run) == reporter.sarif([], {}, Run(commit="abc"))
+
+
+def test_invocation_names_the_evidence_layer_when_it_ran():
+    run = Run(commit="abc", model="stub:x", prompt="sha256:p", observations=(), evidence=True)
+    properties = sarif_run(reporter.sarif([], {}, run))["invocations"][0]["properties"]
+    assert properties["layers"] == ["trace", "judge", "evidence"]
+    assert (properties["model"], properties["prompt"]) == ("stub:x", "sha256:p")

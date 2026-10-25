@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from earnest import adapters, git, impact
+from earnest import adapters, git, impact, judge, reporter
 from earnest.git import Hunk
 from earnest.index import Source, build_index
 from tests.sarif import git_output
@@ -568,3 +568,80 @@ def test_the_stryker_reader_gives_the_file_and_line_of_each_surviving_mutant_no_
         ("src/notice.ts", 2),
         ("src/notice.ts", 5),  # NoCoverage: no test reaches it, so it survives
     ]
+
+
+# The evidenced level and the evidence entries of E1.
+
+
+def requirement(found, name):
+    return next(item for item in found.defined.values() if str(item.id) == name)
+
+
+def entries(repo, levels, proof):
+    found = scanned(repo)
+    return impact.entries(repo, found, levels, proof, impact.evidence_failed(repo, found, proof))
+
+
+def test_each_requirement_the_run_mutated_gets_an_entry_keyed_by_its_regions_its_tests_and_the_tool(files_repo):
+    repo = files_repo(EVIDENCE)
+    found = scanned(repo)
+    proof = impact.Evidence("mutmut 3.8.0", (), (mutant("src/pkg/other.py", 3, 0),))  # survives in req~u~1
+    held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, proof)
+    item = requirement(found, "req~a~1")
+    code = judge.region_hash(repo, judge.regions(found, item, judge.KINDS["implemented"]))
+    tests = judge.region_hash(repo, judge.regions(found, item, judge.KINDS["tested"]))
+    assert held["req~a~1"] == {"key": {"regions": code, "tests": tests, "tool": "mutmut 3.8.0"}, "result": "passed"}
+    assert held["req~u~1"]["result"] == "failed"
+    assert set(held) == {"req~a~1", "req~u~1"}
+
+
+def test_only_a_judged_requirement_with_no_failure_passes_and_one_the_run_reached_no_verdict_on_has_no_entry(
+    files_repo,
+):
+    repo = files_repo(EVIDENCE)
+    clean = impact.Evidence("mutmut 3.8.0", (), ())
+    assert set(entries(repo, {"req~a~1": "traced", "req~u~1": "judged"}, clean)) == {"req~u~1"}
+    failing = impact.Evidence("mutmut 3.8.0", ("tests/test_core.py::test_one",), ())  # so mutmut never ran
+    held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, failing)
+    assert {req: entry["result"] for req, entry in held.items()} == {"req~a~1": "failed"}
+
+
+def test_a_requirement_with_no_impl_region_of_a_mutated_file_gets_no_entry(files_repo):
+    repo = files_repo(
+        {**EVIDENCE, "src/pkg/other.py": "def other():\n    return 3\n", "web/u.ts": "// [impl->req~u~1]\n"}
+    )
+    held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, impact.Evidence("mutmut 3.8.0", (), ()))
+    assert set(held) == {"req~a~1"}
+
+
+PASSED = {"key": {}, "result": "passed"}
+FAILED = {"key": {}, "result": "failed"}
+
+
+def test_with_a_model_a_judged_requirement_with_a_passed_entry_for_its_id_and_revision_is_evidenced():
+    levels = {"req~a~1": "judged", "req~b~1": "judged", "req~c~1": "traced", "req~d~1": "judged", "req~e~1": "untraced"}
+    entries = {"req~a~1": PASSED, "req~b~1": FAILED, "req~c~1": PASSED, "req~d~2": PASSED, "req~e~1": PASSED}
+    assert impact.evidenced(levels, entries, judged=True) == {
+        "req~a~1": "evidenced",
+        "req~b~1": "judged",
+        "req~c~1": "traced",
+        "req~d~1": "judged",  # the entry is for another revision
+        "req~e~1": "untraced",
+    }
+
+
+def test_with_no_model_a_traced_requirement_with_a_passed_entry_is_evidenced():
+    levels = {"req~a~1": "traced", "req~b~1": "traced", "req~e~1": "untraced"}
+    entries = {"req~a~1": PASSED, "req~b~1": FAILED, "req~e~1": PASSED}
+    assert impact.evidenced(levels, entries, judged=False) == {
+        "req~a~1": "evidenced",
+        "req~b~1": "traced",
+        "req~e~1": "untraced",
+    }
+
+
+def test_each_requirement_keeps_exactly_one_level():
+    levels = {"req~a~1": "judged", "req~b~1": "traced", "req~c~1": "untraced"}
+    raised = impact.evidenced(levels, dict.fromkeys(levels, PASSED), judged=True)
+    assert list(raised) == list(levels)
+    assert all(level in reporter.LEVELS for level in raised.values())

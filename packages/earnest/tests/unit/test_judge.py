@@ -553,3 +553,12 @@ def test_the_old_tags_of_a_commit_and_path_are_read_once_a_run(tmp_path, monkeyp
     lines = (f"Override: req~greet~1 implemented at {at}, why", f"Override: req~greet~1 tested at {at}, why")
     ask(overridden(*lines), stub(tmp_path, {}), tmp_path)
     assert read == [(at, "src/c.py")]
+
+
+def test_the_region_hash_is_the_one_the_cache_key_holds(tmp_path):
+    found = index()
+    (entry, *_) = ask(found, stub(tmp_path, {"req~greet~1": GREET}), tmp_path).cache["cache"].values()
+    item = next(each for each in found.defined.values() if str(each.id) == "req~greet~1")
+    assert entry["regions"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["implemented"]))
+    assert entry["tests"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["tested"]))
+    assert entry["regions"] != entry["tests"]

@@ -599,6 +599,26 @@ def test_check_with_evidence_runs_the_suite_and_mutmut_and_without_it_runs_neith
     assert any("--cov-context=test" in command for command in calls)  # the coverage map's run, unchanged
 
 
+def test_check_with_evidence_raises_each_judged_requirement_with_no_surviving_mutant_to_evidenced(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    recording(monkeypatch)  # every mutated file gives no mutant, so nothing survives
+    _, judged, _ = run(repo, monkeypatch, capsys, "check", "--judge")
+    levels = sarif_run(judged)["properties"]["traceLevels"]
+    assert set(levels.values()) == {"judged"}
+    code, out, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code == 0, err
+    shown = sarif_run(out)
+    assert shown["properties"]["traceLevels"] == dict.fromkeys(levels, "evidenced")
+    assert shown["properties"]["percentages"] == {"traced": 100, "judged": 100, "evidenced": 100}
+    assert shown["invocations"][0]["properties"]["layers"] == ["trace", "judge", "evidence"]
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation", "--evidence")
+    (held,) = json.loads((repo / ".earnest/assessment.json").read_text(encoding="utf-8"))["runs"].values()
+    assert held["layers"] == ["trace", "judge", "evidence"]
+
+
 def test_a_mutmut_that_cannot_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, tmp_path):
     canned_model(monkeypatch, tmp_path)
     monkeypatch.setattr(impact, "_run", lambda *_: None)  # timed out

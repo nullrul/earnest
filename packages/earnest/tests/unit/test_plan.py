@@ -2784,3 +2784,16 @@ def test_the_stage_s_counting_row_gives_its_place_in_audit_order():
     intent = baseline_intent(*rows, (GATE_REQ, "h1", "2026-09-28T12:00:00Z"))
     runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h2", "c2"))
     assert plan.change_baseline(intent, runs) == "c1"
+
+
+def test_the_evidence_layer_joins_the_run_header_and_the_assessment_document_and_changes_its_hash():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1")])
+    judged = Run(commit="a" * 40, model="stub:x", prompt="sha256:p")
+    evidenced = Run(commit="a" * 40, model="stub:x", prompt="sha256:p", evidence=True)
+    before = plan.assessment_document(built, REQUIREMENTS, TREE, [], judged)
+    after = plan.assessment_document(built, REQUIREMENTS, TREE, [], evidenced)
+    assert (before["layers"], after["layers"]) == (["trace", "judge"], ["trace", "judge", "evidence"])
+    assert plan.assessment_hash(before) != plan.assessment_hash(after)
+    status = plan.StageStatus("not done", 2, 1, "outdated")
+    held = plan.header(built, REQUIREMENTS, status, evidenced, "sha256:" + "1" * 64)
+    assert (held.layers, held.model, held.prompt) == (("trace", "judge", "evidence"), "stub:x", "sha256:p")

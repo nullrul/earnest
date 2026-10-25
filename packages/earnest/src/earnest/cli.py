@@ -5,7 +5,7 @@ import os
 import posixpath
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from earnest import adapters, ears, git, impact, judge, plan, reporter, structural
@@ -39,6 +39,7 @@ class _Analysis:
     run: Run
     cache: dict[str, object] | None = None  # the record's `judge` slot as a judge run leaves it, for `--judge` to write
     evidence: impact.Evidence | None = None  # what the evidence layer found, under `--evidence`
+    entries: Mapping[str, Mapping[str, object]] = field(default_factory=dict)  # each requirement's evidence entry
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,9 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
         judged = judge.judge(index, levels, model, world.root, world.record.judge)
         levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
     proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
+    failed = impact.evidence_failed(world.root, index, proof) if proof is not None else []
+    entries = impact.entries(world.root, index, levels, proof, failed) if proof is not None else {}
+    levels = impact.evidenced(levels, entries, judged=model is not None)
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
     frozen = plan.frozen_bodies(world.record.bodies, built)
@@ -128,7 +132,7 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
     derived = plan.place(plans, index, own)
     checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
     checked += asked
-    checked += impact.evidence_failed(world.root, index, proof) if proof is not None else []
+    checked += failed
     findings = [*plan.place(plans, index, checked), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None
@@ -143,8 +147,9 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
         model=None if model is None else model.id,
         prompt=None if model is None else judge.PROMPT_HASH,
         observations=observations,
+        evidence=evidence,
     )
-    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache, proof)
+    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache, proof, entries)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:

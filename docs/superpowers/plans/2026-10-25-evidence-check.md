@@ -282,9 +282,9 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `cli.py`, `plan.py`, `reporter.py`, `judge/__init__.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/unit/test_plan.py`, `tests/unit/test_reporter.py`.
 
-- [ ] **Step 1:** Write failing tests: with a model, evidenced needs judged and a `passed` entry for its id and revision; with no model, a traced requirement with such an entry is evidenced; each requirement has exactly one level; the extracted hash function gives the same region hash as `Cache` did; the run header's, the stage assessment document's and the invocation's layers name `evidence`, and adding it changes the assessment hash.
-- [ ] **Step 2:** Implement. Extract `Cache._hash` into the free function E1's key uses. `Run` gains a field that tells `reporter.sarif` the evidence layer ran, as `_layers` tells the header. In `check --evidence` the raise reads the run's own entries in memory, keyed as E1 gives; Task 5 persists them and lets `plan` read them.
-- [ ] **Step 3:** The scenario "Each requirement lands at exactly one trace level …" passes. Commit `feat: the evidenced level`.
+- [x] **Step 1:** Write failing tests: with a model, evidenced needs judged and a `passed` entry for its id and revision; with no model, a traced requirement with such an entry is evidenced; each requirement has exactly one level; the extracted hash function gives the same region hash as `Cache` did; the run header's, the stage assessment document's and the invocation's layers name `evidence`, and adding it changes the assessment hash.
+- [x] **Step 2:** Implement. Extract `Cache._hash` into the free function E1's key uses. `Run` gains a field that tells `reporter.sarif` the evidence layer ran, as `_layers` tells the header. In `check --evidence` the raise reads the run's own entries in memory, keyed as E1 gives; Task 5 persists them and lets `plan` read them.
+- [x] **Step 3:** The scenario "Each requirement lands at exactly one trace level …" passes. Commit `feat: the evidenced level`.
 
 ### Task 5: The `evidence` slot, written by `check` and read by `plan`
 
