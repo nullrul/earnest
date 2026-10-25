@@ -1,7 +1,9 @@
 """Tests for earnest.impact: the coverage map that a stage check takes, and the impact it selects."""
 
 import json
+import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -273,3 +275,209 @@ def test_a_deleted_file_selects_the_tests_that_covered_its_lines_and_degrades_th
     found = selected(tmp_path, {"src/gone.py": (Hunk(1, 3, 0, 0),)}, gone)
     assert found.impact.tests == ("tests/test_m.py::test_a",)  # and the full suite, which this map is
     assert found.deleted == (("src/gone.py", 1, 1), ("src/gone.py", 1, 3))
+
+
+# The evidence layer: the whole suite, then mutmut, on a temporary copy of the work tree.
+
+EVIDENCE_SPEC = "`req~a~1`\n\nA.\n\n`req~u~1`\n\nU.\n\n`dsn~b~1`\n\nB.\n\nCovers: req~a~1\n"
+EVIDENCE = {
+    "pytest.ini": "[pytest]\npythonpath = src\n",
+    "docs/spec.md": EVIDENCE_SPEC,
+    "src/pkg/__init__.py": "",
+    "src/pkg/core.py": (
+        "# [impl->req~a~1]\n"  # 1
+        "def one():\n"  # 2
+        "    return 1\n"  # 3
+        "\n\n"
+        "class Box:\n"  # 6
+        "    # a comment above the def\n"  # 7
+        "    def size(self, n):\n"  # 8
+        "        x = 1\n"  # 9
+        "        return n + x\n"  # 10
+    ),
+    "src/pkg/other.py": "# [impl->req~u~1]\ndef other():\n    return 3\n",
+    "src/pkg/design.py": "# [impl->dsn~b~1]\ndef design():\n    return 4\n",
+    "web/a.ts": "// [impl->req~a~1]\nexport const a = 1;\n",
+    "tests/test_core.py": (
+        "from pkg.core import Box, one\n\n\n"
+        "# [utest->req~a~1]\ndef test_one():\n    assert one() == 1\n\n\n"
+        "def test_size():\n    assert Box().size(1) > 0\n"
+    ),
+}
+LEVELS = {"req~a~1": "judged", "req~u~1": "untraced"}
+
+
+def scanned(repo):
+    return build_index(adapters.scan(repo, git.work_tree_files(repo)))
+
+
+def test_the_files_to_mutate_are_the_python_files_of_the_impl_regions_of_traced_requirements(files_repo):
+    repo = files_repo(EVIDENCE)
+    assert impact.mutation_files(scanned(repo), LEVELS) == ["src/pkg/core.py"]
+    assert impact.mutation_files(scanned(repo), {**LEVELS, "req~u~1": "traced"}) == [
+        "src/pkg/core.py",
+        "src/pkg/other.py",
+    ]
+
+
+def test_the_evidence_run_maps_each_mutant_to_its_line_and_leaves_the_work_tree_as_it_was(files_repo):
+    repo = files_repo({**EVIDENCE, "notes.txt": "gone\n"})
+    (repo / "notes.txt").unlink()  # a tracked file deleted from the work tree
+    before = git_output(repo, "status", "--porcelain", "--untracked-files=all", "--ignored")
+    found = impact.evidence(repo, scanned(repo), LEVELS)
+    assert git_output(repo, "status", "--porcelain", "--untracked-files=all", "--ignored") == before
+    assert found.tool == f"mutmut {impact.version('mutmut')}"
+    assert found.failing == ()
+    assert [(m.path, m.line, m.key.rpartition(".")[2], m.code) for m in found.mutants] == [
+        ("src/pkg/core.py", 3, "x_one__mutmut_1", 1),
+        ("src/pkg/core.py", 9, "xǁBoxǁsize__mutmut_1", 1),
+        ("src/pkg/core.py", 9, "xǁBoxǁsize__mutmut_2", 0),
+        ("src/pkg/core.py", 10, "xǁBoxǁsize__mutmut_3", 1),
+    ]
+
+
+JUNIT_PASS = '<testsuites><testsuite><testcase file="tests/test_core.py" classname="tests.test_core" name="test_one"/></testsuite></testsuites>'
+
+
+def stub_run(monkeypatch, junit=JUNIT_PASS, mutmut=None):
+    """Replace `impact._run`: the suite run writes junit (None: no report), the mutmut run calls mutmut(copy)."""
+    calls = []
+
+    def run(command, root, env):
+        calls.append((command, root, {path.relative_to(root).as_posix() for path in root.rglob("*")}))
+        report = next((part.partition("=")[2] for part in command if part.startswith("--junitxml=")), None)
+        if report is not None and junit is not None:
+            Path(report).write_text(junit, encoding="utf-8")
+        if command[1:4] == ["-m", "mutmut", "run"] and mutmut is not None:
+            return mutmut(root)
+        return 0
+
+    monkeypatch.setattr(impact, "_run", run)
+    return calls
+
+
+def test_the_copy_holds_the_listed_files_and_merges_mutmut_s_section_into_setup_cfg(files_repo, monkeypatch):
+    setup = "[tool:pytest]\naddopts = -q %(here)s\n"
+    repo = files_repo({**EVIDENCE, "setup.cfg": setup, "notes.txt": "gone\n"})
+    (repo / "notes.txt").unlink()
+    (repo / "untracked.txt").write_text("kept\n", encoding="utf-8")
+    seen = {}
+
+    def mutmut(copy):
+        seen["setup"] = (copy / "setup.cfg").read_text(encoding="utf-8")  # and returns None: timed out
+
+    calls = stub_run(monkeypatch, mutmut=mutmut)
+    with pytest.raises(impact.EvidenceError, match="mutmut run timed out"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+    (suite, _, listed), (run, root, _) = calls
+    assert suite[1:3] == ["-m", "pytest"]
+    assert suite[suite.index("junit_family=xunit1") - 1] == "-o"
+    assert run == [sys.executable, "-m", "mutmut", "run"]
+    assert "notes.txt" not in listed
+    assert {"untracked.txt", "src/pkg/core.py"} <= listed
+    assert not str(root).startswith(str(repo))
+    assert "[tool:pytest]\naddopts = -q %(here)s\n" in seen["setup"]
+    assert "source_paths = \n\tsrc/pkg/core.py\n" in seen["setup"]
+    assert "also_copy = \n\tdocs\n\tpytest.ini\n\tsetup.cfg\n\tsrc\n\ttests\n\tuntracked.txt\n\tweb\n" in seen["setup"]
+
+
+def test_a_tool_mutmut_section_in_pyproject_exits_2(files_repo, monkeypatch):
+    repo = files_repo({**EVIDENCE, "pyproject.toml": "[tool.mutmut]\nsource_paths = ['src']\n"})
+    stub_run(monkeypatch)
+    with pytest.raises(impact.EvidenceError, match=r"\[tool.mutmut\]"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
+FAILING = (
+    "<testsuites><testsuite>"
+    '<testcase file="tests/test_core.py" classname="tests.test_core" name="test_one"><failure message="x"/></testcase>'
+    '<testcase file="tests/test_core.py" classname="tests.test_core.TestBox" name="test_box[2-3]"><error/></testcase>'
+    '<testcase file="tests/test_core.py" classname="tests.test_core" name="test_skip"><skipped/></testcase>'
+    "</testsuite></testsuites>"
+)
+TAGGED = {
+    **EVIDENCE,
+    "tests/test_core.py": (
+        "# [utest->req~a~1]\ndef test_one():\n    pass\n\n\n"
+        "# [utest->req~a~1]\nclass TestBox:\n    def test_box(self):\n        pass\n\n\n"
+        "def test_skip():\n    pass\n"
+    ),
+}
+
+
+def test_the_failing_tagged_tests_of_the_junit_report_read_as_node_ids_and_mutmut_does_not_run(files_repo, monkeypatch):
+    repo = files_repo(TAGGED)
+    calls = stub_run(monkeypatch, junit=FAILING)
+    found = impact.evidence(repo, scanned(repo), LEVELS)
+    assert found.failing == ("tests/test_core.py::TestBox::test_box", "tests/test_core.py::test_one")
+    assert found.mutants == ()
+    assert len(calls) == 1  # the suite run alone
+
+
+def test_a_failing_untagged_test_exits_2_naming_it_and_mutmut_does_not_run(files_repo, monkeypatch):
+    repo = files_repo(EVIDENCE)
+    junit = FAILING.replace("test_one", "test_size")
+    calls = stub_run(monkeypatch, junit=junit)
+    with pytest.raises(impact.EvidenceError, match=r"tests/test_core.py::TestBox::test_box"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("junit", [None, "<testsuites><testsuite>"])
+def test_a_missing_or_unparsable_junit_report_exits_2(files_repo, monkeypatch, junit):
+    repo = files_repo(EVIDENCE)
+    stub_run(monkeypatch, junit=junit)
+    with pytest.raises(impact.EvidenceError, match="JUnit report"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
+def test_a_suite_run_that_times_out_exits_2(files_repo, monkeypatch):
+    repo = files_repo(EVIDENCE)
+    monkeypatch.setattr(impact, "_run", lambda *_: None)
+    with pytest.raises(impact.EvidenceError, match="test run timed out"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
+def meta(text):
+    def write(copy):
+        (copy / "mutants" / "src" / "pkg").mkdir(parents=True)
+        if text is not None:
+            (copy / "mutants" / "src" / "pkg" / "core.py.meta").write_text(text, encoding="utf-8")
+        return 0
+
+    return write
+
+
+@pytest.mark.parametrize(
+    "text", [None, "{", '{"exit_code_by_key": []}', '{"exit_code_by_key": {"pkg.core.x_one__mutmut_1": 0}}']
+)
+def test_an_unreadable_mutmut_result_exits_2(files_repo, monkeypatch, text):
+    repo = files_repo(EVIDENCE)
+    stub_run(monkeypatch, mutmut=meta(text))  # the last has no mutants file to read its line from
+    with pytest.raises(impact.EvidenceError, match=r"no readable result for src/pkg/core\.py"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
+def missing(name):
+    raise impact.PackageNotFoundError(name)
+
+
+@pytest.mark.parametrize(
+    ("version", "message"), [(missing, "mutmut is not installed"), (lambda _: "4.0.0", "not mutmut 3")]
+)
+def test_mutmut_missing_or_of_another_major_exits_2(files_repo, monkeypatch, version, message):
+    repo = files_repo(EVIDENCE)
+    calls = stub_run(monkeypatch)
+    monkeypatch.setattr(impact, "version", version)
+    with pytest.raises(impact.EvidenceError, match=message):
+        impact.evidence(repo, scanned(repo), LEVELS)
+    assert calls == []
+
+
+def test_a_mutmut_under_python_of_another_version_exits_2(files_repo, monkeypatch, tmp_path):
+    repo = files_repo(EVIDENCE)
+    calls = stub_run(monkeypatch)
+    python = fake_python(tmp_path, "echo 3.0.0")
+    with pytest.raises(impact.EvidenceError, match=re.escape(f"mutmut under {python} is 3.0.0")):
+        impact.evidence(repo, scanned(repo), LEVELS, python=python)
+    assert calls == []

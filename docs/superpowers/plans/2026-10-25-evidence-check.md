@@ -254,7 +254,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `cli.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_cli.py`.
 
-- [ ] **Step 1:** Write failing tests:
+- [x] **Step 1:** Write failing tests:
   - the files to mutate are the Python files holding an `impl` region of a traced requirement, and no others;
   - the run copies the listed files to a temporary directory, writes mutmut's configuration there, and leaves `git status --porcelain` unchanged;
   - the whole-suite run on the unmutated copy writes a JUnit report (`-o junit_family=xunit1`) whose failures Earnest reads as node ids in the form `tagged_tests` returns; a failing untagged test exits 2 naming it, and mutmut does not run;
@@ -262,8 +262,8 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
   - the copy keeps the other sections of an existing `setup.cfg`; a `[tool.mutmut]` in the copy's `pyproject.toml` exits 2; a tracked file deleted from the work tree is left out of the copy;
   - a mutmut of another major version exits 2, and so does a mutmut under `python` whose version differs from the one in Earnest's interpreter;
   - `--evidence` implies `--judge`; one test runs `check --evidence` and asserts that the `--junitxml` suite run and the mutmut command reach `impact._run`, then runs `check` without it and asserts neither does (the coverage-map run of `check --stage` is unchanged), so it is red until this task.
-- [ ] **Step 2:** Implement, running mutmut as `take_map` runs pytest: `python -m mutmut` under the `python` that `take_map` takes (default `sys.executable`, the interpreter whose environment holds the repository's tests), with the environment filter of `_map_run`. The `tool` of E1's key is `mutmut` and `importlib.metadata.version("mutmut")` in Earnest's own interpreter, so `plan` reads it without a subprocess; the run also reads the version under `python` (`python -c` with `importlib.metadata`, through a call that keeps stdout, since `_run` returns only the exit code) and exits 2 when the two differ, so the key names the mutmut that ran; in `plan` and plain `check`, with mutmut absent no entry matches, every requirement stays short of evidenced; under `--evidence` it exits 2. `cli._analyse` gains the `evidence` flag and runs the evidence layer after the judge layer, so its findings reach `plan.place`.
-- [ ] **Step 3:** The scenario "Without --evidence the check runs no test and no mutant" passes. Commit `feat: the mutmut run for --evidence`.
+- [x] **Step 2:** Implement, running mutmut as `take_map` runs pytest: `python -m mutmut` under the `python` that `take_map` takes (default `sys.executable`, the interpreter whose environment holds the repository's tests), with the environment filter of `_map_run`. The `tool` of E1's key is `mutmut` and `importlib.metadata.version("mutmut")` in Earnest's own interpreter, so `plan` reads it without a subprocess; the run also reads the version under `python` (`python -c` with `importlib.metadata`, through a call that keeps stdout, since `_run` returns only the exit code) and exits 2 when the two differ, so the key names the mutmut that ran; in `plan` and plain `check`, with mutmut absent no entry matches, every requirement stays short of evidenced; under `--evidence` it exits 2. `cli._analyse` gains the `evidence` flag and runs the evidence layer after the judge layer, so its findings reach `plan.place`.
+- [x] **Step 3:** The scenario "Without --evidence the check runs no test and no mutant" passes. Commit `feat: the mutmut run for --evidence`.
 
 ### Task 3: The region filter and `evidence-failed`
 

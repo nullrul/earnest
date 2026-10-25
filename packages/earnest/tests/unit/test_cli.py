@@ -1,13 +1,16 @@
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
 
+import configparser
 import json
 import os
+import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
-from earnest import cli, judge
+from earnest import cli, impact, judge
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
 
 
@@ -545,3 +548,62 @@ def test_a_judged_stage_check_names_the_judge_layer_model_and_prompt_in_its_run_
         properties["model"],
         properties["prompt"],
     )
+
+
+def test_evidence_implies_judge_so_without_a_model_it_exits_two(fixture_repo, monkeypatch, capsys):
+    monkeypatch.delenv("EARNEST_JUDGE", raising=False)
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--evidence")
+    assert (code, out) == (2, "")
+    assert err.startswith("earnest: ")
+
+
+def recording(monkeypatch):
+    """Replace `impact._run`: the suite run writes a passing JUnit report, and mutmut an empty result per file."""
+    calls = []
+
+    def fake(command, root, env):
+        calls.append(command)
+        for part in command:
+            if part.startswith("--junitxml="):
+                Path(part.partition("=")[2]).write_text("<testsuites/>", encoding="utf-8")
+        if command[1:4] == ["-m", "mutmut", "run"]:
+            config = configparser.ConfigParser(interpolation=None)
+            config.read(root / "setup.cfg")
+            for path in config["mutmut"]["source_paths"].split():
+                (root / "mutants" / path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(root / path, root / "mutants" / path)
+                (root / "mutants" / f"{path}.meta").write_text('{"exit_code_by_key": {}}', encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(impact, "_run", fake)
+    return calls
+
+
+def test_check_with_evidence_runs_the_suite_and_mutmut_and_without_it_runs_neither(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    calls = recording(monkeypatch)
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code == 0, err
+    suite, mutmut = calls
+    assert any(part.startswith("--junitxml=") for part in suite)
+    assert mutmut[1:] == ["-m", "mutmut", "run"]
+    calls.clear()
+    run(repo, monkeypatch, capsys, "check")
+    run(repo, monkeypatch, capsys, "check", "--judge")
+    assert calls == []
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    assert [command for command in calls if "--junitxml" in " ".join(command) or "mutmut" in command] == []
+    assert any("--cov-context=test" in command for command in calls)  # the coverage map's run, unchanged
+
+
+def test_a_mutmut_that_cannot_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, tmp_path):
+    canned_model(monkeypatch, tmp_path)
+    monkeypatch.setattr(impact, "_run", lambda *_: None)  # timed out
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--evidence")
+    assert (code, out) == (2, "")
+    assert err.startswith("earnest: ")
+    assert "timed out" in err
+    assert len(err.splitlines()) == 1

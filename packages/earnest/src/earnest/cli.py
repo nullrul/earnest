@@ -38,6 +38,7 @@ class _Analysis:
     statuses: dict[str, dict[str, plan.StageStatus]]
     run: Run
     cache: dict[str, object] | None = None  # the record's `judge` slot as a judge run leaves it, for `--judge` to write
+    evidence: impact.Evidence | None = None  # what the evidence layer found, under `--evidence`
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
-    or newer, an intent or stage cannot be chosen, the judge's model cannot run, or the reader of the log or the summary goes away.
+    or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
     """
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     # main never dispatches on the bare command, so a bare `earnest` must stop here rather than run the check
@@ -68,12 +69,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the current task, such as task~add-limiter~1; else the Current Task line of the state file names it",
     )
     check.add_argument("--judge", action="store_true", help="ask the model EARNEST_JUDGE names each judge question")
+    check.add_argument(
+        "--evidence", action="store_true", help="run the tests and mutmut on the tagged code; implies --judge"
+    )
     commands.add_parser("plan", help="print the route, each stage's status and approval, and the frontier")
     args = parser.parse_args(argv)
     try:
         world = _read()
         result = _plan(world) if args.command == "plan" else _check(world, args)
-    except (git.GitError, OSError, reporter.RecordError, plan.PlanError, judge.JudgeError) as error:
+    except (
+        git.GitError,
+        OSError,
+        reporter.RecordError,
+        plan.PlanError,
+        judge.JudgeError,
+        impact.EvidenceError,
+    ) as error:
         sys.stderr.write(f"earnest: {error}\n")
         return 2
     try:
@@ -99,7 +110,7 @@ def _read() -> _World:
     return _World(root, commit, sources, git.changes(root), record, (root / reporter.RECORD).exists(), intents)
 
 
-def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
+def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool = False) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
@@ -109,6 +120,7 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     if model is not None:
         judged = judge.judge(index, levels, model, world.root, world.record.judge)
         levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
+    proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
     frozen = plan.frozen_bodies(world.record.bodies, built)
@@ -131,7 +143,7 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
         prompt=None if model is None else judge.PROMPT_HASH,
         observations=observations,
     )
-    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache)
+    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache, proof)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -216,11 +228,11 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:
-    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge else None
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge or args.evidence else None
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
-        analysis = _task_change(world, _analyse(world, model), args.task)
+        analysis = _task_change(world, _analyse(world, model, evidence=args.evidence), args.task)
         findings, run = analysis.findings, analysis.run
         if analysis.cache is not None:
             world.record.judge = analysis.cache
@@ -231,7 +243,9 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
             _code(findings),
         )
     chosen = plan.find_intent(world.intents, _option(world, args.intent))
-    return _stage(world, _task_change(world, _analyse(world, model), args.task), chosen, args.stage)
+    return _stage(
+        world, _task_change(world, _analyse(world, model, evidence=args.evidence), args.task), chosen, args.stage
+    )
 
 
 def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -> _Result:

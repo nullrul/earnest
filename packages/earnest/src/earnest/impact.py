@@ -1,16 +1,23 @@
-"""Impact: the coverage map that `check --stage` takes, and the requirements, features and tests a change impacts."""
+"""Impact: the coverage map that `check --stage` takes, the impact of a change, and the evidence of `--evidence`."""
 
+import ast
+import configparser
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import tomllib
+import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from earnest import git
+from earnest import git, judge
 from earnest.git import Hunk
 from earnest.index import Index
 from earnest.reporter import Impact
@@ -27,6 +34,9 @@ CoverageMap = dict[tuple[str, int], tuple[str, ...]]
 _TEST_TYPES = frozenset({"utest", "itest", "stest"})
 _DEF = re.compile(r"([ \t]*)(?:async[ \t]+)?def[ \t]+(test\w*)[ \t]*\(")
 _CLASS = re.compile(r"class[ \t]+(Test\w*)\b")
+MUTMUT_MAJOR = "3"  # the major whose result format the reader parses
+_CLICK = "\u01c1"  # mutmut's separator of class and method in a mutant's name (U+01C1)
+_VERSION = "import importlib.metadata as m; print(m.version('mutmut'))"
 
 
 def map_file(root: Path, commit: str) -> Path:
@@ -78,8 +88,7 @@ def take_map(root: Path, commit: str, python: str = sys.executable) -> str | Non
 
 
 def _map_run(root: Path, python: str, data: Path, report: Path) -> str | None:
-    env = {name: value for name, value in os.environ.items() if not name.startswith(_INHERITED)}
-    env |= {"COVERAGE_FILE": str(data), "PYTHONDONTWRITEBYTECODE": "1"}
+    env = _environment() | {"COVERAGE_FILE": str(data), "PYTHONDONTWRITEBYTECODE": "1"}
     tests = ["--cov=.", "--cov-context=test", "--cov-report=", f"--cov-config={os.devnull}"]
     # ponytail: `cache_dir` is the cache provider's own option, so with the provider off `-o cache_dir=` is an unknown
     # option that fails a repository with `filterwarnings = error`; turning the provider off already writes no cache
@@ -99,6 +108,11 @@ def _map_run(root: Path, python: str, data: Path, report: Path) -> str | None:
     if reported != 0 or not report.is_file():
         return "coverage could not report the test contexts"
     return None
+
+
+def _environment() -> dict[str, str]:
+    """Return Earnest's environment less the variables of a test run already going, for the runs Earnest starts."""
+    return {name: value for name, value in os.environ.items() if not name.startswith(_INHERITED)}
 
 
 def _run(command: list[str], root: Path, env: Mapping[str, str]) -> int | None:
@@ -280,3 +294,226 @@ def _covered(index: Index, start: Iterable[tuple[str, str]]) -> set[tuple[str, s
 
 def _current(index: Index, keys: Iterable[tuple[str, str]], kind: str) -> tuple[str, ...]:
     return tuple(sorted(str(index.defined[key].id) for key in keys if key[0] == kind and key in index.defined))
+
+
+class EvidenceError(Exception):
+    """The evidence layer cannot run: mutmut is missing or of another version, or a run gives no result."""
+
+
+@dataclass(frozen=True)
+class Mutant:
+    """One mutant mutmut ran: the file and line it changes, its key, and mutmut's exit code for it, None if unchecked."""
+
+    path: str
+    line: int
+    key: str
+    code: int | None
+
+
+@dataclass(frozen=True)
+class Evidence:
+    """What `--evidence` found: the tool that ran, the failing tagged tests, and every mutant mutmut ran.
+
+    With a failing tagged test mutmut does not run, so `mutants` is empty.
+    """
+
+    tool: str
+    failing: tuple[str, ...]
+    mutants: tuple[Mutant, ...]
+
+
+def tool() -> str | None:
+    """Return the `tool` of an evidence key: `mutmut <version>` in Earnest's own interpreter, or None without one."""
+    try:
+        return f"mutmut {version('mutmut')}"
+    except PackageNotFoundError:
+        return None
+
+
+def mutation_files(index: Index, levels: Mapping[str, str]) -> list[str]:
+    """Return the files mutmut mutates: the Python files holding an `impl` region of a traced requirement."""
+    paths = {
+        region.path
+        for item in index.defined.values()
+        if item.id.type == "req" and levels.get(str(item.id), "untraced") != "untraced"
+        for region in judge.regions(index, item, judge.KINDS["implemented"])
+    }
+    return sorted(path for path in paths if path.endswith(".py"))
+
+
+def evidence(root: Path, index: Index, levels: Mapping[str, str], python: str = sys.executable) -> Evidence:
+    """Run the evidence layer on a temporary copy of the work tree: the whole suite, then mutmut on `mutation_files`.
+
+    mutmut runs as `take_map` runs pytest, under python, and only when the suite passes on the unmutated copy, since
+    mutmut's own stats run aborts on any failing test. A failing tagged test gives the result without mutmut.
+
+    Raises:
+        EvidenceError: mutmut is missing, of another major, or of another version under python; the copy's
+            `pyproject.toml` has its own `[tool.mutmut]`; an untagged test fails; or a run times out or gives no result.
+        OSError: the copy cannot be written.
+    """
+    name = _tool(python)
+    files = mutation_files(index, levels)
+    with tempfile.TemporaryDirectory(prefix="earnest-evidence-") as temporary:
+        copy = _copy(root, Path(temporary) / "tree")
+        _configure(copy, files)
+        failing = _suite(copy, Path(temporary) / "junit.xml", python)  # the report sits beside the copy, not in it
+        untagged = sorted(
+            set(failing) - set(tagged_tests(root, index, [key for key in index.defined if key[0] == "req"]))
+        )
+        if untagged:
+            msg = f"evidence: the untagged test {', '.join(untagged)} fails on the unmutated code, so mutmut cannot run"
+            raise EvidenceError(msg)
+        if failing or not files:
+            return Evidence(name, tuple(failing), ())
+        if _run([python, "-m", "mutmut", "run"], copy, _environment()) is None:  # its exit code is no verdict
+            msg = f"evidence: the mutmut run timed out after {MAP_TIMEOUT} s"
+            raise EvidenceError(msg)
+        return Evidence(name, (), tuple(mutant for path in files for mutant in _mutants(copy, path)))
+
+
+def _tool(python: str) -> str:
+    name = tool()
+    if name is None:
+        msg = "evidence: mutmut is not installed"
+        raise EvidenceError(msg)
+    own = name.removeprefix("mutmut ")
+    if own.split(".")[0] != MUTMUT_MAJOR:
+        msg = f"evidence: mutmut {own} is not mutmut {MUTMUT_MAJOR}, whose results Earnest reads"
+        raise EvidenceError(msg)
+    try:
+        done = subprocess.run(  # noqa: S603
+            [python, "-c", _VERSION],
+            env=_environment(),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=MAP_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        done = None
+    there = done.stdout.strip() if done is not None and done.returncode == 0 else "missing"
+    if there != own:
+        msg = f"evidence: mutmut under {python} is {there}, not the {own} that Earnest reads"
+        raise EvidenceError(msg)
+    return name
+
+
+def _copy(root: Path, copy: Path) -> Path:
+    copy.mkdir()
+    for path in git.work_tree_files(root):
+        if (root / path).is_file():  # a tracked file deleted from the work tree is listed, but is not there
+            (copy / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / path, copy / path)
+    return copy
+
+
+def _configure(copy: Path, files: Sequence[str]) -> None:
+    """Merge mutmut's section into the copy's `setup.cfg`, which mutmut reads only without a `[tool.mutmut]`."""
+    try:
+        own = "mutmut" in tomllib.loads((copy / "pyproject.toml").read_text(encoding="utf-8")).get("tool", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        own = False
+    if own:
+        msg = "evidence: pyproject.toml has its own [tool.mutmut], which mutmut would read instead of Earnest's"
+        raise EvidenceError(msg)
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(copy / "setup.cfg", encoding="utf-8")
+    # every top-level entry, so the tests find what they need beside `src/` and `tests/`, such as a `pytest.ini`
+    entries = sorted({path.name for path in copy.iterdir()} | {"setup.cfg"})
+    config["mutmut"] = {"source_paths": "\n" + "\n".join(files), "also_copy": "\n" + "\n".join(entries)}
+    with (copy / "setup.cfg").open("w", encoding="utf-8") as out:
+        config.write(out)
+
+
+def _suite(copy: Path, report: Path, python: str) -> list[str]:
+    command = [python, "-m", "pytest", f"--junitxml={report}", "-o", "junit_family=xunit1", "-p", "no:cacheprovider"]
+    if _run([*command, "-q"], copy, _environment()) is None:
+        msg = f"evidence: the test run timed out after {MAP_TIMEOUT} s"
+        raise EvidenceError(msg)
+    return failures(report)
+
+
+def failures(report: Path) -> list[str]:
+    """Return the node ids of the tests an xunit1 JUnit report gives as failed or in error, a case's `[...]` dropped.
+
+    Raises:
+        EvidenceError: the report is missing or cannot be parsed, so the run gave no result.
+    """
+    try:
+        cases = list(ET.parse(report).getroot().iter("testcase"))  # noqa: S314 - Earnest's own temporary output
+    except (OSError, ET.ParseError) as error:
+        msg = f"evidence: the test run gave no JUnit report ({error})"
+        raise EvidenceError(msg) from error
+    return sorted(
+        {_node_id(case) for case in cases if case.find("failure") is not None or case.find("error") is not None}
+    )
+
+
+def _node_id(case: ET.Element) -> str:
+    path, name = case.get("file", ""), case.get("name", "").partition("[")[0]
+    if not path:  # a collection error names its module alone
+        return case.get("classname") or name
+    owner = case.get("classname", "").removeprefix(path.removesuffix(".py").replace("/", "."))
+    return "::".join([path, *(part for part in owner.split(".") if part), name])
+
+
+def _mutants(copy: Path, path: str) -> list[Mutant]:
+    """Read mutmut's result for path: each mutant's exit code, from `.meta`, and its line, from `mutants/<path>`."""
+    try:
+        codes = json.loads((copy / "mutants" / f"{path}.meta").read_text(encoding="utf-8"))["exit_code_by_key"]
+        text = (copy / "mutants" / path).read_text(encoding="utf-8")
+        variants, lines = _functions(text), text.split("\n")
+        original = _functions((copy / path).read_text(encoding="utf-8"))
+        found = [Mutant(path, _line(original, variants, lines, key), key, _code(code)) for key, code in codes.items()]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, SyntaxError) as error:
+        msg = f"evidence: mutmut gave no readable result for {path}"
+        raise EvidenceError(msg) from error
+    return sorted(found, key=lambda mutant: (mutant.line, mutant.key))
+
+
+def _code(code: object) -> int | None:
+    if code is not None and (not isinstance(code, int) or isinstance(code, bool)):
+        raise TypeError(code)
+    return code
+
+
+def _functions(text: str) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Return the functions of a module, and the methods of its classes as `Class.method`, by name."""
+    found: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for node in ast.parse(text).body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            found[node.name] = node
+        elif isinstance(node, ast.ClassDef):
+            for inner in node.body:
+                if isinstance(inner, ast.FunctionDef | ast.AsyncFunctionDef):
+                    found[f"{node.name}.{inner.name}"] = inner
+    return found
+
+
+def _line(
+    original: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    variants: Mapping[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    lines: Sequence[str],
+    key: str,
+) -> int:
+    """Return the line a mutant changes, from the `def` line of its function in the unmutated file.
+
+    The offset is that of the first line where its variant differs from `__mutmut_orig`, so comments above a `def`
+    never shift it.
+    """
+    name = key.rpartition(".")[2]
+    base = name.rpartition("__mutmut_")[0]
+    if base.startswith(f"x{_CLICK}"):  # a method, `x<click>Class<click>method`
+        owner, _, method = base[2:].partition(_CLICK)
+        qualified, prefix = f"{owner}.{method}", f"{owner}."
+    else:
+        qualified, prefix = base.removeprefix("x_"), ""
+    variant, orig = variants[prefix + name], variants[f"{prefix}{base}__mutmut_orig"]
+    changed = list(lines[variant.lineno - 1 : variant.end_lineno or variant.lineno])
+    unchanged = lines[orig.lineno - 1 : orig.end_lineno or orig.lineno]
+    changed[0] = changed[0].replace(variant.name, orig.name, 1)
+    pairs = zip(changed, unchanged, strict=False)
+    offset = next((at for at, (one, other) in enumerate(pairs) if one != other), min(len(changed), len(unchanged)))
+    return original[qualified].lineno + offset
