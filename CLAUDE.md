@@ -1,6 +1,8 @@
-# earnest
+# CLAUDE.md
 
-Requirements traceability and verification for LLM-written code: EARS requirements in Markdown, traced to code and tests, judged for earnest implementation
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+**earnest**: requirements traceability and verification for LLM-written code: EARS requirements in Markdown, traced to code and tests, judged for earnest implementation.
 
 ## Working model
 
@@ -20,68 +22,63 @@ make build        # build all sub-projects
 make lint         # lint all sub-projects
 make test         # test all sub-projects
 make package      # package distributable artifacts
-make deploy       # deploy CDK infra and publish web-app bundles to GitHub Pages
+make deploy       # no-op: nothing is deployable yet
 make clean        # clean build artifacts
 make lint-file    # lint one file: LINT_FILE=<path> make lint-file
 ```
 
-### Single sub-project
+The only sub-project is `packages/earnest`, a Python 3.12+ package: `uv`, hatchling, no runtime
+dependencies. Lint is `ruff check` + `ruff format --check` (line length 120, max complexity 10),
+`mypy` strict, and `vulture`. Run targets for it with `make -C packages/earnest <target>`.
+
+Run single tests from `packages/earnest`. Ad-hoc `uv run` needs `--all-extras`; without it the
+dev extras (pytest 9, pytest-bdd) are missing and collection fails:
 
 ```bash
-make -C packages/<name> install
-make -C packages/<name> build
-make -C packages/<name> lint
-make -C packages/<name> test
-make -C packages/<name> package
+uv run --all-extras pytest tests/unit/test_ears.py::<test_name> --no-cov
+uv run --all-extras pytest tests/steps/test_judge_check.py -k "<scenario title>" --no-cov
+uv run --all-extras earnest check [--stage S] [--intent DIR] [--task ID] [--judge]
 ```
 
-## Structure
+`filterwarnings = error`: any warning fails a test. Coverage is on by default (`--no-cov` silences it).
 
-All sub-projects live under `packages/`. Each has its own Makefile with standardized targets: `install`, `build`, `lint`, `test`, `package`, `clean`.
+## Architecture
 
-```text
-packages/         # all sub-projects
-docs/             # documentation
-```
+`earnest check` writes SARIF 2.1.0 to stdout and a summary to stderr. Exit codes: 0 means no
+error finding, 1 means an error finding, 2 means the check could not run. `earnest plan` prints
+the stage plan. The pipeline lives in `cli.py`:
 
-## Language Toolchains
+1. `git.py` finds the repo root, HEAD, work-tree files and changed lines.
+2. `adapters/` pick a scanner by file suffix and pass comment lines to the grammar. The scanners
+   cover Gherkin `@` tags, fenced Markdown artifacts, Python `#` comments, and TypeScript comments.
+3. `index.py` holds the link grammar (`Needs`, `Covers`, `Drivers`, `Delivers`, `Depends`,
+   `Override`) and builds items, links and near-misses. An `Override:` line sits under the item it names.
+4. `plan.py` is the AI-DLC stage engine. It reads an intent's `aidlc-state.md`, the audit shards,
+   the approvals and the units, laid out as `aidlc/spaces/<space>/intents/<id>/{inception,construction,audit}/`.
+5. `structural.py` runs the link checks that need no model and sets trace levels. `ears.py`
+   parses EARS clauses.
+6. `judge/` asks one question per traced requirement. `EARNEST_JUDGE` names the model, and only
+   `stub:<verdicts.json>` exists so far. Verdicts are cached, keyed by question parts plus the hash
+   of `judge/prompt.txt`.
+7. `reporter.py` builds the SARIF output and reads and writes the record in
+   `.earnest/assessment.json` (atomic write). `impact.py` keeps a pytest coverage map in
+   `.earnest/coverage/<commit>` for `check --stage`.
 
-### TypeScript
+Invariants:
 
-- **Build**: `tsc` (SDKs, CDK infra), `vite build` (web apps)
-- **Lint**: `eslint` (shared flat config `@lint-configs/eslint-config`), `knip` (dead code), `prettier` (formatting)
-- **Test**: `vitest` with `@vitest/coverage-v8` (SDKs, web apps), `jest` with `ts-jest` (CDK infra)
-- **Package manager**: pnpm workspaces (root `package.json`)
+- An override sha resolves by object, never by ref: `git rev-parse --disambiguate`, at least 4 hex
+  digits, exactly one commit.
+- Rule ids are `earnest/<rule>`.
 
-Web-app packages own their React lint rules in `packages/<name>/eslint.config.mjs`,
-which extends the root config and adds the React, hooks, and jsx-a11y plugins plus
-the TypeScript parser for `.tsx`. Do not move those rules to the root config —
-SDK, infra, and service packages have no JSX.
+Tests:
 
-### Python
-
-- **Build**: `uv build` (hatchling backend)
-- **Lint**: `ruff check` + `ruff format`, `mypy --strict`, `vulture` (dead code, >=80% confidence)
-- **Test**: `pytest` with `pytest-cov` (coverage reported, no threshold for now)
-- **Package manager**: `uv` (standalone per sub-project)
-
-### Rust
-
-- **Build**: `cargo build` (SDKs), `cargo build --release` (CLIs)
-- **Lint**: `cargo fmt --check`, `cargo clippy -- -D warnings` (pedantic + nursery)
-- **Test**: `cargo test`, `cargo-tarpaulin` (coverage)
-- **Package manager**: Cargo workspace (root `Cargo.toml`)
-
-### Go
-
-- **Build**: `go build` into `packages/<name>/bin/`
-- **Lint**: `golangci-lint fmt --diff` (gofmt + goimports) and `golangci-lint run`
-- **Test**: `go test -race -cover ./...`
-- **Package manager**: Go workspace (root `go.work`)
-
-The `.golangci.yml` thresholds deliberately match the ESLint and clippy ones:
-cognitive complexity 15, cyclomatic 20, 80 lines and 30 statements per function,
-nesting depth 4, 5 arguments. Keep them in sync when changing any of the three.
+- `tests/unit`, `tests/integration`, `tests/features/*.feature` (bound in `tests/steps`), and
+  fixture repos in `tests/fixtures`.
+- `conftest.py` pins the git author, committer and dates so fixture commit shas stay stable, and
+  it strips `GIT_*` env and global config.
+- The five feature files match milestones M1–M4 in `docs/design/03-implementation-plan.md`. Each
+  milestone has a plan in `docs/superpowers/plans/`. `docs/design/00-04` hold the intent, logic,
+  structural, plan and BDD docs.
 
 ## Project hooks
 
@@ -118,8 +115,8 @@ Markdown is linted with `markdownlint-cli2` (MD013 off, config
 
 ## CI/CD
 
-GitHub Actions pipeline (`.github/workflows/ci.yml`) stages: `lint` → `test` →
-`build`. `lint-docs` runs `markdownlint-cli2` and `yamllint` over the whole
+GitHub Actions pipeline (`.github/workflows/ci.yml`) jobs: `lint-python` → `test-python` →
+`build-earnest`. `lint-docs` runs `markdownlint-cli2` and `yamllint` over the whole
 repo as a backstop for `git commit --no-verify`. Nothing is published,
 uploaded or deployed yet — add a `publish` stage once there is a package
 worth releasing.
