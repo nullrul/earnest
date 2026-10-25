@@ -1,7 +1,7 @@
 .PHONY: build install lint test package clean
 
 install:
-	uv sync --all-extras
+	uv sync
 
 build: install
 	uv build
@@ -13,7 +13,7 @@ lint: install
 	uv run vulture
 
 test: install
-	uv run pytest --cov-report=xml:coverage.xml
+	uv run pytest --cov=earnest --cov-report=term-missing --cov-report=xml:coverage.xml
 
 package: build
 

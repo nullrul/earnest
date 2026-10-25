@@ -201,7 +201,7 @@ name = "earnest"
 version = "0.1.0"
 source = { editable = "." }
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "hypothesis" },
     { name = "mypy" },
@@ -216,19 +216,20 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
-    { name = "mypy", marker = "extra == 'dev'" },
-    { name = "pre-commit", marker = "extra == 'dev'" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9,<10" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'" },
-    { name = "pytest-bdd", marker = "extra == 'dev'", specifier = ">=8.1.0,<9" },
-    { name = "pytest-cov", marker = "extra == 'dev'" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "taskipy", marker = "extra == 'dev'" },
-    { name = "vulture", marker = "extra == 'dev'", specifier = ">=2.14" },
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hypothesis", specifier = ">=6.100" },
+    { name = "mypy" },
+    { name = "pre-commit" },
+    { name = "pytest", specifier = ">=9,<10" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-bdd", specifier = ">=8.1.0,<9" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+    { name = "taskipy" },
+    { name = "vulture", specifier = ">=2.14" },
 ]
-provides-extras = ["dev"]
 
 [[package]]
 name = "filelock"

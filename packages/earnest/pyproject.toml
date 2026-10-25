@@ -11,7 +11,7 @@ dependencies = []
 [project.scripts]
 earnest = "earnest.cli:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "mypy",
     "pre-commit",
@@ -77,7 +77,6 @@ paths = ["src/"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--cov=earnest --cov-report=term-missing"
 bdd_features_base_dir = "tests/features"
 filterwarnings = [
     "error",
@@ -101,5 +100,5 @@ exclude_lines = [
 
 [tool.taskipy.tasks]
 lint = "pre-commit run --all-files"
-test = "pytest --cov-report=xml:coverage.xml"
+test = "pytest --cov=earnest --cov-report=term-missing --cov-report=xml:coverage.xml"
 build = "uv build"

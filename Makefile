@@ -1,6 +1,6 @@
 SUBPROJECTS := packages/earnest
 
-.PHONY: all build install lint test package deploy clean lint-file
+.PHONY: all build install lint test package clean lint-file
 
 all: install build lint test
 
@@ -15,10 +15,6 @@ build install lint test:
 package:
 	$(MAKE) -C packages/earnest package
 
-# Deploy infrastructure
-deploy:
-	@echo 'No deployable sub-projects'
-
 clean:
 	@for dir in $(SUBPROJECTS); do \
 		$(MAKE) -C $$dir clean 2>/dev/null || true; \
@@ -28,7 +24,7 @@ clean:
 # Path comes in via the LINT_FILE env var (never a make var) and is always quoted.
 lint-file:
 	@case "$$LINT_FILE" in \
-		*.py) uv run --project packages/earnest --all-extras ruff format --force-exclude -- "$$LINT_FILE" && uv run --project packages/earnest --all-extras ruff check --force-exclude --fix -- "$$LINT_FILE" ;; \
+		*.py) uv run --project packages/earnest ruff format --force-exclude -- "$$LINT_FILE" && uv run --project packages/earnest ruff check --force-exclude --fix -- "$$LINT_FILE" ;; \
 		*.md) pnpm dlx markdownlint-cli2 --fix -- "$$LINT_FILE" ;; \
 		*.yml|*.yaml) yamllint -c .yamllint.yml -- "$$LINT_FILE" ;; \
 		*.sh) bash -n -- "$$LINT_FILE" ;; \
@@ -36,5 +32,5 @@ lint-file:
 	esac
 
 # Run a target for a single sub-project: make packages/foo.lint
-%.build %.install %.lint %.test %.package %.deploy:
+%.build %.install %.lint %.test %.package:
 	$(MAKE) -C $(firstword $(subst ., ,$*)) $(lastword $(subst ., ,$*))

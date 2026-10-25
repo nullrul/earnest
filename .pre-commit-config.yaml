@@ -10,14 +10,14 @@ repos:
     hooks:
       - id: ruff-format
         name: ruff format
-        entry: uv run --project packages/earnest --all-extras ruff format --force-exclude
+        entry: uv run --project packages/earnest ruff format --force-exclude
         language: system
         types: [python]
         stages: [pre-commit]
 
       - id: ruff-check
         name: ruff check --fix
-        entry: uv run --project packages/earnest --all-extras ruff check --force-exclude --fix --exit-non-zero-on-fix
+        entry: uv run --project packages/earnest ruff check --force-exclude --fix --exit-non-zero-on-fix
         language: system
         types: [python]
         stages: [pre-commit]
@@ -26,7 +26,7 @@ repos:
       - id: mypy
         name: mypy --strict (packages/earnest/src)
         entry: >-
-          uv run --project packages/earnest --all-extras mypy
+          uv run --project packages/earnest mypy
           --config-file packages/earnest/pyproject.toml packages/earnest/src
         language: system
         types: [python]
@@ -36,7 +36,7 @@ repos:
       # keep in sync with mypy (above)
       - id: vulture
         name: vulture (packages/earnest/src)
-        entry: uv run --project packages/earnest --all-extras vulture --min-confidence 80 packages/earnest/src
+        entry: uv run --project packages/earnest vulture --min-confidence 80 packages/earnest/src
         language: system
         types: [python]
         pass_filenames: false
