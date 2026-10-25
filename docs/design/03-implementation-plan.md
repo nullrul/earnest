@@ -236,8 +236,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   `02`: `impact.py` in Module boundaries; L4.
 - Gating open questions: evidence result in the record, and TypeScript
   evidence fixture (`01`).
-- Task plan: `docs/superpowers/plans/<date>-evidence-check.md`, written when
-  M5 is next.
+- Task plan:
+  [2026-10-25-evidence-check.md](../superpowers/plans/2026-10-25-evidence-check.md).
 
 ### M6 `calibration_gate`
 
