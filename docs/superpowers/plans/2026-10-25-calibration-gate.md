@@ -284,7 +284,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 **Interfaces:**
 
-- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`. It is `slot.get("pass") is True and slot.get("model") == model.id and slot.get("prompt") == PROMPT_HASH`, using `.get` because the record reader copies the slot without checking its fields.
+- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`. It is `slot is not None and slot.get("pass") is True and slot.get("model") == model.id and slot.get("prompt") == PROMPT_HASH`, using `.get` because the record reader copies the slot without checking its fields.
 - `judge(index, levels, model, root, record: Record)` takes the whole record in place of its `judge` slot, still five arguments. This departs from `02`'s "hands each assessor the part of the record it reads" (`cli.py` in Module boundaries), because the judge now reads two slots, `judge` and `calibration`, and passing both would make six arguments, over the lint limit. Task 0 notes the exception in `02`. It reads the cache from `record.judge`, and inserts `uncalibrated(model)` first only when `not calibrated(record.calibration, model)`, so no caller can skip the gate. `cli.py` passes `world.record`. Remove the `shortcut:` comment in `uncalibrated`.
 
 - [ ] **Step 1:** Write failing tests:
