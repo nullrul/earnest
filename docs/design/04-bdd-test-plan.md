@@ -1569,7 +1569,7 @@ record holds no calibration until M6, so every run here raises
 
 The overlays, the mutmut 3.8 results and the canned verdicts are those of the
 Fixture section of the task plan, from the spike of 2026-10-25. In short:
-`src/checkout/auth.py` gains `member_key`, above the first tag, whose
+`tests/test_auth.py` gains a second assert for `count_failed_logins`, whose five mutants it kills, and `src/checkout/auth.py` gains `member_key`, above the first tag, whose
 surviving mutant lies in no region, and `lockout_minutes`, inside the
 `req~lockout-notice~1` region, which `lockout_message` calls and whose six
 mutants survive with the second mutant of `lockout_message`.
@@ -1602,7 +1602,7 @@ Feature: Evidence check
     Then the SARIF log holds exactly these findings:
       | rule                        | file                                                                                         | line | level   | position | stage                        |
       | earnest/unplanned           | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 13   | warning | current  | construction/code-generation |
-      | earnest/judge-not-satisfied | tests/test_auth.py                                                                           | 16   | warning | current  | construction/code-generation |
+      | earnest/judge-not-satisfied | tests/test_auth.py                                                                           | 17   | warning | current  | construction/code-generation |
       | earnest/judge-uncalibrated  | .earnest/assessment.json                                                                     | 1    | warning | current  | -                            |
       | earnest/evidence-failed     | src/checkout/auth.py                                                                         | 15   | error   | current  | construction/code-generation |
       | earnest/evidence-failed     | src/checkout/auth.py                                                                         | 19   | error   | current  | construction/code-generation |

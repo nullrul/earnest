@@ -41,8 +41,8 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
 
 - **Command line:** in the temporary copy, `python -m mutmut run`, then the results are read from files. `mutmut run` writes its whole working tree to `mutants/` under its working directory, which is why the run needs the copy.
 - **Configuration:** a `[mutmut]` section in `setup.cfg` (or `[tool.mutmut]` in `pyproject.toml`) written into the copy: `source_paths` lists the files to mutate (`paths_to_mutate` and `tests_dir` still work but warn as deprecated), and `also_copy` names files the tests need beside `src/` and `tests/`, such as the fixture's `pytest.ini`, without which `pythonpath = src` is lost and no mutant is reached.
-- **Result format:** one JSON file per mutated source, `mutants/<path>.meta`, whose `exit_code_by_key` maps each mutant key, `<module>.x_<function>__mutmut_<n>`, to an exit code: `1` killed, `0` survived, `33` no test reached it. `mutants/mutmut-stats.json` holds the test-to-function stats. `mutmut results --all true` prints the same as text.
-- **Mutant to line:** a key names the function, not the line. `python -m mutmut show <key>` prints a unified diff of that function alone; its hunk starts at the comment lines just above the `def` when there are any (the spike's `lockout_message` diff starts at its tag line, `lockout_minutes`'s at its `def`), so a hunk offset added to the `def` line is off by one under a tag. Earnest instead finds the function's span with `ast` in the unmutated file, widened up through the comment lines directly above it, and matches the hunk's context and `-` lines, in order, as one contiguous block inside that span, so a repeated line text cannot mislead it; the `-` line's place in the block is the mutant's line, so each surviving mutant gets a file and line for the Region rule.
+- **Result format:** one JSON file per mutated source, `mutants/<path>.meta`, whose `exit_code_by_key` maps each mutant key to an exit code. A key is `<module>.x_<function>__mutmut_<n>` for a function and `<module>.xǁ<Class>ǁ<method>__mutmut_<n>` for a method. mutmut's own `status_by_exit_code` (3.8) reads: `1` and `3` killed; `0` survived; `5` and `33` no tests; `36`, `24`, `-24`, `152` and `255` timeout; `37` caught by type check; `-9` and `-11` segfault; `34` skipped; `35` suspicious; `2` interrupted; no code (`null`) not checked. `mutants/mutmut-stats.json` holds the test-to-function stats. `mutmut results --all true` prints the same as text.
+- **Mutant to line:** a key names the function, not the line. `mutants/<path>` holds, for each function, the unmutated copy `x_<function>__mutmut_orig` and each variant `x_<function>__mutmut_<n>` as plain functions (the spike saw functions only; Task 2 confirms where methods sit, as the key names their class). Earnest parses that file once with `ast`, compares each surviving variant's statements with `__mutmut_orig`'s, and takes the first line that differs as an offset from the `def`; it adds that offset to the `def` line of the same function, by qualified name (class and method), in the unmutated file. No subprocess per mutant, and comments above a `def` never shift the count. (`python -m mutmut show <key>` prints the same change as a diff whose hunk starts at the comments above the `def`, so its offsets are off by one under a tag; Earnest does not use it.)
 - **Granularity:** mutmut 3 mutates inside functions and methods only; module-level code and a function with nothing to mutate, such as `return window`, yield no mutant.
 - **Exit code of `mutmut run`:** not the verdict; the `.meta` files are.
 
@@ -59,7 +59,7 @@ Answer: a sixth key of the assessment record, `evidence`, beside `judge`.
 - **Key:** one entry per requirement id with its revision (`req~rate-limit~1`), as the judge cache keys its entries.
 - **Value:** `{"key": {"regions": <sha256>, "tests": <sha256>, "tool": "mutmut <version>"}, "result": "passed" | "failed", "commit": <full sha>, "dirty": bool}`. `regions` hashes the requirement's `impl` regions and `tests` its test regions, as the judge cache key's "hash of the covered regions" and "hash of the covering tests" do; `commit` and `dirty` are those of the run header. No timestamp, so a rerun on the same tree writes the same record.
 - **Writer:** `earnest check --evidence`, through the Reporter, the record's only writer. It replaces the entry of each requirement it ran and keeps the others.
-- **Readers:** `structural.py` and Computed status in `plan.py`, in both `check` and `plan`. An entry counts only when its `regions` and `tests` hashes match the current work tree; any other entry, or none, leaves the requirement short of `evidenced`. `plan` hashes the regions itself, which is model-free and runs no test, so it stays read-only.
+- **Readers:** `structural.py` and Computed status in `plan.py`, in both `check` and `plan`. An entry counts only when its whole key matches: its `regions` and `tests` hashes the current work tree, and its `tool` the installed mutmut; any other entry, or none, leaves the requirement short of `evidenced`. `plan` hashes the regions itself, which is model-free and runs no test, so it stays read-only.
 
 Basis:
 
@@ -99,8 +99,8 @@ This narrows the question rather than closing it. Approving E2 set the `01` row'
 - **No Git branch:** the M5 overlay is a commit on `main`, as M4's are.
 - **Writes:** mutmut runs on a temporary copy outside the repository (see mutmut 3.8), removed after; Earnest's only write stays `.earnest/` (`01`, Runtime and permission model).
 - **Trust:** `--evidence` runs the repository's tests against mutated code, with the trust of running its test suite (`01`, Runtime and permission model). It runs no test with `--evidence` absent.
-- **Timeouts and failures:** a mutmut run that cannot start, times out or reports no result exits 2, naming the tool and the reason. A tagged test that fails on the unmutated copy raises `evidence-failed` and is not a mutant result.
-- **Region filter:** a surviving mutant counts only when its line lies in a tagged region (the Region rule); it raises `evidence-failed` against every requirement that region's tags cover, located at the mutant's line, one finding per line. mutmut's exit codes map once: `1` killed, `0` or `33` (no test reached it) survived, PROPOSED, since no test kills it, and any other code exits 2. `evidence-failed` attaches only to `req` ids, so a region tagged only for a `dsn` raises nothing.
+- **Timeouts and failures:** a mutmut run that cannot start, times out or reports no result exits 2, naming the tool and the reason. mutmut aborts its whole run when a test fails on the unmutated code (the spike: exit 1, "failed to collect stats"), so Earnest first runs the tagged tests itself on the unmutated copy; a failing tagged test raises `evidence-failed` against the requirements it covers, at its line, and mutmut does not run.
+- **Region filter:** a surviving mutant counts only when its line lies in a tagged region (the Region rule); it raises `evidence-failed` against every requirement that region's tags cover, located at the mutant's line, one finding per line. mutmut's statuses map once: survived and no tests count as surviving, PROPOSED, since no test kills the mutant; killed, timeout, caught by type check and segfault count as killed, as mutmut counts them; skipped raises nothing; suspicious, interrupted, not checked and any code mutmut does not list exit 2, as the run is incomplete. `evidence-failed` attaches only to `req` ids, so a region tagged only for a `dsn` raises nothing.
 - **Evidenced:** judged, and an evidence result `passed` under a key that matches the current tree (E1). A requirement with no `impl` region of a mutated file is not evidenced.
 - **Placement:** `evidence-failed` counts against the stage of the task that delivers the requirement, as M3 places code findings, and its level follows Frontier and position.
 - **Exit codes:** `evidence-failed` is an error. `judge-uncalibrated` still fires on every judge run until M6.
@@ -162,7 +162,7 @@ def member_key(member: str) -> str:
 
 # [impl->req~rate-limit~1]
 def count_failed_logins(window: int) -> int:
-    return window
+    return max(window, 0)
 
 
 # [impl->req~lockout-notice~1]
@@ -181,17 +181,18 @@ def audit_lockout(member: str) -> str:
 
 `evidence-units/src/checkout/auth.py`, for the units variant: the same file, 29 lines, with five lines after line 7: `# [impl->dsn~window-counter~1]`, `def window_counter() -> None:`, its one-line docstring and two blank lines, so `task~add-limiter~1`'s design is traced. The `dsn` tag sits over a function of its own, because a region runs to the next tag (D10) and a tag directly above the `req` tag would leave the `req` region with no code. The base history holds no `dsn~window-counter~1`, so its overlay leaves the tag out, which would otherwise be `orphaned`.
 
-The base tests are unchanged. The spike's mutant results, on either overlay:
+`evidence/tests/test_auth.py` (and the same file in `evidence-units/`): the base file with one line after line 6, `assert count_failed_logins(-1) == 0`, so the `req~rate-limit~1` region has mutants its test kills; the later tests move down one line, `test_lockout_message`'s assert to line 12 and `test_audit_lockout`'s to line 17. The spike's mutant results, on either overlay (15 mutants, 7 killed, 8 survived):
 
 | Mutant | Line (base overlay) | Result | Region | Reading |
 | --- | --- | --- | --- | --- |
 | `x_member_key__mutmut_1` (`lower` to `upper`) | 5 | survived | none, above the first tag | raises nothing: the region filter |
+| `x_count_failed_logins__mutmut_1` to `_5` | 10 | killed | `req~rate-limit~1` | none |
 | `x_lockout_message__mutmut_1` | 15 | killed | `req~lockout-notice~1` | none |
 | `x_lockout_message__mutmut_2` | 15 | survived | `req~lockout-notice~1` | `evidence-failed` |
-| `x_lockout_minutes__mutmut_1` to `_6` | 19 | survived | `req~lockout-notice~1` | `evidence-failed`, one per mutant |
+| `x_lockout_minutes__mutmut_1` to `_6` | 19 | survived | `req~lockout-notice~1` | `evidence-failed`, one for the line |
 | `x_audit_lockout__mutmut_1` | 24 | killed | `req~audit-log~1` | none |
 
-`count_failed_logins` yields no mutant, so `req~rate-limit~1` passes with its tagged test green and no surviving mutant. That is evidence by the Evidence rule's letter; a zero-mutant region is a Known limit below. The grain of `evidence-failed` is a reading `04` fixes; its PROPOSED draft gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
+`req~rate-limit~1` is evidenced by five killed mutants, not vacuously: a build that skips mutmut on its region would still pass, so the integration tier of Task 3 asserts the five killed results. The grain of `evidence-failed` is a reading `04` fixes; its PROPOSED draft gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
 
 `evidence-verdicts.json`: every question of the three requirements, `satisfied` for `req~rate-limit~1` and `req~lockout-notice~1`, and `req~audit-log~1 tested` `not-satisfied`. Expected levels: `req~rate-limit~1` evidenced, `req~lockout-notice~1` judged (its evidence failed), `req~audit-log~1` traced, so the summary reads `traced 100%, judged 66%, evidenced 33%; requirements: 3`. In the units variant `task~add-limiter~1` and `unit~u1~1` are then done, and `task~notify-lockout~1` and `unit~u2~1` are not.
 
@@ -206,7 +207,7 @@ The base tests are unchanged. The spike's mutant results, on either overlay:
 | `tests/fixtures/seeded-change/evidence-verdicts.json` | the stub's verdicts for M5 | 1 |
 | `tests/features/evidence_check.feature` | M5's 6 scenarios, verbatim from `04` | 1 |
 | `tests/steps/test_evidence_check.py` | pytest-bdd steps; the exit command | 1, 6 |
-| `tests/conftest.py` | the builders leave `evidence/` and `evidence-verdicts.json` out; the overlay committer on `main` | 1 |
+| `tests/conftest.py` | `_OVERLAYS` gains `evidence/` and `evidence-units/`, and the builders leave them and `evidence-verdicts.json` out; the two overlay committers on `main` | 1 |
 | `tests/integration/test_seeded_change.py` | the units variant's sha and the overlay's lines pinned | 1 |
 | `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidence keys | 2-6 |
 | `src/earnest/structural.py` | the `evidenced` level | 4 |
@@ -222,7 +223,8 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 - Python only end to end (E2); StrykerJS results are read but never produced by a test.
 - Mutation testing is slow; M5 sets a timeout like `MAP_TIMEOUT` and runs only on `--evidence`. The spike ran 10 mutants at about 74 per second.
-- A tagged region with nothing to mutate, such as `count_failed_logins`, is evidenced by its green tests alone.
+- A tagged region with nothing to mutate is evidenced by its green tests alone.
+- The evidence key hashes only the requirement's own regions and tagged tests (E1, approved). An edit to code the region calls from outside every region, such as `member_key`, or to `conftest.py` or `pytest.ini`, can change which mutants survive while the key still matches, so the stored result stays counted until `check --evidence` reruns. FLAGGED for the maintainer, not changed: widening the key changes the approved E1.
 - mutmut mutates whole files and selects tests itself (D4); Earnest filters by region and never picks tests.
 - `judge-uncalibrated` fires on every evidence run until M6.
 
@@ -242,7 +244,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 - [x] **Step 1:** E1 and E2 approved 2026-10-25 and recorded in `01`, `02` and `03`. Stop here unless the maintainer has also ratified `04`'s M5 scenarios.
 - [x] **Step 2:** Spike, done 2026-10-25: mutmut 3.8.0 in the `dev` group, pinned `>=3.8,<4`, run on scratch copies of the base and units fixtures (3 mutants, all killed, the same `src/` and `tests/` in both) and of the proposed overlay (10 mutants, 8 survived). Recorded under mutmut 3.8 and the Fixture section.
 - [ ] **Step 3:** Write the two overlays and `evidence-verdicts.json` as the Fixture section gives them, and remove the PROPOSED status of `04`'s M5 section once the maintainer ratifies it, with the changes the maintainer asks for.
-- [ ] **Step 4:** Leave `evidence/` and `evidence-verdicts.json` out of the builders, add the step that commits `evidence/` on `main` over the units variant, and pin the units variant's sha and the overlay's lines in `test_seeded_change.py`.
+- [ ] **Step 4:** Add `evidence/` and `evidence-units/` to `_OVERLAYS` in `tests/conftest.py`, so the builders leave them and `evidence-verdicts.json` out and every pinned sha of M1 to M4 stands. Add the steps that commit `evidence/` on `main` over the base commit and `evidence-units/` on `main` over the units variant, and pin the units variant's sha and both overlays' lines in `test_seeded_change.py`.
 - [ ] **Step 5:** Copy the M5 Gherkin of `04` into `evidence_check.feature` verbatim, and write the step module. The stub step sets `EARNEST_JUDGE` to `stub:` and the absolute path of `evidence-verdicts.json`.
 - [ ] **Step 6:** Run the regression run, then `uv run pytest tests/steps/test_evidence_check.py`. Expected: the regression run is green, and all 6 M5 scenarios fail.
 - [ ] **Step 7:** Commit `test: RED evidence_check behavior gate and seeded-change M5 cases`, with the docs changes in a separate `docs:` commit before it.
