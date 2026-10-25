@@ -141,13 +141,16 @@ The scenarios are PROPOSED here and written into `04`'s M5 section in Task 1. Th
 M5 reads the units variant of M2b, because SC8's "unit as done" needs a unit. One overlay, `evidence/`, stacks on the units variant as a commit on `main`, and one canned-verdict file sits beside `judge-verdicts.json`, held by no commit.
 
 - `evidence/src/checkout/auth.py`, PROPOSED content, confirmed by the spike of Task 1:
-  - adds `# [impl->dsn~window-counter~1]` over `count_failed_logins`, so `task~add-limiter~1`'s design is traced;
+  - adds `# [impl->dsn~window-counter~1]` over a small function of its own, so `task~add-limiter~1`'s design is traced;
   - adds to the `req~lockout-notice~1` region a helper that `test_lockout_message` never calls, such as `lockout_minutes(failures)` returning `15 if failures >= 5 else 0`, so its mutants survive inside a tagged region;
 - `evidence/src/checkout/util.py`: an untagged file whose mutants survive and count for nothing. A region runs from its tag to the next tag or the end of the file (the Region rule), so `auth.py` has no untagged line after its first tag, and the "outside every tagged region" scenario needs a second file. mutmut mutates it only if it shares a run with a tagged file; the spike of Task 1 confirms how.
 - `evidence-verdicts.json`: every question of the three requirements, `satisfied` for `req~rate-limit~1` and `req~lockout-notice~1`, and `req~audit-log~1 tested` `not-satisfied`, so the levels read evidenced, judged (its evidence failed) and traced.
 - Expected readings: `req~rate-limit~1` evidenced, so `task~add-limiter~1` and `unit~u1~1` are done; `req~lockout-notice~1` judged with one `evidence-failed`, so `task~notify-lockout~1` and `unit~u2~1` are not done; `req~audit-log~1` traced.
 
-The exact lines, the surviving mutants and the findings table come from running the pinned mutmut on a scratch copy in Task 1, not from prediction.
+The exact lines, the surviving mutants and the findings table come from running the pinned mutmut on a scratch copy in Task 1, not from prediction. Two points Task 1 settles before it writes `04`:
+
+- **Position.** In the units variant the frontier is `construction/u1-limiter/code-generation` (`unit_status.feature`), so an `evidence-failed` against `req~lockout-notice~1`, delivered in `construction/u2-notice/code-generation`, sits ahead and is a note with exit 0. PROPOSED: scenarios (a) and (b) run on the base history, where both tasks share the current `construction/code-generation` stage and the error exits non-zero, with the overlay applied there too; scenario (c) and the stale-key scenario run on the units variant.
+- **Adjacent tags.** A region runs to the next tag (D10), so a `dsn` tag placed directly above the `req` tag would leave the `req` region with no code. The `dsn~window-counter~1` tag goes on its own small function, and Task 1 checks that the `req~rate-limit~1` region still holds `count_failed_logins`.
 
 ## File Structure
 
