@@ -22,14 +22,14 @@ make build        # build all sub-projects
 make lint         # lint all sub-projects
 make test         # test all sub-projects
 make package      # package distributable artifacts
-make deploy       # no-op: nothing is deployable yet
+make deploy       # root-only no-op: nothing is deployable yet
 make clean        # clean build artifacts
 make lint-file    # lint one file: LINT_FILE=<path> make lint-file
 ```
 
 The only sub-project is `packages/earnest`, a Python 3.12+ package: `uv`, hatchling, no runtime
 dependencies. Lint is `ruff check` + `ruff format --check` (line length 120, max complexity 10),
-`mypy` strict, and `vulture`. Run targets for it with `make -C packages/earnest <target>`.
+`mypy` strict, and `vulture` (min confidence 80). Run targets for it with `make -C packages/earnest <target>`.
 
 Run single tests from `packages/earnest`. Ad-hoc `uv run` needs `--all-extras`; without it the
 dev extras (pytest 9, pytest-bdd) are missing and collection fails:
@@ -40,26 +40,30 @@ uv run --all-extras pytest tests/steps/test_judge_check.py -k "<scenario title>"
 uv run --all-extras earnest check [--stage S] [--intent DIR] [--task ID] [--judge]
 ```
 
-`filterwarnings = error`: any warning fails a test. Coverage is on by default (`--no-cov` silences it).
+`filterwarnings = error`: any warning fails a test. Coverage is on by default with no threshold (`--no-cov` silences it).
 
 ## Architecture
 
-`earnest check` writes SARIF 2.1.0 to stdout and a summary to stderr. Exit codes: 0 means no
-error finding, 1 means an error finding, 2 means the check could not run. `earnest plan` prints
+`earnest check` writes SARIF 2.1.0 to stdout and a summary to stderr. Exit codes: 1 means an
+error-level finding sits at plan position behind or current, 0 means none does (errors at later
+stages do not fail), 2 means the check could not run. `earnest plan` prints
 the stage plan. The pipeline lives in `cli.py`:
 
 1. `git.py` finds the repo root, HEAD, work-tree files and changed lines.
-2. `adapters/` pick a scanner by file suffix and pass comment lines to the grammar. The scanners
-   cover Gherkin `@` tags, fenced Markdown artifacts, Python `#` comments, and TypeScript comments.
+2. `adapters/` pick a scanner by file suffix and pass lines to the grammar: Gherkin `@` tags,
+   Python `#` comments, TypeScript comments, and every Markdown line (lines inside code fences
+   are marked as fenced).
 3. `index.py` holds the link grammar (`Needs`, `Covers`, `Drivers`, `Delivers`, `Depends`,
    `Override`) and builds items, links and near-misses. An `Override:` line sits under the item it names.
 4. `plan.py` is the AI-DLC stage engine. It reads an intent's `aidlc-state.md`, the audit shards,
-   the approvals and the units, laid out as `aidlc/spaces/<space>/intents/<id>/{inception,construction,audit}/`.
+   the approvals and the units. Any `aidlc-state.md` in the work tree marks an intent; the fixtures
+   use `aidlc/spaces/<space>/intents/<id>/{inception,construction,audit}/`.
 5. `structural.py` runs the link checks that need no model and sets trace levels. `ears.py`
    parses EARS clauses.
 6. `judge/` asks one question per traced requirement. `EARNEST_JUDGE` names the model, and only
-   `stub:<verdicts.json>` exists so far. Verdicts are cached, keyed by question parts plus the hash
-   of `judge/prompt.txt`.
+   `stub:<verdicts.json>` exists so far. Verdicts are cached, keyed by the item, question kind,
+   code-region and test-region hashes, model id, and the hash of `judge/prompt.txt`, so editing the
+   code or tests re-asks.
 7. `reporter.py` builds the SARIF output and reads and writes the record in
    `.earnest/assessment.json` (atomic write). `impact.py` keeps a pytest coverage map in
    `.earnest/coverage/<commit>` for `check --stage`.
@@ -76,7 +80,7 @@ Tests:
   fixture repos in `tests/fixtures`.
 - `conftest.py` pins the git author, committer and dates so fixture commit shas stay stable, and
   it strips `GIT_*` env and global config.
-- The five feature files match milestones M1–M4 in `docs/design/03-implementation-plan.md`. Each
+- The five feature files match milestones M1, M2, M2b, M3 and M4 in `docs/design/03-implementation-plan.md`. Each
   milestone has a plan in `docs/superpowers/plans/`. `docs/design/00-04` hold the intent, logic,
   structural, plan and BDD docs.
 
