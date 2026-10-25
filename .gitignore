@@ -16,4 +16,5 @@ node_modules/
 .remember/
 .claude/hooks/.logs/
 .claude/settings.local.json
+.claude/worktrees/
 .DS_Store
