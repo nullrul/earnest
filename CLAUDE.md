@@ -31,8 +31,9 @@ Any warning fails a test (`filterwarnings = error`). Coverage runs only under `m
 ## Architecture
 
 `uv run earnest check` writes SARIF to stdout and a summary to stderr. It exits 1 only for an
-error-level finding at plan position behind or current, and 2 when it cannot run. The pipeline in
-`cli.py` runs git → adapters → index → plan → structural and EARS checks → judge → reporter.
+error-level finding at plan position behind or current, and 2 when it cannot run. `cli.py` reads
+(git → adapters → intents), then analyses (index → trace levels → judge → plan stages →
+structural and EARS checks, placed on the plan), then reports.
 Module detail is in `docs/design/02-structural-design.md`, milestones in
 `docs/design/03-implementation-plan.md`.
 
