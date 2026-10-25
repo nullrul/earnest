@@ -1710,6 +1710,43 @@ Feature: Evidence check
   (D10). The edit changes the requirement's `tests` hash, so its stored key
   no longer matches and the entry is not counted.
 
+## M6 `calibration_gate`
+
+Status: the scenario titles below are PROPOSED. They rest on the gating
+answers of the task plan
+[2026-10-25-calibration-gate.md](../superpowers/plans/2026-10-25-calibration-gate.md),
+which the maintainer approved on 2026-10-25. The Gherkin and its exact tables
+follow once the maintainer has written the fixture's ten requirements and
+verdicts.
+
+- Feature: `packages/earnest/tests/features/calibration_gate.feature`, bound by
+  `tests/steps/test_calibration_gate.py`.
+- Fixture: `tests/fixtures/calibration/`, plain files committed once on `main`
+  at test time. It holds ten hand-written requirements, their hand-tagged code
+  and tests, and the maintainer's verdicts in `verdicts.json`, in the
+  canned-verdict format of the Runtime and permission model of `01`.
+- Success criteria asserted: SC4. Readings: UC8, G10, the Command surface row
+  of `earnest calibrate`, and the record's `calibration` key in `01`.
+
+The judge is the stub model in every M6 scenario, so no network is reached.
+Its files are `stub-pass.json` and `stub-fail.json`, which sit beside
+`verdicts.json` and are left out of the fixture's commit. They copy
+`verdicts.json` with results flipped on two, and then three, requirements,
+giving eight and seven matches. A requirement matches when both of its questions agree. Every scenario
+runs with the built fixture as the working directory, so `calibrate` and
+`check --judge` read and write one record.
+
+### Proposed scenarios
+
+All five titles are PROPOSED:
+
+- "Calibration shows each verdict beside the maintainer's and passes at eight
+  matches"
+- "Calibration at seven matches fails and records the failure"
+- "After a passing calibration the judge run is not uncalibrated"
+- "A calibration of another model leaves the judge uncalibrated"
+- "Calibrate cannot run without a model or a valid fixture"
+
 ## Scope (v1)
 
 - One behavior feature per milestone of `03`, nine in all, with the scenarios

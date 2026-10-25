@@ -451,7 +451,7 @@ its line says "Owns", and each such rule has exactly one owner.
   verdicts for M5; no commit holds it, as for `judge-verdicts.json`.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
-  by `earnest calibrate`; its format is an open question.
+  by `earnest calibrate`; its format is gating answer 1 of the M6 task plan.
 
 ## Layout and reuse-scaffolds decision
 
@@ -668,7 +668,7 @@ Each decision refers to the tree in the File and directory tree section.
 
 | Question | Owner | Resolved by |
 | --- | --- | --- |
-| The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts | maintainer | a revision of `01`, before the calibration gate runs |
+| The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts | maintainer | resolved 2026-10-25: plain files committed at test time (L6), ten `req` items in `requirements.md`, and the maintainer's verdicts in `verdicts.json` in the canned-verdict format of the Runtime and permission model of `01`; a requirement matches when both questions agree (gating answer 1 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
 | The fork repository's name and owner; this repository is `nullrul/earnest` | maintainer | creating the fork |
 | How the fork's sensor script finds the `earnest` command: an installed tool on the path, or a pinned invocation | maintainer | the milestone of `03` that wires the sensor |
 | `01` replaces each unit's `source-manifest.json`, and seven upstream tools read it: `aidlc-attest.ts`, `aidlc-construction-checkpoints.ts`, `aidlc-log.ts`, `aidlc-review-brief.ts`, `aidlc-state.ts`, `aidlc-swarm.ts` and `aidlc-swarm-checkpoints.ts` in `core/tools/`. Keep writing it as AI-DLC input that Earnest never counts as evidence, or extend the Fork delta to those tools? | maintainer | a revision of `01` |

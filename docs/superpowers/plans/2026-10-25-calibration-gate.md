@@ -1,6 +1,6 @@
 # M6 `calibration_gate` Implementation Plan
 
-Status: draft for plan approval. It rests on three gating answers that are **PROPOSED and awaiting the maintainer's approval**, set out in Gating open questions below. No task starts before the maintainer approves them, or replaces them and this plan with them. Once approved, the docs commit records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
+Status: approved for execution. The maintainer approved the three gating answers and the output contract on 2026-10-25, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -15,11 +15,11 @@ The exit command `uv run pytest tests/steps/test_calibration_gate.py` turns gree
 
 **Architecture:**
 
-- `judge/__init__.py` gains calibration. It asks every question of the fixture's index straight from the model, with no override and no cache. It compares each `result` with the maintainer's, and judges pass or fail. It also gains `calibrated(slot, model)`, which reads the record's `calibration` slot.
-- `cli.py` gains the `calibrate` subcommand. It indexes the files Git lists under `<fixture>` and reads `<fixture>/verdicts.json`. It prints the comparison and writes the slot through `reporter.write_record` at the working directory's repository root (L7). `check --judge` raises `judge-uncalibrated` only when `calibrated` is false.
+- `judge/__init__.py` gains calibration. It asks each of `questions(index, levels)` through `model.ask`, with no override and no cache. It compares each `result` with the maintainer's, and judges pass or fail. It also gains `calibrated(slot, model)`, which reads the record's `calibration` slot. `judge()` takes the whole `Record` in place of its `judge` slot, and raises `judge-uncalibrated` only when `calibrated` is false.
+- `cli.py` gains the `calibrate` subcommand. It indexes `<fixture>` through the same chain as `check` and reads `<fixture>/verdicts.json`. It prints the comparison and writes the slot through `reporter.write_record` at the working directory's repository root (L7).
 - `tests/fixtures/calibration/` is a plain-file fixture (L6), built into a one-commit repository in `tmp_path` by `tests/conftest.py`.
 
-**Tech Stack:** Python 3.12 standard library at runtime for Tasks 1 to 6 (`json`, `pathlib`, `dataclasses`, `argparse`). Task 7 adds the `anthropic` SDK inside `judge/` (L4), if the maintainer approves gating answer 3.
+**Tech Stack:** Python 3.12 standard library at runtime for Tasks 1 to 6 (`json`, `pathlib`, `dataclasses`, `argparse`). Task 7 adds the `anthropic` SDK inside `judge/` (L4), as gating answer 3 sets out.
 
 **Spec:**
 
@@ -27,17 +27,17 @@ The exit command `uv run pytest tests/steps/test_calibration_gate.py` turns gree
 - `00`: SC4, and "Passing SC4, the calibration gate, is a precondition to executing the first unit."
 - `01`: G10, UC8, the Capabilities row "Calibration", Process vocabulary (the record's fifth item), Command surface (the `earnest calibrate` row and the paragraph on `judge-uncalibrated`), Assessment record (the `calibration` key), Runtime and permission model, D14, and Open questions.
 - `02`: `cli.py` and `judge/__init__.py` in Module boundaries, `fixtures/calibration/` in Fixtures, L4, L6, L7, and Open questions.
-- `04`: the milestone table row for M6. Its M6 section does not exist yet; Task 0 adds it.
+- `04`: the milestone table row for M6, and the M6 section Task 0 added.
 
 ## Gating open questions
 
-The M6 entry of `03` names three gating rows. Each answer below is **PROPOSED, awaiting user approval**. Each cites the paragraph it comes from.
+The M6 entry of `03` names three gating rows. Each answer below is **APPROVED (2026-10-25)** by the maintainer. Each cites the paragraph it comes from.
 
 ### 1. The file format of `tests/fixtures/calibration/`
 
 Row: `02`, Open questions, "The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts", resolved by "a revision of `01`, before the calibration gate runs".
 
-**PROPOSED, awaiting user approval:**
+**APPROVED (2026-10-25):**
 
 - **Plain files, history at test time.** The fixture is a plain-file repository like `broken-links` and `seeded-change`. `conftest.py` copies it to `tmp_path` and commits it once on `main`. Source: `02` L6 ("seeded fixtures are plain repositories under `tests/fixtures/` … `tests/conftest.py` builds each one's history in `tmp_path`").
 - **Items and tags.** The ten requirements are `req` items in one Markdown file, `requirements.md`, in Earnest's item syntax. Each is one EARS sentence (D2), so the judge can ask it (D14). The code and tests are hand-tagged to them with the tags the adapters already read. No `aidlc-state.md` is in the fixture, so the fixture holds no intent. Source: `02` Fixtures, "`fixtures/calibration/`: SC4. The existing repository with ten hand-written requirements, hand-linked code and tests, and the maintainer's verdicts, read by `earnest calibrate`".
@@ -49,7 +49,7 @@ Row: `02`, Open questions, "The file format of `tests/fixtures/calibration/`: th
 
 Row: `01`, Open questions, "Which existing repository SC4's ten hand-written requirements come from", resolved "before milestone `calibration_gate` of `03-implementation-plan.md`".
 
-**PROPOSED, awaiting user approval:** this repository, `nullrul/earnest`, as of a pinned commit (origin/main `4762161` at the time of writing).
+**APPROVED (2026-10-25):** this repository, `nullrul/earnest`, as of a pinned commit (origin/main `4762161` at the time of writing).
 
 - The maintainer picks a few modules of `packages/earnest/src/earnest/` and their unit tests and copies them into the fixture. They write ten EARS requirements against behavior those files already have, tag the code and tests by hand, and rule on every question in `verdicts.json`.
 - At least three of the twenty answers should be `not-satisfied`, spread over at least three requirements. Then a judge that always answers `satisfied` matches at most seven and fails.
@@ -72,7 +72,7 @@ Trade-off:
 
 Row: `01`, Open questions, "Judge model choice and prompt", resolved by "the calibration gate". The gate does not choose a model. It tests a candidate, so the answer below is the candidate that the SC4 run tests, not a settlement.
 
-**PROPOSED, awaiting user approval:**
+**APPROVED (2026-10-25):**
 
 - **Model.** `EARNEST_JUDGE=anthropic:claude-opus-5-5`. The model id in the run header, the cache key and the calibration slot is that value, verbatim.
 - **Credentials.** The `anthropic` Python SDK resolves them on its own, from `ANTHROPIC_API_KEY` or an `ant auth login` profile. Earnest reads no key itself.
@@ -88,12 +88,12 @@ Trade-offs:
 
 | Option | For | Against |
 | --- | --- | --- |
-| `claude-opus-5-5` (proposed) | The most capable default; a judge is the only check on a verdict | $4 / $20 per million tokens |
+| `claude-opus-5-5` (approved) | The most capable default; a judge is the only check on a verdict | $4 / $20 per million tokens |
 | `claude-sonnet-5-5` | Half the price | Weaker reading of the code |
 | `claude-haiku-5-5` | Cheapest | Least likely to reach eight of ten |
 | Standard-library `urllib` in place of the SDK | Keeps the runtime dependency-free | L4 names the SDK, and the API surface shifts under hand-written calls |
 
-**Also PROPOSED, not a gating row:** the output contract of `calibrate`, which the Command surface row of `01` leaves open.
+**Also APPROVED (2026-10-25), not a gating row:** the output contract of `calibrate`, which the Command surface row of `01` leaves open.
 
 - It prints the comparison table and the verdict line to stdout.
 - It exits 0 on a pass, 1 on a fail, and 2 when it cannot run.
@@ -114,7 +114,7 @@ Trade-offs:
 - **No overrides, no cache:** calibration measures the model. `calibrate` asks every question, ignores `Override:` lines, and neither reads nor writes the record's `judge` slot.
 - **The `calibration` slot:** `{"model": str, "prompt": str, "matches": int, "total": 10, "pass": bool}`, written whole through `reporter.write_record` at `git.repo_root(Path.cwd())`. The other slots are kept as read.
 - **`judge-uncalibrated`:** raised on a judge run unless the slot holds `pass` true with `model` equal to the run's model id and `prompt` equal to `PROMPT_HASH` (`01` Command surface: "While the record holds no passing calibration for the current model id and prompt hash, every judge run raises `judge-uncalibrated`").
-- **Exit codes:** `calibrate` exits 0 on a pass, 1 on a fail, and 2 when it cannot run. `check` keeps M4's codes.
+- **Exit codes:** `calibrate` keeps the output contract of gating answer 4. `check` keeps M4's codes.
 - **Process:**
   - No agent `rm`s a path it did not create.
   - `.pi-herdsman/` stays untracked.
@@ -126,11 +126,11 @@ Trade-offs:
 - **Model id and prompt hash both bind.** A pass under one stub file leaves a run with an edited stub file uncalibrated, and a pass under an older prompt hash is not a pass. Task 5 adds `test_calibrated_needs_same_model_and_prompt`.
 - **The record is per repository (L7).** Calibrating with the working directory in repository A does not quiet `--judge` in repository B. The step module runs both commands with the same working directory. Known limits states this.
 - **A requirement the judge cannot ask.** An untraced requirement, or one that is not EARS, in the fixture exits 2. It does not silently shrink the ten. Task 3 adds `test_not_ten_judgeable_exits`.
-- **The fixture is read where it lies.** `calibrate` must not index the working directory's repository in place of `<fixture>`. Task 4 runs it with the working directory outside the fixture and asserts that only the fixture's ten ids appear.
+- **The fixture is read where it lies.** `calibrate` must not index the working directory's repository in place of `<fixture>`. Task 4 runs it with the working directory in a different Git repository and asserts that only the fixture's ten ids appear. Outside any Git repository, `repo_root` raises `GitError` and the command exits 2.
 
 ## Task order and the scenarios each turns green
 
-These scenario names are PROPOSED for the M6 section of `04`, which Task 0 writes. The clause column maps each one to the M6 exit behavior of `03`: (a) the ten verdicts beside the maintainer's; (b) the match count; (c) a pass at eight or more, written to the record; (d) after that, `--judge` stops raising `judge-uncalibrated`.
+These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote. The clause column maps each one to the M6 exit behavior of `03`: (a) the ten verdicts beside the maintainer's; (b) the match count; (c) a pass at eight or more, written to the record; (d) after that, `--judge` stops raising `judge-uncalibrated`.
 
 | Scenario | Clause |
 | --- | --- |
@@ -149,7 +149,7 @@ These scenario names are PROPOSED for the M6 section of `04`, which Task 0 write
 | 4 | `earnest calibrate` in `cli.py`, the output and the slot write | T3 | "Calibration shows …", "Calibration at seven …", "Calibrate cannot run …" |
 | 5 | `judge-uncalibrated` read from the slot | T4 | "After a passing calibration …", "A calibration of another model …" |
 | 6 | The full suite, lint and the pre-PR review | T5 | all 5 of M6, with M1 to M4 unchanged |
-| 7 | The `anthropic:` model, off the exit path | T6, approval of answer 3 | none new |
+| 7 | The `anthropic:` model, off the exit path | T6 | none new |
 
 **Regression expectations:**
 
@@ -165,11 +165,12 @@ These scenario names are PROPOSED for the M6 section of `04`, which Task 0 write
 | `tests/fixtures/calibration/<copied src and tests>` | the hand-tagged code and tests from the pinned commit | 1 |
 | `tests/fixtures/calibration/verdicts.json` | the maintainer's twenty answers | 1 |
 | `tests/fixtures/calibration/stub-pass.json`, `stub-fail.json` | `verdicts.json` with results flipped on two, then three, requirements | 2 |
-| `tests/conftest.py` | the `calibration` builder: one commit on `main`, the stubs left out | 2 |
+| `tests/conftest.py` | the two stubs added to `_OVERLAYS`; `verdicts_file` and the `stub_judge` step moved here from `test_judge_check.py` | 2 |
+| `tests/steps/test_judge_check.py` | loses `verdicts_file` and `stub_judge` to `conftest.py` | 2 |
 | `tests/features/calibration_gate.feature` | M6's 5 scenarios, verbatim from `04` | 2 |
 | `tests/steps/test_calibration_gate.py` | pytest-bdd steps; the exit command | 2 |
-| `src/earnest/judge/__init__.py` | `Row`, `Calibration`, `calibrate`, `calibrated`; `judge` no longer inserts `uncalibrated` | 3, 5 |
-| `src/earnest/cli.py` | the `calibrate` subcommand; `uncalibrated` raised from the slot | 4, 5 |
+| `src/earnest/judge/__init__.py` | `Row`, `Calibration`, `calibrate`, `calibrated`; `judge` takes the `Record` | 3, 5 |
+| `src/earnest/cli.py` | the `calibrate` subcommand; `judge` passed the `Record` | 4, 5 |
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py` | each task's tests | 3-5 |
 | `src/earnest/judge/__init__.py`, `pyproject.toml`, `tests/unit/test_judge_anthropic.py` | Task 7's model and its dependency | 7 |
 
@@ -178,7 +179,9 @@ These scenario names are PROPOSED for the M6 section of `04`, which Task 0 write
 ## Known limits
 
 - The record is per repository (L7). A calibration quiets `--judge` only in the repository whose record it was written to.
+- The slot holds one result, the latest (gating answer 4). Calibrating a second candidate model replaces the pass of the model in use, and `check --judge` under that model is uncalibrated again until it is recalibrated.
 - Effort is pinned in code and is not part of the model id. A change to it is a code change, and a new calibration should follow.
+- The slot binds the model id and the prompt hash, as the Command surface of `01` says, and not the fixture's content. An edit to `verdicts.json` or `requirements.md` after a pass leaves the judge calibrated until `calibrate` runs again.
 - The match compares `result` alone. A judge that is right for the wrong reason still matches, and the printed reasoning is for the maintainer to read.
 - The SC4 gate is unrun until the maintainer runs Task 7's model over the fixture: `EARNEST_JUDGE=anthropic:claude-opus-5-5 uv run earnest calibrate tests/fixtures/calibration`, from `packages/earnest/`.
 
@@ -190,9 +193,11 @@ These scenario names are PROPOSED for the M6 section of `04`, which Task 0 write
 
 **Files:** Modify `docs/superpowers/plans/2026-10-25-calibration-gate.md`, `docs/design/01-logic-design.md`, `docs/design/02-structural-design.md`, `docs/design/03-implementation-plan.md`, `docs/design/04-bdd-test-plan.md`.
 
-- [ ] **Step 1:** Replace each PROPOSED answer with the maintainer's decision.
-- [ ] **Step 2:** Write the M6 section of `04` in the shape of its M4 section: what `calibration` holds, the readings the scenarios pin, the Gherkin of the five scenarios with exact tables, and notes for this plan.
-- [ ] **Step 3:** Resolve the three rows in `01` and `02` and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Commit `docs: M6 calibration_gate scenarios and resolved gating rows`.
+- [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25).
+- [x] **Step 2:** Write the M6 section of `04`: the feature, the fixture, the readings, and the five scenario titles, marked PROPOSED.
+- [x] **Step 3:** Resolve the three rows in `01` and `02` and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Commit `docs: M6 calibration_gate scenarios and resolved gating rows`.
+- [x] **Step 4:** Check that the index builds with a subdirectory as its root. Result at `ddfc072`: `git.work_tree_files` on `tests/fixtures/seeded-change` lists 22 files relative to it, and `adapters.scan`, `build_index` and `structural.traced` give 3 requirements, 3 traced. On `tests/fixtures/broken-links` they list 8 files and give 4 requirements, 2 traced. `earnest check` run from `packages/earnest/` writes SARIF byte-identical to a run from the repository root.
+- [ ] **Step 5:** Once Task 1's fixture exists, add the Gherkin of the five scenarios with exact tables, and notes for this plan, to `04`'s M6 section.
 
 ### Task 1: The maintainer's fixture
 
@@ -210,12 +215,12 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 - Create: `stub-pass.json` and `stub-fail.json` under `packages/earnest/tests/fixtures/calibration/`
 - Create: `packages/earnest/tests/features/calibration_gate.feature`, `packages/earnest/tests/steps/test_calibration_gate.py`
-- Modify: `packages/earnest/tests/conftest.py`
+- Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/steps/test_judge_check.py`
 
 - [ ] **Step 1:** Write `stub-pass.json` as `verdicts.json` with one result flipped on each of two requirements, and `stub-fail.json` with three.
-- [ ] **Step 2:** Add the `calibration` builder. It copies the fixture to `tmp_path`, leaves the two stubs out, and commits once on `main` under the pinned identity and dates.
+- [ ] **Step 2:** Add both stubs to `_OVERLAYS` in `conftest.py`, so the existing `fixture_repo("calibration")` leaves them out and commits once on `main` under the pinned identity and dates. Write no second builder.
 - [ ] **Step 3:** Copy the M6 Gherkin of `04` into `calibration_gate.feature` verbatim.
-- [ ] **Step 4:** Write the step module. The stub step sets `EARNEST_JUDGE` through `monkeypatch` to `stub:` and the absolute path of the stub. The working directory is the built fixture, so the calibration and the later `check --judge` share one record.
+- [ ] **Step 4:** Move `verdicts_file` and the `stub_judge` step from `test_judge_check.py` into `conftest.py`, so both features share them. Then write the step module. The working directory is the built fixture, so the calibration and the later `check --judge` share one record.
 - [ ] **Step 5:** Run the regression run, then `uv run pytest tests/steps/test_calibration_gate.py`. Expected: the regression run is green, and all 5 M6 scenarios fail.
 - [ ] **Step 6:** Commit `test: RED calibration_gate behavior gate`.
 
@@ -225,11 +230,12 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 **Interfaces:**
 
-- Consumes: `questions(index, levels)`, `Stub.answers`, `_answers(data)`, `Verdict`, `JudgeError`, `PROMPT_HASH`, all from M4.
+- Consumes: `questions(index, levels)`, `Stub.ask(question)`, `Verdict`, `JudgeError`, `PROMPT_HASH`, all from M4.
 - Produces:
-  - `@dataclass(frozen=True) class Row: subject: str; judge: tuple[str, str]; maintainer: tuple[str, str]`. Each pair is the `implemented` result, then the `tested` result.
-  - `@dataclass(frozen=True) class Calibration: model: str; rows: tuple[Row, ...]; matches: int; passed: bool`.
-  - `def calibrate(index: Index, levels: Mapping[str, str], model: Stub, maintainer: Mapping[str, Mapping[str, Verdict]]) -> Calibration`, raising `JudgeError` for the fixture faults of Global Constraints.
+  - `class Model(Protocol): id: str; def ask(self, question: Question) -> Verdict: ...`. `Stub` satisfies it, and every signature that takes a model takes `Model`: `calibrate`, `calibrated`, `judge`, `uncalibrated`, `Cache.model`, and `cli._analyse` in Task 4. Task 7's model then needs no other signature change.
+  - `@dataclass(frozen=True) class Row: subject: str; judge: Mapping[str, Verdict]; maintainer: Mapping[str, Verdict]`, each keyed by `implemented` and `tested`, so the printer has reasoning and location. `matched` is a property: both results agree.
+  - `@dataclass(frozen=True) class Calibration: model: str; rows: tuple[Row, ...]`, with `matches` (the count of matched rows) and `passed` (`matches >= 8`) as properties, so no stored field can disagree with the rows.
+  - `def calibrate(index: Index, levels: Mapping[str, str], model: Model, maintainer: Mapping[str, Mapping[str, Verdict]]) -> Calibration`. It raises `JudgeError` for the fixture faults of Global Constraints; the ten-requirement check is `len(questions(index, levels)) == 20`.
   - `def slot(calibration: Calibration) -> dict[str, object]`, the record's `calibration` value.
 
 - [ ] **Step 1:** Write failing tests:
@@ -251,32 +257,36 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 **Interfaces:**
 
-- Consumes: `judge.calibrate`, `judge.slot`, `judge.load_model`, `git.work_tree_files`, `git.repo_root`, `reporter.read_record`, `reporter.write_record`.
+- Consumes: `judge.calibrate`, `judge.slot`, `judge.load_model`, `git.repo_root`, `reporter.read_record`, `reporter.write_record`. The fixture's index uses the chain `check` already runs in `cli.py`:
+  - `files = git.work_tree_files(fixture)`
+  - `index = build_index(adapters.scan(fixture, files))`, with `build_index` from `earnest.index`
+  - `levels = structural.traced(index)`, where `produces` is None because the fixture holds no intent
+- The maintainer's verdicts are `judge.load_model(f"stub:{fixture / 'verdicts.json'}").answers`. That is the stub's parser, so a missing, truncated or wrongly shaped file raises `JudgeError` and exits 2, not a traceback.
 - Produces: `earnest calibrate <fixture>` on the parser of `main`.
 
 - [ ] **Step 1:** Write failing tests:
   - stdout holds one line per requirement with its id, both pairs and `match` or `differs`, then `matches: <n>/10` and `pass` or `fail`;
   - exit 0 on a pass, 1 on a fail, and 2 for each cause in Global Constraints;
   - the slot is written on both a pass and a fail, and the record's other slots are unchanged;
-  - with the working directory outside the fixture, only the fixture's ten ids appear.
+  - with the working directory in a different Git repository, only the fixture's ten ids appear.
 - [ ] **Step 2:** Run them. Expected: they fail.
-- [ ] **Step 3:** Implement. `JudgeError` and `OSError` join the exit-2 handling `main` already has.
+- [ ] **Step 3:** Implement. `main`'s exit-2 handling already catches `JudgeError` and `OSError`, so `calibrate` raises only those. `load_model`'s message for an unset `EARNEST_JUDGE` becomes `earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>`, which names no flag, so it reads right for both commands. No test pins the old text.
 - [ ] **Step 4:** The three scenarios of Task 4 in the order table pass. Commit `feat: earnest calibrate`.
 
 ### Task 5: `judge-uncalibrated` from the record
 
-**Files:** Modify `packages/earnest/src/earnest/judge/__init__.py`, `packages/earnest/src/earnest/cli.py`; Test `packages/earnest/tests/unit/test_judge.py`.
+**Files:** Modify `packages/earnest/src/earnest/judge/__init__.py`, `packages/earnest/src/earnest/cli.py`; Test `packages/earnest/tests/unit/test_judge.py`, `packages/earnest/tests/integration/test_judge_check.py`.
 
 **Interfaces:**
 
-- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Stub) -> bool`.
-- `judge()` stops inserting `uncalibrated(model)`; it already takes five arguments. `cli.py` inserts the finding first when `not judge.calibrated(record.calibration, model)`. Remove the `shortcut:` comment in `uncalibrated`.
+- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`.
+- `judge(index, levels, model, root, record: Record)` takes the whole record in place of its `judge` slot, still five arguments. It reads the cache from `record.judge`, and inserts `uncalibrated(model)` first only when `not calibrated(record.calibration, model)`, so no caller can skip the gate. `cli.py` passes `world.record`. Remove the `shortcut:` comment in `uncalibrated`.
 
 - [ ] **Step 1:** Write failing tests:
   - `test_calibrated_needs_pass`;
   - `test_calibrated_needs_same_model_and_prompt`: a slot under another model id, or another prompt hash, returns false;
   - `test_calibrated_none`: a missing slot returns false.
-- [ ] **Step 2:** Implement.
+- [ ] **Step 2:** Implement. Update every existing `judge(..., slot)` call in `tests/unit/test_judge.py` and `tests/integration/test_judge_check.py` to pass a `Record`. `test_one_uncalibrated_finding_per_run_at_line_one_of_the_record` keeps passing with `Record()`, whose `calibration` is None.
 - [ ] **Step 3:** All 5 M6 scenarios pass, M4's `judge_check` stays green (its record holds no calibration), and the regression run is green. Commit `feat: a passing calibration quiets judge-uncalibrated`.
 
 ### Task 6: The full suite, lint and the pre-PR review
@@ -289,12 +299,13 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 ### Task 7: The `anthropic:` model, off the exit path
 
-Starts only once the maintainer approves gating answer 3. Load the `claude-api` skill before writing the call.
+This builds the model of gating answer 3. Load the `claude-api` skill before writing the call.
 
 **Files:** Modify `packages/earnest/src/earnest/judge/__init__.py`, `packages/earnest/pyproject.toml`; Test `packages/earnest/tests/unit/test_judge_anthropic.py`.
 
 - [ ] **Step 1:** Write failing tests with a mocked client:
-  - `anthropic:claude-opus-5-5` loads a model whose id is that value;
+  - `load_model(value, root)` gains the root whose files the regions name. `check` passes the repository root, and `calibrate` passes `<fixture>`, since the fixture's region paths are relative to it, not to the working directory. Also, `anthropic:claude-opus-5-5` loads a model whose id is that value; it keeps `ask(question) -> Verdict`, so `judge` and `calibrate` are unchanged;
+  - the question text is built from the clause spans and `prompt.txt`, and the `shortcut:` comment in `questions` is removed;
   - each question sends the prompt, the clause, and the tagged regions and tests (`01` Runtime and permission model: "only the requirement clause, the tagged code regions and the tagged tests"), at effort `high`, with no `temperature`;
   - a structured reply becomes a `Verdict`;
   - an API error, a refusal or a malformed reply raises `JudgeError`, so the command exits 2.
@@ -311,6 +322,7 @@ Starts only once the maintainer approves gating answer 3. Load the `claude-api` 
   "packages/earnest/tests/conftest.py",
   "packages/earnest/tests/features/calibration_gate.feature",
   "packages/earnest/tests/steps/test_calibration_gate.py",
+  "packages/earnest/tests/steps/test_judge_check.py",
   "packages/earnest/tests/unit/test_judge.py",
   "packages/earnest/tests/unit/test_judge_anthropic.py",
   "packages/earnest/tests/unit/test_cli.py",
