@@ -1603,7 +1603,7 @@ Feature: Evidence check
     Then the SARIF log holds exactly these findings:
       | rule                        | file                                                                                         | line | level   | position | stage                        |
       | earnest/unplanned           | aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md | 13   | warning | current  | construction/code-generation |
-      | earnest/judge-not-satisfied | tests/test_auth.py                                                                           | 17   | warning | current  | construction/code-generation |
+      | earnest/judge-not-satisfied | tests/test_auth.py                                                                           | 17   | warning | current  | -                            |
       | earnest/judge-uncalibrated  | .earnest/assessment.json                                                                     | 1    | warning | current  | -                            |
       | earnest/evidence-failed     | src/checkout/auth.py                                                                         | 15   | error   | current  | construction/code-generation |
       | earnest/evidence-failed     | src/checkout/auth.py                                                                         | 19   | error   | current  | construction/code-generation |
