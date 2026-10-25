@@ -1,6 +1,6 @@
 # M5 `evidence_check` Implementation Plan
 
-Status: draft for plan approval. It rests on two answers, APPROVED by the maintainer on 2026-10-25, one for each gating open question that the M5 section of `docs/design/03-implementation-plan.md` names: where the evidence result is kept (answer E1 below) and the TypeScript evidence fixture (answer E2). It also rests on the M5 scenarios of `docs/design/04-bdd-test-plan.md`, drafted there as PROPOSED and awaiting ratification; Task 1 copies them into the feature once ratified.
+Status: approved for implementation (2026-10-25). It rests on two answers, APPROVED by the maintainer on 2026-10-25, one for each gating open question that the M5 section of `docs/design/03-implementation-plan.md` names: where the evidence result is kept (answer E1 below) and the TypeScript evidence fixture (answer E2). It also rests on the M5 scenarios of `docs/design/04-bdd-test-plan.md`, RATIFIED there on 2026-10-25; Task 1 copies them into the feature.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -118,7 +118,7 @@ This narrows the question rather than closing it. Approving E2 set the `01` row'
 
 ## Task order and the scenarios each turns green
 
-The scenarios are drafted as PROPOSED in `04`'s M5 section, awaiting ratification. The clause column maps each to the M5 exit behavior of `03`: (a) `evidence-failed` for a surviving mutant in a tagged region; (b) every requirement at exactly one level, with three separate percentages; (c) the evidenced task and its unit shown as done.
+The scenarios are RATIFIED (2026-10-25) in `04`'s M5 section. The clause column maps each to the M5 exit behavior of `03`: (a) `evidence-failed` for a surviving mutant in a tagged region; (b) every requirement at exactly one level, with three separate percentages; (c) the evidenced task and its unit shown as done.
 
 | Scenario | Clause |
 | --- | --- |
@@ -192,7 +192,7 @@ def audit_lockout(member: str) -> str:
 | `x_lockout_minutes__mutmut_1` to `_6` | 19 | survived | `req~lockout-notice~1` | `evidence-failed`, one for the line |
 | `x_audit_lockout__mutmut_1` | 24 | killed | `req~audit-log~1` | none |
 
-`req~rate-limit~1` is evidenced by five killed mutants, not vacuously: a build that skips mutmut on its region would still pass, so the integration tier of Task 5, `tests/integration/test_evidence_check.py`, asserts the five killed results. The grain of `evidence-failed` is a reading `04` fixes; its PROPOSED draft gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
+`req~rate-limit~1` is evidenced by five killed mutants, not vacuously: a build that skips mutmut on its region would still pass, so the integration tier of Task 5, `tests/integration/test_evidence_check.py`, asserts the five killed results. The grain of `evidence-failed` is a reading `04` fixes; its ratified section gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
 
 `evidence-verdicts.json`: every question of the three requirements, `satisfied` for `req~rate-limit~1` and `req~lockout-notice~1`, and `req~audit-log~1 tested` `not-satisfied`, located at `tests/test_auth.py` line 17, the shifted assert of `test_audit_lockout`. Expected levels: `req~rate-limit~1` evidenced, `req~lockout-notice~1` judged (its evidence failed), `req~audit-log~1` traced, so the summary reads `traced 100%, judged 66%, evidenced 33%; requirements: 3`. In the units variant `task~add-limiter~1` and `unit~u1~1` are then done, and `task~notify-lockout~1` and `unit~u2~1` are not.
 
@@ -238,7 +238,6 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:**
 
-- Modify: `docs/design/04-bdd-test-plan.md`
 - Create: the `evidence/` and `evidence-units/` overlays and `evidence-verdicts.json` under `packages/earnest/tests/fixtures/seeded-change/`
 - Create: `packages/earnest/tests/features/evidence_check.feature`, `packages/earnest/tests/steps/test_evidence_check.py`
 - Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/integration/test_seeded_change.py`
@@ -315,7 +314,6 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 ```json
 [
-  "docs/design/04-bdd-test-plan.md",
   "packages/earnest/src/earnest/impact.py",
   "packages/earnest/src/earnest/plan.py",
   "packages/earnest/src/earnest/judge/__init__.py",

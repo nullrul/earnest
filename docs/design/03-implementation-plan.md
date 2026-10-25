@@ -41,7 +41,7 @@ evidence runs in `impact.py` beside impact, and `--evidence` implies `--judge`.
 M6 continues the judge branch. Evidence has its own milestone so that M6 waits
 on the judge alone, and the out-of-task check and impact have theirs so that M2
 carries only the record, the stage engine and the Region rule. M8 follows M5
-and adds TypeScript evidence through StrykerJS and Jest.
+and adds TypeScript evidence through StrykerJS and Jest; it is part of v1.
 
 M1 is the first runnable milestone, and no open question gates it or M2. The
 rows of the Open questions sections that gate later milestones are named in
@@ -311,7 +311,7 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 
 ### M8 `typescript_evidence`
 
-- Goal: evidence for TypeScript through StrykerJS and Jest, end to end.
+- Goal: evidence for TypeScript through StrykerJS and Jest, end to end, in v1.
 - Depends on: M5.
 - Exit behavior: on a TypeScript fixture, `check --evidence` raises
   `evidence-failed` for a surviving StrykerJS mutant in a tagged region and

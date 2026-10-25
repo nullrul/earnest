@@ -1549,7 +1549,7 @@ Feature: Judge check
 
 ## M5 `evidence_check`
 
-Status: PROPOSED, awaiting the maintainer's ratification. Nothing below binds the loop until then, and it rests on the answers E1 and E2 of the [M5 task plan](../superpowers/plans/2026-10-25-evidence-check.md), approved on 2026-10-25.
+Status: RATIFIED (2026-10-25) by the maintainer. It rests on the answers E1 and E2 of the [M5 task plan](../superpowers/plans/2026-10-25-evidence-check.md), approved on 2026-10-25.
 
 - Feature: `packages/earnest/tests/features/evidence_check.feature`, bound by
   `tests/steps/test_evidence_check.py`.
@@ -1667,11 +1667,10 @@ Feature: Evidence check
 
 ### Notes for the M5 task plan
 
-- The findings table of the first scenario is a draft: the grain of
-  `evidence-failed` (one per surviving mutant, so seven rows, or one per line,
-  as drafted, or one per requirement and region) and the location of the
-  `judge-not-satisfied` verdict for `req~audit-log~1 tested` are for the
-  maintainer to fix at ratification; Task 1's red run confirms the rest.
+- The findings table of the first scenario is ratified as drafted: one
+  `evidence-failed` per line that holds a surviving mutant, and the
+  `judge-not-satisfied` verdict for `req~audit-log~1 tested` where the canned
+  verdicts place it; Task 1's red run confirms the rest.
 - The units scenarios sit on the units variant because only it has a unit;
   there `evidence-failed` against `req~lockout-notice~1` is ahead of
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
