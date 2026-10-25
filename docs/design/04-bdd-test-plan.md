@@ -1583,7 +1583,7 @@ mutants survive with the second mutant of `lockout_message`.
 | Surviving mutants raise one `evidence-failed`, an error, per line that holds one, against each requirement the region's tags cover | the Evidence rule and the findings table in `01` |
 | A surviving mutant outside every tagged region raises nothing | the Evidence rule and D4 in `01`: Earnest filters the tool's results by region |
 | `evidence-failed` counts against the Code Generation stage of the task that delivers the requirement; in the base history that stage is the frontier, so the finding is current | Frontier and position in `01`; `stage_status.feature` |
-| Evidenced is judged with a passing result under a key that matches the tree | Trace levels in `01`; E1 |
+| Evidenced is judged with a passing result under a key that matches the tree; where no model runs (plain `check`, `plan`), the matching `passed` entry stands for judged | Trace levels in `01`; E1 |
 | `earnest plan` reads the `evidence` slot and shows a task done when each delivered `req` is evidenced and each delivered `dsn` traced, and its unit done by Computed status | Computed status and the Command surface in `01`; E1 |
 
 ### Evidence check feature
@@ -1676,6 +1676,11 @@ Feature: Evidence check
   there `evidence-failed` against `req~lockout-notice~1` is ahead of
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
 - New steps, bound in `tests/steps/test_evidence_check.py`:
+  - `the coding agent runs earnest check --evidence`, and `the coding agent
+    has run earnest check --evidence` (below).
+  - `the repo maintainer's evidence overlay is committed` and `the repo
+    maintainer's units evidence overlay is committed`: the two overlay commits
+    on `main`.
   - `the SARIF log holds no finding at "<file>" line <n>`: no SARIF result is
     located at that file and line, whatever its rule.
   - `the SARIF log holds an <rule> finding at "<file>" line <n>`: one is, so
@@ -1686,6 +1691,11 @@ Feature: Evidence check
     `EARNEST_JUDGE` names `evidence-verdicts.json`.
   - `the repo maintainer runs earnest plan`, as "the coding agent runs earnest
     plan" does, with the maintainer as actor.
+  - Steps reused from other step modules ("the repository is unchanged",
+    "the plan lists these units:", "the SARIF log gives each requirement one
+    trace level:", "the summary leads with …", and the base-commit and units-variant Givens) are imported
+    or rebound in `test_evidence_check.py`; only `conftest.py` steps are
+    shared.
   - "the repository is unchanged" is M2's: the `.gitignore` that Earnest
     writes in a new `.earnest/` keeps the record the check wrote out of
     `git status`.

@@ -19,13 +19,13 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
 - `impact.py` gains the Evidence rule beside the Impact rule (`02`, `impact.py` in Module boundaries):
   - the files to mutate: the distinct `.path` of `judge.regions(index, item, KINDS["implemented"])` over the traced requirements, Python files only;
   - the mutmut run on a temporary copy of `git.work_tree_files(root)`, through `impact._run` with `MAP_TIMEOUT` and the environment filter `_map_run` applies to `_INHERITED`, extracted into a function both call;
-  - the tagged-test run on the unmutated copy, from `impact.tagged_tests`, through the same `_run`;
+  - the whole-suite run on the unmutated copy, through the same `_run` with `--junitxml=<tmp>`, whose failing node ids Earnest reads as `_map_run` reads its coverage file, and matches against `impact.tagged_tests` to tell a tagged failure from an untagged one;
   - the read of mutmut's results, each surviving mutant mapped to its file and line, and kept when that line lies in a tagged region (the Region rule);
   - the evidence key and result of each requirement, for the record (E1).
 - The `regions` and `tests` hashes of E1 come from the judge cache's region hash, `Cache._hash` in `judge/__init__.py`, extracted into a free function over `index.digest`, so the judge and the evidence layer hash regions byte for byte alike.
-- `cli._analyse` raises a requirement to `evidenced` after the judge layer, which today sets `judged` (`judge/__init__.py`; `structural.py` gives only untraced or traced). With a model, a judged requirement whose entry is `passed` under a matching key becomes evidenced. Without one, in plain `check` and in `plan` (`cli._plan` runs `_analyse` with no model), a traced requirement with such an entry becomes evidenced directly: the writer writes `passed` only for a requirement the same run judged, so the entry stands for judged too.
+- `impact.py` owns the evidenced raise, which `cli._analyse` calls after the judge layer, for `check` and `plan` alike. The judge layer sets `judged` today (`judge/__init__.py`; `structural.py` gives only untraced or traced). With a model, a judged requirement whose entry is `passed` under a matching key becomes evidenced. Without one, in plain `check` and in `plan` (`cli._plan` runs `_analyse` with no model), a traced requirement with such an entry becomes evidenced directly: the writer writes `passed` only for a requirement the same run judged, so the entry stands for judged too.
 - `plan.py` reads the record's `evidence` slot through the Reporter's reader in both `check` and `plan`, so Computed status sees evidence without running it; `plan` stays read-only.
-- `reporter.py` adds `evidence-failed` to `RULES` and writes the `evidence` slot; the evidenced percentage already exists (`LEVELS`, `percentages`, `summary`). `evidence` joins the layers twice: the run header's, from `plan._layers` and `plan.header`, and the SARIF invocation's, in `reporter.py`.
+- `reporter.py` adds `evidence-failed` to `RULES` and writes the `evidence` slot; the evidenced percentage already exists (`LEVELS`, `percentages`, `summary`). `evidence` joins the layers in three places: the run header, from `plan._layers` and `plan.header`; the stage assessment document, which `plan._layers` also feeds (`plan.py`), so the assessment hash covers it as `01`'s Assessment hash names the layers that ran; and the SARIF invocation, in `reporter.py`.
 - `cli.py` adds `--evidence`, which implies `--judge` and exits 2 when mutmut cannot run.
 
 **Tech Stack:** Python 3.12 standard library at runtime (`subprocess`, `json`, `ast`, `tempfile`, `shutil`, `pathlib`). mutmut is the repository's tool, run as a subprocess (L4); it joins the package's `dev` dependency group only so that the fixture's runs find it. The spike of 2026-10-25 pinned `mutmut>=3.8,<4` (3.8.0 installed); its command line and result format are under mutmut 3.8 below.
@@ -59,7 +59,7 @@ Answer: a sixth key of the assessment record, `evidence`, beside `judge`.
 - **Key:** one entry per requirement id with its revision (`req~rate-limit~1`), as the judge cache keys its entries.
 - **Value:** `{"key": {"regions": <sha256>, "tests": <sha256>, "tool": "mutmut <version>"}, "result": "passed" | "failed", "commit": <full sha>, "dirty": bool}`. `regions` hashes the requirement's `impl` regions and `tests` its test regions, as the judge cache key's "hash of the covered regions" and "hash of the covering tests" do; `commit` and `dirty` are those of the run header. No timestamp, so a rerun on the same tree writes the same record.
 - **Writer:** `earnest check --evidence`, through the Reporter, the record's only writer. It replaces the entry of every requirement whose files it set out to mutate: `passed` from the mutant results only for a requirement the same run judged, else `failed` or no entry, `failed` for a requirement a failing tagged test covers, and no entry (the old one dropped) for a requirement the run reached no verdict on, such as one whose mutmut run never started because a tagged test failed. Entries of requirements outside the run are kept.
-- **Readers:** the evidenced raise in `cli._analyse` and Computed status in `plan.py`, in both `check` and `plan`. An entry counts only when its whole key matches: its `regions` and `tests` hashes the current work tree, and its `tool` the installed mutmut; any other entry, or none, leaves the requirement short of `evidenced`. `plan` hashes the regions itself, which is model-free and runs no test, so it stays read-only.
+- **Readers:** the evidenced raise in `impact.py` and Computed status in `plan.py`, in both `check` and `plan`. An entry counts only when its whole key matches: its `regions` and `tests` hashes the current work tree, and its `tool` the installed mutmut; any other entry, or none, leaves the requirement short of `evidenced`. `plan` hashes the regions itself, which is model-free and runs no test, so it stays read-only.
 
 Basis:
 
@@ -194,7 +194,7 @@ def audit_lockout(member: str) -> str:
 
 `req~rate-limit~1` is evidenced by five killed mutants, not vacuously: a build that skips mutmut on its region would still pass, so the integration tier of Task 5, `tests/integration/test_evidence_check.py`, asserts the five killed results. The grain of `evidence-failed` is a reading `04` fixes; its PROPOSED draft gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
 
-`evidence-verdicts.json`: every question of the three requirements, `satisfied` for `req~rate-limit~1` and `req~lockout-notice~1`, and `req~audit-log~1 tested` `not-satisfied`. Expected levels: `req~rate-limit~1` evidenced, `req~lockout-notice~1` judged (its evidence failed), `req~audit-log~1` traced, so the summary reads `traced 100%, judged 66%, evidenced 33%; requirements: 3`. In the units variant `task~add-limiter~1` and `unit~u1~1` are then done, and `task~notify-lockout~1` and `unit~u2~1` are not.
+`evidence-verdicts.json`: every question of the three requirements, `satisfied` for `req~rate-limit~1` and `req~lockout-notice~1`, and `req~audit-log~1 tested` `not-satisfied`, located at `tests/test_auth.py` line 17, the shifted assert of `test_audit_lockout`. Expected levels: `req~rate-limit~1` evidenced, `req~lockout-notice~1` judged (its evidence failed), `req~audit-log~1` traced, so the summary reads `traced 100%, judged 66%, evidenced 33%; requirements: 3`. In the units variant `task~add-limiter~1` and `unit~u1~1` are then done, and `task~notify-lockout~1` and `unit~u2~1` are not.
 
 **Position, settled.** `01`, Frontier and position: a finding is current in "the frontier stage, its unit's frontier stage or the current task", and ahead (a note) after it. In the units variant `unit~u2~1`'s frontier is `construction/u2-notice/functional-design` (`unit_status.feature`, scenario "The plan prints each per-unit stage, each unit and each frontier"), so an `evidence-failed` counted against `construction/u2-notice/code-generation` is ahead, a note, and the check exits 0, as that feature's `gap` row in the same stage already shows. Moving the mutant to `req~rate-limit~1`, in `unit~u1~1`'s current frontier stage, would make it an error but leave `task~add-limiter~1` not done, which (c) needs done. In the base history the frontier is `construction/code-generation` (`stage_status.feature`), the stage both tasks share, so the finding is current, an error, and the check exits 1. Hence (a) and (b) on the base history, (c) on the units variant. This reads the placement rules and the existing features; `evidence-failed` itself does not exist yet, so Task 1's red scenarios confirm it.
 
@@ -204,13 +204,14 @@ def audit_lockout(member: str) -> str:
 | --- | --- | --- |
 | `tests/fixtures/seeded-change/evidence/src/checkout/auth.py` | the base history's overlay: seeded surviving mutants inside and outside a region | 1 |
 | `tests/fixtures/seeded-change/evidence-units/src/checkout/auth.py` | the units variant's overlay: the same, plus the `dsn~window-counter~1` tag | 1 |
+| `tests/fixtures/seeded-change/evidence/tests/test_auth.py`, `tests/fixtures/seeded-change/evidence-units/tests/test_auth.py` | the base test file with the second `count_failed_logins` assert | 1 |
 | `tests/fixtures/seeded-change/evidence-verdicts.json` | the stub's verdicts for M5 | 1 |
 | `tests/features/evidence_check.feature` | M5's 6 scenarios, verbatim from `04` | 1 |
 | `tests/steps/test_evidence_check.py` | pytest-bdd steps; the exit command | 1 |
 | `tests/conftest.py` | `_OVERLAYS` gains `evidence`, `evidence-units` and `evidence-verdicts.json`, which the builders leave out; the two overlay committers on `main` | 1 |
-| `tests/integration/test_seeded_change.py` | the units variant's sha and the overlay's lines pinned | 1 |
-| `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidence keys | 2, 3, 5, 6 |
-| `src/earnest/cli.py`, `src/earnest/plan.py` | the `evidenced` raise after the judge layer; `evidence` in `plan._layers` | 4 |
+| `tests/integration/test_seeded_change.py` | the units variant's sha and both overlays' lines pinned | 1 |
+| `src/earnest/impact.py` | the mutmut run, its results, the region filter, the StrykerJS reader, the evidenced raise, the evidence keys | 2-6 |
+| `src/earnest/cli.py`, `src/earnest/plan.py` | the call to the evidenced raise after the judge layer; `evidence` in `plan._layers` | 4 |
 | `src/earnest/plan.py` | Computed status reads the `evidence` slot | 5, 6 |
 | `src/earnest/judge/__init__.py` | `Cache._hash` extracted into a free function the evidence key shares | 5 |
 | `src/earnest/reporter.py` | `evidence-failed` in `RULES`; the invocation's layers; the `evidence` slot | 3-5 |
@@ -276,7 +277,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 ### Task 4: The `evidenced` level
 
-**Files:** Modify `packages/earnest/src/earnest/cli.py`, `plan.py`, `reporter.py`; Test `tests/unit/test_cli.py`, `tests/unit/test_plan.py`, `tests/unit/test_reporter.py`.
+**Files:** Modify `packages/earnest/src/earnest/impact.py`, `cli.py`, `plan.py`, `reporter.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_cli.py`, `tests/unit/test_plan.py`, `tests/unit/test_reporter.py`.
 
 - [ ] **Step 1:** Write failing tests: with a model, evidenced needs judged and a matching `passed` entry; with no model, a traced requirement with a matching `passed` entry is evidenced; each requirement has exactly one level; the run header's and the invocation's layers name `evidence`.
 - [ ] **Step 2:** Implement.
@@ -294,7 +295,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `plan.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_plan.py`.
 
-- [ ] **Step 1:** Write failing tests: an edit to a covered region, to a covering test, or a different mutmut version each leaves the entry unmatched, so the requirement reads judged and its task not done, in `check` and `plan` alike.
+- [ ] **Step 1:** Write failing tests: an edit to a covered region, to a covering test, or a different mutmut version each leaves the entry unmatched, so the requirement reads judged under `check --judge` and traced in `plan` and plain `check`, and its task is not done in all three.
 - [ ] **Step 2:** Implement.
 - [ ] **Step 3:** All 6 M5 scenarios pass, and the regression run is green. Commit `feat: stale evidence drops below evidenced`.
 

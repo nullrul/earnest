@@ -307,8 +307,7 @@ its line says "Owns", and each such rule has exactly one owner.
   one edge down. The lifecycle's later steps, expired overrides and outdated
   approvals, are computed under the Override rule in `judge/` and under Frontier
   and position in `plan.py`. Owns each requirement's trace level up to traced;
-  `judge/` raises it to judged, and the evidenced raise reads the record's
-  `evidence` entries after the judge layer (`cli.py`). It applies
+  `judge/` raises it to judged, and `impact.py` to evidenced. It applies
   the route rule of Stages to the Default Needs and to parentless items.
 - `ears.py`: EARS parser. Each `req` body becomes its clauses with text spans,
   the spans the judge asks about (D14), or a `req-not-ears` finding (D2).
@@ -333,6 +332,9 @@ its line says "Owns", and each such rule has exactly one owner.
   each stage's status and reasons, `dirty`, and the assessment document of the
   Assessment hash section of `01`.
 - `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule,
+  and the evidenced raise: a requirement judged, or traced where no model runs,
+  with a `passed` `evidence` entry whose key matches is evidenced; `cli.py`
+  calls it after the judge layer for `check` and `plan` alike,
   and hands each requirement's evidence result and key to the Reporter for the
   record's `evidence` key.
   It runs the repository's own coverage, test and mutation tools as
@@ -356,7 +358,7 @@ its line says "Owns", and each such rule has exactly one owner.
 
 - `reporter.py`: Reporter. SARIF 2.1.0, the summary that leads with three
   percentages, and the rendering of each requirement's trace level, which
-  `structural.py` computes. Owns the assessment record, reader and writer, with
+  `structural.py`, `judge/` and `impact.py` compute. Owns the assessment record, reader and writer, with
   its six contents, the canonical JSON form shared by the record, the SARIF log
   and the assessment hash, and the rendering of the plan and assessment
   properties of the SARIF run, which `plan.py` builds as `properties.plan` and
