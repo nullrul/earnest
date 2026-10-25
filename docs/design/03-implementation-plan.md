@@ -239,8 +239,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Spec coverage: SC3 (in full), SC8 (done); the Evidence capability.
 - Context to load: `01`: Evidence rule, Trace levels, Computed status, D4,
   Assessment record, Frontier and position, Command surface. `02`:
-  `impact.py`, `reporter.py`, `plan.py` and `structural.py` in Module
-  boundaries; L4.
+  `impact.py`, `reporter.py`, `plan.py`, `structural.py`, `cli.py` and
+  `judge/__init__.py` in Module boundaries; L4.
 - Gating open questions: none left. The evidence result is the record's
   `evidence` key, and the TypeScript evidence fixture moves to M8, both
   settled in `01` by the maintainer's decision of 2026-10-25 (E1 and E2 of

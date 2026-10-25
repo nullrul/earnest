@@ -19,7 +19,7 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
 - `impact.py` gains the Evidence rule beside the Impact rule (`02`, `impact.py` in Module boundaries):
   - the files to mutate: the distinct `.path` of `judge.regions(index, item, KINDS["implemented"])` over the traced requirements, Python files only;
   - the mutmut run on a temporary copy of `git.work_tree_files(root)`, through `impact._run` with `MAP_TIMEOUT` and the environment filter `_map_run` applies to `_INHERITED`, extracted into a function both call;
-  - the whole-suite run on the unmutated copy, through the same `_run` with `--junitxml=<tmp> -o junit_family=xunit1`, whose `file`, `classname` and `name` attributes Earnest builds into node ids (`file::name`, or `file::Class::name` for a method), the form `tagged_tests` returns, reading the file as `_map_run` reads its coverage file, and matches against `impact.tagged_tests` to tell a tagged failure from an untagged one;
+  - the whole-suite run on the unmutated copy, through the same `_run` with `--junitxml=<tmp> -o junit_family=xunit1`, whose `file`, `classname` and `name` attributes Earnest builds into node ids (`file::name`, or `file::Class::name` for a method), the form `tagged_tests` returns, reading the file with `xml.etree.ElementTree` (with `# noqa: S314`, since the file is Earnest's own temporary output), as `read_map` reads its JSON report, so a missing or unparsable report is a run with no result (exit 2), and matches against `impact.tagged_tests` to tell a tagged failure from an untagged one;
   - the read of mutmut's results, each surviving mutant mapped to its file and line, and kept when that line lies in a tagged region (the Region rule);
   - the evidence key and result of each requirement, for the record (E1).
 - The `regions` and `tests` hashes of E1 come from the judge cache's region hash, `Cache._hash` in `judge/__init__.py`, extracted into a free function over `index.digest`, so the judge and the evidence layer hash regions byte for byte alike.
@@ -28,7 +28,7 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
 - `reporter.py` adds `evidence-failed` to `RULES` and writes the `evidence` slot; the evidenced percentage already exists (`LEVELS`, `percentages`, `summary`). `evidence` joins the layers in three places: the run header, from `plan._layers` and `plan.header`; the stage assessment document, which `plan._layers` also feeds (`plan.py`), so the assessment hash covers it as `01`'s Assessment hash names the layers that ran; and the SARIF invocation, in `reporter.py`.
 - `cli.py` adds `--evidence`, which implies `--judge` and exits 2 when mutmut cannot run.
 
-**Tech Stack:** Python 3.12 standard library at runtime (`subprocess`, `json`, `ast`, `tempfile`, `shutil`, `pathlib`). mutmut is the repository's tool, run as a subprocess (L4); it joins the package's `dev` dependency group only so that the fixture's runs find it. The spike of 2026-10-25 pinned `mutmut>=3.8,<4` (3.8.0 installed); its command line and result format are under mutmut 3.8 below.
+**Tech Stack:** Python 3.12 standard library at runtime (`subprocess`, `json`, `xml.etree.ElementTree`, `ast`, `tempfile`, `shutil`, `pathlib`). mutmut is the repository's tool, run as a subprocess (L4); it joins the package's `dev` dependency group only so that the fixture's runs find it. The spike of 2026-10-25 pinned `mutmut>=3.8,<4` (3.8.0 installed); its command line and result format are under mutmut 3.8 below.
 
 **Spec:**
 
@@ -215,7 +215,7 @@ def audit_lockout(member: str) -> str:
 | `src/earnest/plan.py` | Computed status sees evidenced through the level; its tests cover done and stale | 5, 6 |
 | `src/earnest/judge/__init__.py` | `Cache._hash` extracted into a free function the evidence key shares | 4 |
 | `src/earnest/reporter.py` | `evidence-failed` in `RULES`; the invocation's layers; the `evidence` slot | 3-5 |
-| `src/earnest/cli.py` | `--evidence`, implying `--judge`; exit 2 when mutmut cannot run | 2 |
+| `src/earnest/cli.py` | `--evidence`, implying `--judge`; exit 2 when mutmut cannot run; `cli._analyse` gains the `evidence` flag and runs the evidence layer (suite, then mutmut) after the judge layer, so its findings reach `plan.place` | 2 |
 | `pyproject.toml` | mutmut in the `dev` group, `>=3.8,<4` (added by the spike) | spike, done |
 | `tests/unit/test_impact.py`, `test_plan.py`, `test_judge.py`, `test_reporter.py`, `test_cli.py`; `tests/unit/stryker-report.json`; `tests/integration/test_evidence_check.py` | each task's tests | 2-6 |
 
@@ -260,7 +260,7 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
   - the run copies the listed files to a temporary directory, writes mutmut's configuration there, and leaves `git status --porcelain` unchanged;
   - mutmut missing, a timeout, and an unreadable result each exit 2;
   - `--evidence` implies `--judge`, and without it no subprocess runs.
-- [ ] **Step 2:** Implement, running mutmut as `take_map` runs pytest: `python -m mutmut` under the `python` that `take_map` takes (default `sys.executable`, the interpreter whose environment holds the repository's tests), with the environment filter of `_map_run`. The `tool` of E1's key is `mutmut` and `importlib.metadata.version("mutmut")` in Earnest's own interpreter, so `plan` reads it without a subprocess; with mutmut absent no entry matches, every requirement stays short of evidenced, and the summary says `evidence: mutmut not installed`.
+- [ ] **Step 2:** Implement, running mutmut as `take_map` runs pytest: `python -m mutmut` under the `python` that `take_map` takes (default `sys.executable`, the interpreter whose environment holds the repository's tests), with the environment filter of `_map_run`. The `tool` of E1's key is `mutmut` and `importlib.metadata.version("mutmut")` in Earnest's own interpreter, so `plan` reads it without a subprocess; in `plan` and plain `check`, with mutmut absent no entry matches, every requirement stays short of evidenced, and the summary says `evidence: mutmut not installed`; under `--evidence` it exits 2. `cli._analyse` gains the `evidence` flag and runs the evidence layer after the judge layer, so its findings reach `plan.place`.
 - [ ] **Step 3:** The scenario "Without --evidence the check runs no test and no mutant" passes. Commit `feat: the mutmut run for --evidence`.
 
 ### Task 3: The region filter and `evidence-failed`

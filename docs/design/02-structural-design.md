@@ -97,6 +97,9 @@ earnest/
           override/
           override-change/
           judge-verdicts.json
+          evidence/
+          evidence-units/
+          evidence-verdicts.json
         calibration/
 ```
 
@@ -338,7 +341,7 @@ its line says "Owns", and each such rule has exactly one owner.
   and hands each requirement's evidence result and key to the Reporter for the
   record's `evidence` key.
   It runs the repository's own coverage, test and mutation tools as
-  subprocesses and reads their JSON reports. At `check --stage` it takes the
+  subprocesses and reads their JSON and JUnit XML reports. At `check --stage` it takes the
   coverage map, a pytest-cov run with `--cov-context=test` whose data file is
   `.earnest/coverage/<commit>`, whose own options write nothing else to the
   work tree, and which runs only on a clean tree and gives no map when it times
@@ -435,6 +438,16 @@ its line says "Owns", and each such rule has exactly one owner.
 - `fixtures/seeded-change/judge-verdicts.json`: the stub model's canned
   verdicts, in the format of the Runtime and permission model of `01`. No
   commit holds it; M4's steps point `EARNEST_JUDGE` at it in place.
+- `fixtures/seeded-change/evidence/`: M5's overlay on the base history,
+  committed on `main` on top of the base commit: `src/checkout/auth.py` with
+  surviving mutants inside and outside a tagged region, and
+  `tests/test_auth.py` with a second assert that kills the
+  `req~rate-limit~1` mutants.
+- `fixtures/seeded-change/evidence-units/`: the same overlay for the units
+  variant, committed on `main` over the units variant, with the `dsn~window-counter~1`
+  tag over a function of its own.
+- `fixtures/seeded-change/evidence-verdicts.json`: the stub model's canned
+  verdicts for M5; no commit holds it, as for `judge-verdicts.json`.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
   by `earnest calibrate`; its format is an open question.
@@ -551,7 +564,7 @@ Each decision refers to the tree in the File and directory tree section.
 | Markdown items | a line scan for code fences, headings, id lines and key lines | a CommonMark parser |
 | Gherkin tags | a line scan for `@` lines | the official Gherkin parser |
 | SARIF output | `json` | a SARIF object-model package |
-| Coverage, tests and mutants | `subprocess` running the repository's tools, `json` reading their reports | importing coverage.py and mutmut as libraries |
+| Coverage, tests and mutants | `subprocess` running the repository's tools, `json` and `xml.etree.ElementTree` reading their reports, `ast` reading mutmut's mutants | importing coverage.py and mutmut as libraries |
 | Closest id for `orphaned` | `difflib` | an edit-distance package |
 
 ### L5 Three test tiers, with pytest-bdd for behavior
