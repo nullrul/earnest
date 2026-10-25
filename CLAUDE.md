@@ -47,7 +47,8 @@ uv run --all-extras earnest check [--stage S] [--intent DIR] [--task ID] [--judg
 `earnest check` writes SARIF 2.1.0 to stdout and a summary to stderr. Exit codes: 1 means an
 error-level finding sits at plan position behind or current, 0 means none does (errors at later
 stages do not fail), 2 means the check could not run. `earnest plan` prints
-the stage plan. The pipeline lives in `cli.py`:
+the stage plan. The full module design is `docs/design/02-structural-design.md`. The pipeline
+lives in `cli.py`:
 
 1. `git.py` finds the repo root, HEAD, work-tree files and changed lines.
 2. `adapters/` pick a scanner by file suffix and pass lines to the grammar: Gherkin `@` tags,
