@@ -1,6 +1,6 @@
 # M6 `calibration_gate` Implementation Plan
 
-Status: approved for execution. The maintainer approved the three gating answers and the output contract on 2026-10-25, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
+Status: gating answers approved; execution starts once the maintainer supplies Task 1's fixture. The maintainer approved the three gating answers and the output contract on 2026-10-25, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -76,7 +76,7 @@ Row: `01`, Open questions, "Judge model choice and prompt", resolved by "the cal
 
 - **Model.** `EARNEST_JUDGE=anthropic:claude-opus-5-5`. The model id in the run header, the cache key and the calibration slot is that value, verbatim.
 - **Credentials.** The `anthropic` Python SDK resolves them on its own, from `ANTHROPIC_API_KEY` or an `ant auth login` profile. Earnest reads no key itself.
-- **Request settings.** Effort is pinned to `high` in code. The verdict object is requested through structured outputs. `temperature` is not sent, because the API has rejected sampling parameters since 2026-10-21.
+- **Request settings.** Effort is pinned to `high` in code. The verdict object is requested through structured outputs. `temperature` is not sent, because the API has rejected sampling parameters since 2026-10-21 (the `claude-api` skill, read 2026-10-25; Task 7 re-checks it).
 - **Prompt.** `judge/prompt.txt` stays as M4 wrote it. Any rewording changes the prompt hash and calls for a new calibration (UC8's trigger).
 - Sources:
   - `01` Runtime and permission model, the paragraph's last sentence: "The value that names a real model settles with 'Judge model choice and prompt' in the Open questions section".
@@ -88,7 +88,7 @@ Trade-offs:
 
 | Option | For | Against |
 | --- | --- | --- |
-| `claude-opus-5-5` (approved) | The most capable default; a judge is the only check on a verdict | $4 / $20 per million tokens |
+| `claude-opus-5-5` (approved) | The most capable default; a judge is the only check on a verdict | $4 / $20 per million tokens (the `claude-api` skill, read 2026-10-25) |
 | `claude-sonnet-5-5` | Half the price | Weaker reading of the code |
 | `claude-haiku-5-5` | Cheapest | Least likely to reach eight of ten |
 | Standard-library `urllib` in place of the SDK | Keeps the runtime dependency-free | L4 names the SDK, and the API surface shifts under hand-written calls |
@@ -169,8 +169,8 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `tests/fixtures/calibration/<copied src and tests>` | the hand-tagged code and tests from the pinned commit | 1 |
 | `tests/fixtures/calibration/verdicts.json` | the maintainer's twenty answers | 1 |
 | `tests/fixtures/calibration/stub-pass.json`, `stub-fail.json` | `verdicts.json` with results flipped on two, then three, requirements | 2 |
-| `tests/conftest.py` | the two stubs added to `_OVERLAYS`; `verdicts_file` and the `stub_judge` step moved here from `test_judge_check.py` | 2 |
-| `tests/steps/test_judge_check.py` | loses `verdicts_file` and `stub_judge` to `conftest.py` | 2 |
+| `tests/conftest.py` | the two stubs added to `_OVERLAYS`; `verdicts_file`, `model_id`, `prompt_hash` and the `stub_judge` step moved here from `test_judge_check.py` | 2 |
+| `tests/steps/test_judge_check.py` | loses `verdicts_file`, `model_id`, `prompt_hash` and `stub_judge` to `conftest.py` | 2 |
 | `tests/features/calibration_gate.feature` | M6's 5 scenarios, verbatim from `04` | 2 |
 | `tests/steps/test_calibration_gate.py` | pytest-bdd steps; the exit command | 2 |
 | `src/earnest/judge/__init__.py` | `Model`, `Row`, `Calibration`, `calibrate`, `slot`, `load_verdicts`, `calibrated`; `Model` in place of `Stub` in signatures; `load_model`'s unset-model message; `judge` takes the `Record` | 3, 4, 5 |
@@ -224,8 +224,8 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 - [ ] **Step 1:** Write `stub-pass.json` as `verdicts.json` with one result flipped on each of two requirements, and `stub-fail.json` with three.
 - [ ] **Step 2:** Add both stubs to `_OVERLAYS` in `conftest.py`, so the existing `fixture_repo("calibration")` leaves them out and commits once on `main` under the pinned identity and dates. Write no second builder.
 - [ ] **Step 3:** Copy the M6 Gherkin of `04` into `calibration_gate.feature` verbatim.
-- [ ] **Step 4:** Move `verdicts_file`, `model_id`, `prompt_hash` and the `stub_judge` step from `test_judge_check.py` into `conftest.py`, so both features share them. `verdicts_file(name)` hard-codes `judge-verdicts.json`, so it gains a file parameter, `verdicts_file(name, file="judge-verdicts.json")`. A new step, `the judge is the stub model with the canned verdicts "{file}" of "{name}"`, sits beside M4's step text, which keeps working. `test_judge_check.py` and the M6 step module import the three helpers with `from tests.conftest import model_id, prompt_hash, verdicts_file`, as `tests/unit/test_judge.py` already imports from `tests.conftest`, and `test_judge_check.py` drops its now-unused `FIXTURES` import (ruff F401). `model_id` gains the same `file="judge-verdicts.json"` parameter, so the M6 steps get the id of `stub-pass.json`. Then write the step module. The working directory is the built fixture, so the calibration and the later `check --judge` share one record.
-- [ ] **Step 5:** Run the regression run, then `uv run pytest tests/steps/test_calibration_gate.py`. Expected: the regression run is green, and all 5 M6 scenarios fail.
+- [ ] **Step 4:** Move `verdicts_file`, `model_id`, `prompt_hash` and the `stub_judge` step from `test_judge_check.py` into `conftest.py`, so both features share them. `verdicts_file(name)` hard-codes `judge-verdicts.json`, so it gains a file parameter, `verdicts_file(name, file="judge-verdicts.json")`. A new step, `the judge is the stub model with the canned verdicts "{file}" of "{name}"`, sits beside M4's step text, which keeps working. `test_judge_check.py` and the M6 step module import the three helpers with `from tests.conftest import model_id, prompt_hash, verdicts_file`, as `tests/unit/test_judge.py` already imports from `tests.conftest`, and `test_judge_check.py` drops its now-unused `FIXTURES`, `hashlib` and `importlib.resources.files` imports (ruff F401). `model_id` gains the same `file="judge-verdicts.json"` parameter, so the M6 steps get the id of `stub-pass.json`. Then write the step module. The working directory is the built fixture, so the calibration and the later `check --judge` share one record.
+- [ ] **Step 5:** Run the regression run, then `uv run pytest tests/steps/test_calibration_gate.py`. Expected: the regression run is green, and all 5 M6 scenarios fail. "Calibrate cannot run …" fails only because it also asserts one stderr line that starts `earnest:` and names the cause, as `tests/unit/test_cli.py` does; before Task 4, argparse's "invalid choice" exits 2 too, so exit 2 alone would pass while red.
 - [ ] **Step 6:** Commit `test: RED calibration_gate behavior gate`.
 
 ### Task 3: Calibration in `judge/`
@@ -239,9 +239,9 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
   - `class Model(Protocol)` with `@property def id(self) -> str: ...` and `def ask(self, question: Question) -> Verdict: ...`. A read-only `id` property is needed because `Stub` is a frozen dataclass; a plain `id: str` member fails `mypy --strict`. `Stub` satisfies it, and every signature that takes a model takes `Model`: `calibrate`, `judge`, `uncalibrated`, `Cache.model`, `cli._analyse` in Task 4, and `calibrated` in Task 5. Task 7's model then needs no other signature change.
   - `@dataclass(frozen=True) class Row: subject: str; judge: Mapping[str, Verdict]; maintainer: Mapping[str, Verdict]`, each keyed by `implemented` and `tested`, so the printer has reasoning and location. `matched` is a property: both results agree.
   - `@dataclass(frozen=True) class Calibration: model: str; rows: tuple[Row, ...]`, with `matches` (the count of matched rows) and `passed` (`matches >= 8`) as properties, so no stored field can disagree with the rows.
-  - `def calibrate(index: Index, levels: Mapping[str, str], model: Model, maintainer: Mapping[str, Mapping[str, Verdict]]) -> Calibration`. It raises `JudgeError` for the fixture faults of Global Constraints. The ten-requirement check counts the `req` items in `index.defined`, which must be exactly ten, each `traced` in `levels` and parsing by `ears.parse`. `questions()` alone would silently skip an unaskable eleventh.
+  - `def calibrate(index: Index, levels: Mapping[str, str], model: Model, maintainer: Mapping[str, Mapping[str, Verdict]]) -> Calibration`. It raises `JudgeError` for the fixture faults of Global Constraints. The ten-requirement check counts the `req` items in `index.defined`, which must be exactly ten, each `traced` in `levels` and parsing by `ears.parse`. `questions()` alone would silently skip an unaskable eleventh. It asks only the questions of those ten `req` items, so a traced non-`req` item in the fixture is neither asked nor counted.
   - `def slot(calibration: Calibration) -> dict[str, object]`, the record's `calibration` value.
-  - `def load_verdicts(path: Path) -> dict[str, dict[str, Verdict]]`, the maintainer's file read through `_answers`, raising `JudgeError` for a missing, truncated or wrongly shaped file. It does not go through `load_model`, whose return type Task 7 widens to `Model`.
+  - `def load_verdicts(path: Path) -> dict[str, dict[str, Verdict]]`, the maintainer's file read through `_answers`, raising `JudgeError` for a missing, truncated or wrongly shaped file. Pull `load_model`'s read and `except` block (`OSError`; `ValueError`, `TypeError`, `KeyError`, `RecursionError`) into one private helper that both call, so neither copies it. It does not go through `load_model`, whose return type Task 7 widens to `Model`.
 
 - [ ] **Step 1:** Write failing tests:
   - `test_eight_matches_pass`: `matches == 8` and `passed`;
@@ -267,7 +267,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
   - `index = build_index(adapters.scan(fixture, files))`, with `build_index` from `earnest.index`
   - `levels = structural.traced(index)`, where `produces` is None because the fixture holds no intent
 - The maintainer's verdicts are `judge.load_verdicts(fixture / "verdicts.json")` (Task 3). A bad file exits 2, not a traceback.
-- Produces: `earnest calibrate <fixture>` on the parser of `main`. `main` runs `_read()` on the working directory's repository before it dispatches, so `calibrate` is dispatched before `_read()`. A fault in the working directory's own items or intents then cannot make it exit 2.
+- Produces: `earnest calibrate <fixture>` on the parser of `main`. `main` runs `_read()` on the working directory's repository before it dispatches, so `calibrate` is dispatched before `_read()`, inside the existing `try` and through `_Result`, so its faults and a broken pipe exit 2 as `check`'s do. A fault in the working directory's own items or intents then cannot make it exit 2.
 
 - [ ] **Step 1:** Write failing tests:
   - stdout holds one line per requirement with its id, both pairs and `match` or `differs`, then `matches: <n>/10` and `pass` or `fail`;
@@ -284,14 +284,14 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 **Interfaces:**
 
-- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`.
+- Produces: `def calibrated(slot: Mapping[str, object] | None, model: Model) -> bool`. It is true only when `slot["pass"] is True` and `model` and `prompt` are equal strings; a unit test gives it a slot with `"pass": "false"` and expects false, since the record reader checks the slot only shallowly.
 - `judge(index, levels, model, root, record: Record)` takes the whole record in place of its `judge` slot, still five arguments. This departs from `02`'s "hands each assessor the part of the record it reads" (`cli.py` in Module boundaries), because the judge now reads two slots, `judge` and `calibration`, and passing both would make six arguments, over the lint limit. Task 0 notes the exception in `02`. It reads the cache from `record.judge`, and inserts `uncalibrated(model)` first only when `not calibrated(record.calibration, model)`, so no caller can skip the gate. `cli.py` passes `world.record`. Remove the `shortcut:` comment in `uncalibrated`.
 
 - [ ] **Step 1:** Write failing tests:
   - `test_calibrated_needs_pass`;
   - `test_calibrated_needs_same_model_and_prompt`: a slot under another model id, or another prompt hash, returns false;
   - `test_calibrated_none`: a missing slot returns false.
-- [ ] **Step 2:** Implement. Update the one existing `judge.judge(...)` call, the `ask` helper at `tests/unit/test_judge.py:70`, to pass a `Record`. `test_one_uncalibrated_finding_per_run_at_line_one_of_the_record` keeps passing with `Record()`, whose `calibration` is None.
+- [ ] **Step 2:** Implement. Update the one existing `judge.judge(...)` call, the `ask` helper at `tests/unit/test_judge.py:70`, to pass `Record(judge=slot or {"cache": {}})`, so its callers that pass a slot dict, such as `first.cache`, stay unchanged. `test_one_uncalibrated_finding_per_run_at_line_one_of_the_record` keeps passing with `Record()`, whose `calibration` is None.
 - [ ] **Step 3:** All 5 M6 scenarios pass, M4's `judge_check` stays green (its record holds no calibration), and the regression run is green. Commit `feat: a passing calibration quiets judge-uncalibrated`.
 
 ### Task 6: The full suite, lint and the pre-PR review
@@ -310,8 +310,8 @@ This builds the model of gating answer 3. Load the `claude-api` skill before wri
 
 - [ ] **Step 1:** Write failing tests with a mocked client:
   - `load_model(value, root)` gains the root whose files the regions name. `check` passes the repository root, and `calibrate` passes `<fixture>`, since the fixture's region paths are relative to it, not to the working directory. `root` does not change how a `stub:<path>` value resolves, which stays relative to the working directory. Also, `anthropic:claude-opus-5-5` loads a model whose id is that value; it keeps `ask(question) -> Verdict`, so `judge` and `calibrate` are unchanged;
-  - the question text is built from the clause spans and `prompt.txt`, and the `shortcut:` comment in `questions` is removed;
-  - each question sends the prompt, the clause, and the tagged regions and tests (`01` Runtime and permission model: "only the requirement clause, the tagged code regions and the tagged tests"), at effort `high`, with no `temperature`;
+  - the question text is built from the clause spans and `prompt.txt`, and the `shortcut:` comment in `questions` is removed. All fixed wording of the question lives in `prompt.txt`, and the code adds only the clause, regions and tests, so `PROMPT_HASH` changes whenever the wording does;
+  - each question sends the prompt, the clause, and the tagged regions and tests (`01` Runtime and permission model: "only the requirement clause, the tagged code regions and the tagged tests"), at effort `high`, with no `temperature`; the prompt, clause and regions that both questions of a requirement share form a prefix marked with `cache_control`;
   - a structured reply becomes a `Verdict`;
   - an API error, a refusal or a malformed reply raises `JudgeError`, so the command exits 2.
 - [ ] **Step 2:** Implement. Import the SDK only when an `anthropic:` value is named, and add `anthropic` to `[project] dependencies`.

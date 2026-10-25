@@ -1758,7 +1758,7 @@ All five titles are PROPOSED:
 
 ## Future directions
 
-- The scenarios of M6 to M8, each written here when its milestone's
+- The scenarios of M7 and M8, each written here when its milestone's
   plan is written.
 - A coverage threshold for the package, when the maintainer sets one.
 
