@@ -445,10 +445,12 @@ Each decision refers to the tree in the File and directory tree section.
   `package` and `clean`; a root `Makefile` that delegates over `SUBPROJECTS`;
   and the Python SDK template's src layout, uv with hatchling, ruff,
   `mypy --strict` and vulture, and pytest with pytest-cov.
-  `packages/earnest/Makefile` matches the template's
-  `_templates/python_sdk/Makefile` byte for byte, and `pyproject.toml` differs
-  from the template by its substitutions and by dropping the template's
-  `fail_under = 80`, so every test run reports coverage with no threshold and
+  `packages/earnest/Makefile` and `pyproject.toml` differ from the template
+  by their substitutions and by three deltas: dev tools are a uv dependency
+  group, not an extra; coverage runs in `make test`, not in every pytest run;
+  and the root `deploy` target is dropped because nothing is deployable. The
+  template's `fail_under = 80` is also dropped, so `make test` reports
+  coverage with no threshold and
   passes or fails on its tests alone. The template's TypeScript, Rust
   and Go packages stay unselected: the engine is Python, and the fork's
   TypeScript lives in the fork under upstream's Bun and Biome toolchain. From

@@ -28,7 +28,7 @@ asserts success criteria of `00-project-intent.md` and names them in its title.
   step module of the same snake_case slug (L5 of `02`).
 - A fixture repository is plain files, and `tests/conftest.py` builds its Git
   history in a temporary directory at test time (L6 of `02`).
-- Every run reports coverage, and no coverage threshold applies for now.
+- `make test` reports coverage, and no coverage threshold applies for now.
 
 ## Scenarios, milestones and features
 

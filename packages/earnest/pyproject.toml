@@ -100,5 +100,4 @@ exclude_lines = [
 
 [tool.taskipy.tasks]
 lint = "pre-commit run --all-files"
-test = "pytest --cov=earnest --cov-report=term-missing --cov-report=xml:coverage.xml"
 build = "uv build"

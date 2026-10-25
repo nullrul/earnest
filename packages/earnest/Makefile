@@ -13,7 +13,7 @@ lint: install
 	uv run vulture
 
 test: install
-	uv run pytest --cov=earnest --cov-report=term-missing --cov-report=xml:coverage.xml
+	uv run pytest --cov --cov-report=term-missing --cov-report=xml:coverage.xml
 
 package: build
 
