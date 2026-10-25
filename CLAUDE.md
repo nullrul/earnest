@@ -30,7 +30,8 @@ Any warning fails a test (`filterwarnings = error`). Coverage runs only under `m
 
 ## Architecture
 
-`uv run earnest check` writes SARIF to stdout and a summary to stderr. It exits 1 only for an
+`uv run earnest check` (from `packages/earnest`, or `uv run --project packages/earnest` from the
+root) writes SARIF to stdout and a summary to stderr. It exits 1 only for an
 error-level finding at plan position behind or current, and 2 when it cannot run. `cli.py` reads
 (git → adapters → intents), then analyses (index → trace levels → judge → plan stages →
 structural and EARS checks, placed on the plan), then reports.

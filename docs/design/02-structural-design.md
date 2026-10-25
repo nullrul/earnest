@@ -447,7 +447,8 @@ Each decision refers to the tree in the File and directory tree section.
   `mypy --strict` and vulture, and pytest with pytest-cov.
   `packages/earnest/Makefile` and `pyproject.toml` differ from the template
   by their substitutions and by these changes: dev tools are a uv dependency
-  group, not an extra; coverage runs in `make test`, not in every pytest run;
+  group, not an extra, that pins `pytest>=9,<10`, adds `pytest-bdd` (L5) and
+  drops `taskipy`; coverage runs in `make test`, not in every pytest run;
   and the template's `fail_under = 80` is dropped, so `make test` reports
   coverage with no threshold and passes or fails on its tests alone. The root
   `Makefile` drops the `deploy` target because nothing is deployable. The
