@@ -26,7 +26,7 @@ The exit command `uv run pytest tests/steps/test_calibration_gate.py` turns gree
 - `docs/design/03-implementation-plan.md`, milestone M6.
 - `00`: SC4, and "Passing SC4, the calibration gate, is a precondition to executing the first unit."
 - `01`: G10, UC8, the Capabilities row "Calibration", Process vocabulary (the record's fifth item), Command surface (the `earnest calibrate` row and the paragraph on `judge-uncalibrated`), Assessment record (the `calibration` key), Runtime and permission model, D14, and Open questions.
-- `02`: `cli.py` and `judge/__init__.py` in Module boundaries, `fixtures/calibration/` in Fixtures, L4, L6, L7, and Open questions.
+- `02`: `cli.py` and `judge/__init__.py` in Module boundaries, `fixtures/calibration/` among its `fixtures/` entries, L4, L6, L7, and Open questions.
 - `04`: the milestone table row for M6, and the M6 section Task 0 added.
 
 ## Gating open questions
@@ -40,10 +40,10 @@ Row: `02`, Open questions, "The file format of `tests/fixtures/calibration/`: th
 **APPROVED (2026-10-25):**
 
 - **Plain files, history at test time.** The fixture is a plain-file repository like `broken-links` and `seeded-change`. `conftest.py` copies it to `tmp_path` and commits it once on `main`. Source: `02` L6 ("seeded fixtures are plain repositories under `tests/fixtures/` … `tests/conftest.py` builds each one's history in `tmp_path`").
-- **Items and tags.** The ten requirements are `req` items in one Markdown file, `requirements.md`, in Earnest's item syntax. Each is one EARS sentence (D2), so the judge can ask it (D14). The code and tests are hand-tagged to them with the tags the adapters already read. No `aidlc-state.md` is in the fixture, so the fixture holds no intent. Source: `02` Fixtures, "`fixtures/calibration/`: SC4. The existing repository with ten hand-written requirements, hand-linked code and tests, and the maintainer's verdicts, read by `earnest calibrate`".
+- **Items and tags.** The ten requirements are `req` items in one Markdown file, `requirements.md`, in Earnest's item syntax. Each is one EARS sentence (D2), so the judge can ask it (D14). The code and tests are hand-tagged to them with the tags the adapters already read. No `aidlc-state.md` is in the fixture, so the fixture holds no intent. Source: `02` Module boundaries, the `fixtures/` entries, "`fixtures/calibration/`: SC4. The existing repository with ten hand-written requirements, hand-linked code and tests, and the maintainer's verdicts, read by `earnest calibrate`".
 - **The maintainer's verdicts.** These are `verdicts.json` at the fixture root, in the canned-verdict format the stub model already reads. That format is one JSON object keyed by `<id>~<revision>`, then by `implemented` and `tested`. Each answer is `{"result", "reasoning", "location": {"file", "line"}}`. With one format there is one parser (`_answers` in `judge/__init__.py`), and a stub file is a verdict file with some results flipped. Source: `01` Runtime and permission model, the paragraph starting "`--judge` reads its model from the environment variable `EARNEST_JUDGE`" ("The file is one JSON object keyed by requirement id and revision, then by question …").
 - **A match.** A requirement matches when the judge's `result` equals the maintainer's on both `implemented` and `tested`. `reasoning` and `location` are shown but not compared. The pass is at eight or more matches of ten. Source: `00` SC4 ("the judge agrees with the maintainer on eight or more of ten", counted over the ten requirements), and `01` UC8 ("the judge runs over ten hand-tagged requirements, its verdicts are compared with the maintainer's, and the gate passes at eight or more matches").
-- **The test stubs.** `stub-pass.json` (eight matches) and `stub-fail.json` (seven) sit beside `verdicts.json`. The fixture's commit leaves them out, as the `seeded-change` commits leave out `judge-verdicts.json`. Source: `02` Fixtures, "`fixtures/seeded-change/judge-verdicts.json` … No commit holds it".
+- **The test stubs.** `stub-pass.json` (eight matches) and `stub-fail.json` (seven) sit beside `verdicts.json`. The fixture's commit leaves them out, as the `seeded-change` commits leave out `judge-verdicts.json`. Source: `02` Module boundaries, the `fixtures/` entries, "`fixtures/seeded-change/judge-verdicts.json` … No commit holds it".
 
 ### 2. Which existing repository SC4's ten requirements come from
 
@@ -173,7 +173,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `tests/steps/test_judge_check.py` | loses `verdicts_file` and `stub_judge` to `conftest.py` | 2 |
 | `tests/features/calibration_gate.feature` | M6's 5 scenarios, verbatim from `04` | 2 |
 | `tests/steps/test_calibration_gate.py` | pytest-bdd steps; the exit command | 2 |
-| `src/earnest/judge/__init__.py` | `Model`, `Row`, `Calibration`, `calibrate`, `slot`, `load_verdicts`, `calibrated`; `Model` in place of `Stub` in signatures; `judge` takes the `Record` | 3, 5 |
+| `src/earnest/judge/__init__.py` | `Model`, `Row`, `Calibration`, `calibrate`, `slot`, `load_verdicts`, `calibrated`; `Model` in place of `Stub` in signatures; `load_model`'s unset-model message; `judge` takes the `Record` | 3, 4, 5 |
 | `src/earnest/cli.py` | the `calibrate` subcommand, dispatched before `_read()`; `judge` passed the `Record` | 4, 5 |
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py` | each task's tests | 3-5 |
 | `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `uv.lock`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge.py` | Task 7's model, its root, and its dependency | 7 |
@@ -199,7 +199,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 - [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25).
 - [x] **Step 2:** Write the M6 section of `04`: the feature, the fixture, the readings, and the five scenario titles, marked PROPOSED.
-- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commit after it.
+- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commits `fcfa597`, `be0f384` and the round-three fix after them.
 - [x] **Step 4:** Check that the index builds with a subdirectory as its root. Result at `ddfc072`: `git.work_tree_files` on `tests/fixtures/seeded-change` lists 22 files relative to it, and `adapters.scan`, `build_index` and `structural.traced` give 3 requirements, 3 traced. On `tests/fixtures/broken-links` they list 8 files and give 4 requirements, 2 traced. `earnest check` run from `packages/earnest/` writes SARIF byte-identical to a run from the repository root.
 - [ ] **Step 5:** Once Task 1's fixture exists, add the Gherkin of the five scenarios with exact tables, and notes for this plan, to `04`'s M6 section.
 
@@ -211,7 +211,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 - [ ] **Step 1:** Copy the chosen modules and tests from the pinned commit.
 - [ ] **Step 2:** The maintainer writes ten EARS requirements in `requirements.md`, tags the code and tests, and writes `verdicts.json` with at least three `not-satisfied` answers over three requirements.
-- [ ] **Step 3:** `uv run earnest check` from the fixture shows ten traced requirements and no `req-not-ears`. Commit `test: the calibration fixture`.
+- [ ] **Step 3:** Index the fixture as its own root, by the chain of Task 0 Step 4: `git.work_tree_files(fixture)`, `adapters.scan`, `build_index`, `structural.traced`. It gives ten requirements, all traced, and `ears.findings(index)` gives no `req-not-ears`. Do not run `uv run earnest check` from inside the fixture: `_read()` takes `repo_root(cwd)` and indexes the whole earnest repository. Commit `test: the calibration fixture`.
 
 ### Task 2: The `calibration_gate` behavior gate, red
 
@@ -236,7 +236,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 - Consumes: `questions(index, levels)`, `Stub.ask(question)`, `Verdict`, `JudgeError`, `PROMPT_HASH`, all from M4.
 - Produces:
-  - `class Model(Protocol)` with `@property def id(self) -> str: ...` and `def ask(self, question: Question) -> Verdict: ...`. A read-only `id` property is needed because `Stub` is a frozen dataclass; a plain `id: str` member fails `mypy --strict`. `Stub` satisfies it, and every signature that takes a model takes `Model`: `calibrate`, `calibrated`, `judge`, `uncalibrated`, `Cache.model`, and `cli._analyse` in Task 4. Task 7's model then needs no other signature change.
+  - `class Model(Protocol)` with `@property def id(self) -> str: ...` and `def ask(self, question: Question) -> Verdict: ...`. A read-only `id` property is needed because `Stub` is a frozen dataclass; a plain `id: str` member fails `mypy --strict`. `Stub` satisfies it, and every signature that takes a model takes `Model`: `calibrate`, `judge`, `uncalibrated`, `Cache.model`, `cli._analyse` in Task 4, and `calibrated` in Task 5. Task 7's model then needs no other signature change.
   - `@dataclass(frozen=True) class Row: subject: str; judge: Mapping[str, Verdict]; maintainer: Mapping[str, Verdict]`, each keyed by `implemented` and `tested`, so the printer has reasoning and location. `matched` is a property: both results agree.
   - `@dataclass(frozen=True) class Calibration: model: str; rows: tuple[Row, ...]`, with `matches` (the count of matched rows) and `passed` (`matches >= 8`) as properties, so no stored field can disagree with the rows.
   - `def calibrate(index: Index, levels: Mapping[str, str], model: Model, maintainer: Mapping[str, Mapping[str, Verdict]]) -> Calibration`. It raises `JudgeError` for the fixture faults of Global Constraints. The ten-requirement check counts the `req` items in `index.defined`, which must be exactly ten, each `traced` in `levels` and parsing by `ears.parse`. `questions()` alone would silently skip an unaskable eleventh.
@@ -258,7 +258,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
 
 ### Task 4: `earnest calibrate`
 
-**Files:** Modify `packages/earnest/src/earnest/cli.py`; Test `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/integration/test_calibration_gate.py`.
+**Files:** Modify `packages/earnest/src/earnest/cli.py`, `packages/earnest/src/earnest/judge/__init__.py` (`load_model`'s unset-model message); Test `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/integration/test_calibration_gate.py`.
 
 **Interfaces:**
 

@@ -254,8 +254,7 @@ its line says "Owns", and each such rule has exactly one owner.
   `earnest calibrate`, through `argparse`. It wires the pipeline, hands each
   assessor the part of the record it reads (the judge, which reads both its
   `judge` and `calibration` slots, gets the whole record), and sets the exit
-  code; the logic
-  lives in the modules below
+  code; the logic lives in the modules below
   ([[library-plus-thin-cli-keeps-the-api-as-the-system]]). Container entry
   point.
 - `git.py`: reads through Git the commit, whether a commit exists, the lines
