@@ -1441,7 +1441,7 @@ flowchart TB
 
 Each layer runs only when requested and only over what the layers before it
 passed: the judge reads only items that reach traced, and the evidence layer
-reads only items that reach judged, so `--evidence` implies `--judge`. The
+mutates the code of traced requirements but raises only those that reach judged, so `--evidence` implies `--judge`. The
 route from the state file's Stage Progress and the approvals from the audit
 shards fix the frontier, and every finding takes its position from it before output, as
 Frontier and position describes.
@@ -1474,7 +1474,7 @@ read or written, the record is corrupt or newer, `.earnest` or the record is a s
 directory that does not exist, `--stage` is ambiguous (no intent given and
 no record or several records, or a bare slug that several route stages share) or names a
 stage that is not on the route, `--judge` finds no model it can run (see
-Runtime and permission model), or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
+Runtime and permission model), `--evidence` finds no mutation tool it can run or gets no complete result from it (see Evidence rule), or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
 and maintainers run `earnest check` on
 demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the

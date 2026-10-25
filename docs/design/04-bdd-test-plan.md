@@ -1563,8 +1563,8 @@ Status: PROPOSED, awaiting the maintainer's ratification. Nothing below binds th
 
 `--evidence` implies `--judge`, and the judge is the stub model of M4. No
 scenario of M1 to M4 passes `--evidence`, so their tables are unchanged. The
-record holds no calibration until M6, so every run here raises
-`judge-uncalibrated`.
+record holds no calibration until M6, so every `--evidence` run
+here raises `judge-uncalibrated`.
 
 ### What `seeded-change` adds for M5
 

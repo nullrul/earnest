@@ -238,7 +238,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   feature reads; `evidence_check.feature` and its step module.
 - Spec coverage: SC3 (in full), SC8 (done); the Evidence capability.
 - Context to load: `01`: Evidence rule, Trace levels, Computed status, D4,
-  Assessment record, Frontier and position, Command surface. `02`:
+  Assessment record, Frontier and position, Process vocabulary, Command
+  surface, Runtime and permission model. `02`:
   `impact.py`, `reporter.py`, `plan.py`, `structural.py`, `cli.py` and
   `judge/__init__.py` in Module boundaries; L4.
 - Gating open questions: none left. The evidence result is the record's
