@@ -244,11 +244,11 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 - [x] **Step 1:** E1 and E2 approved 2026-10-25 and recorded in `01`, `02` and `03`. Stop here unless the maintainer has also ratified `04`'s M5 scenarios.
 - [x] **Step 2:** Spike, done 2026-10-25: mutmut 3.8.0 in the `dev` group, pinned `>=3.8,<4`, run on scratch copies of the base and units fixtures (3 mutants, all killed, the same `src/` and `tests/` in both) and of the proposed overlay (15 mutants, 7 killed, 8 survived). Recorded under mutmut 3.8 and the Fixture section.
-- [ ] **Step 3:** Write the two overlays and `evidence-verdicts.json` as the Fixture section gives them. `04`'s M5 section is ratified in the plan's own commit before this branch starts, so this task changes no doc.
-- [ ] **Step 4:** Add `evidence`, `evidence-units` and `evidence-verdicts.json` to `_OVERLAYS` in `tests/conftest.py`, so the builders leave them out and every pinned sha of M1 to M4 stands. Add the steps that commit `evidence/` on `main` over the base commit and `evidence-units/` on `main` over the units variant through the existing `commit_on_main(repo, "seeded-change", <overlay>)`, and pin the units variant's sha and both overlays' lines in `test_seeded_change.py`.
-- [ ] **Step 5:** Copy the M5 Gherkin of `04` into `evidence_check.feature` verbatim, and write the step module. The stub step sets `EARNEST_JUDGE` to `stub:` and the absolute path of `evidence-verdicts.json`.
-- [ ] **Step 6:** Run the regression run, then `uv run pytest tests/steps/test_evidence_check.py`. Expected: the regression run is green, the guard passes, and the other 5 M5 scenarios fail.
-- [ ] **Step 7:** Commit `test: RED evidence_check behavior gate and seeded-change M5 cases`.
+- [x] **Step 3:** Write the two overlays and `evidence-verdicts.json` as the Fixture section gives them. `04`'s M5 section is ratified in the plan's own commit before this branch starts, so this task changes no doc.
+- [x] **Step 4:** Add `evidence`, `evidence-units` and `evidence-verdicts.json` to `_OVERLAYS` in `tests/conftest.py`, so the builders leave them out and every pinned sha of M1 to M4 stands. Add the steps that commit `evidence/` on `main` over the base commit and `evidence-units/` on `main` over the units variant through the existing `commit_on_main(repo, "seeded-change", <overlay>)`, and pin the units variant's sha and both overlays' lines in `test_seeded_change.py`.
+- [x] **Step 5:** Copy the M5 Gherkin of `04` into `evidence_check.feature` verbatim, and write the step module. The stub step sets `EARNEST_JUDGE` to `stub:` and the absolute path of `evidence-verdicts.json`.
+- [x] **Step 6:** Run the regression run, then `uv run pytest tests/steps/test_evidence_check.py`. Expected: the regression run is green, the guard passes, and the other 5 M5 scenarios fail.
+- [x] **Step 7:** Commit `test: RED evidence_check behavior gate and seeded-change M5 cases`.
 
 ### Task 2: The mutmut run and its results, `impact.py`; `--evidence` in `cli.py`
 

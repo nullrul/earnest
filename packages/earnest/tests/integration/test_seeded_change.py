@@ -280,3 +280,95 @@ def test_canned_verdicts_answer_the_three_questions():
         ("req~lockout-notice~1", "implemented"): "not-satisfied",
         ("req~lockout-notice~1", "tested"): "satisfied",
     }
+
+
+# The M5 overlays: `evidence/` on main over the base commit, `evidence-units/` on main over the units variant.
+
+UNITS_SHA = "4cdc2f5"  # the units variant's commit, so a change to a units fixture file shows here
+EVIDENCE_FILES = ["src/checkout/auth.py", "tests/test_auth.py"]
+EVIDENCE_TESTS = {
+    2: "from checkout.auth import audit_lockout, count_failed_logins, lockout_message",
+    4: "# [utest->req~rate-limit~1]",
+    6: "    assert count_failed_logins(3) == 3",
+    7: "    assert count_failed_logins(-1) == 0",
+    10: "# [utest->req~lockout-notice~1]",
+    12: '    assert lockout_message().startswith("Try again")',
+    15: "# [utest->req~audit-log~1]",
+    17: '    assert audit_lockout(str(count_failed_logins(1))) == "1"',
+}
+EVIDENCE_CODE = {
+    4: "def member_key(member: str) -> str:",
+    5: "    return member.strip().lower()",
+    8: "# [impl->req~rate-limit~1]",
+    10: "    return max(window, 0)",
+    13: "# [impl->req~lockout-notice~1]",
+    15: '    return f"Try again in {lockout_minutes(5)} minutes."',
+    18: "def lockout_minutes(failures: int) -> int:",
+    19: "    return 15 if failures >= 5 else 0",
+    22: "# [impl->req~audit-log~1]",
+    24: "    return member_key(member)",
+}
+
+
+def assert_lines(repo, path, expected, shift=0):
+    """Assert the lines of path at expected's numbers, those from line 8 on moved down by shift."""
+    lines = lines_of(repo, path)
+    assert {n: lines[n + (shift if n >= 8 else 0) - 1] for n in expected} == expected
+
+
+def test_units_variant_has_its_pinned_sha(units_repo):
+    assert git_output(units_repo(), "rev-parse", "--short=7", "HEAD").strip() == UNITS_SHA
+
+
+def test_base_copy_leaves_the_m5_overlays_and_verdicts_out(fixture_repo):
+    files = git_output(fixture_repo("seeded-change"), "ls-files").split()
+    assert not any(path.startswith("evidence") for path in files)
+
+
+def test_units_copy_leaves_the_m5_overlays_and_verdicts_out(units_repo):
+    files = git_output(units_repo(), "ls-files").split()
+    assert not any(path.startswith("evidence") for path in files)
+
+
+def test_evidence_overlay_sits_on_main_at_the_seeded_lines(fixture_repo):
+    repo = commit_on_main(fixture_repo("seeded-change"), "seeded-change", "evidence")
+    assert git_output(repo, "rev-parse", "--short=7", "HEAD~1").strip() == BASE_SHA
+    assert git_output(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+    assert git_output(repo, "diff", "--name-only", "HEAD~1", "HEAD").split() == EVIDENCE_FILES
+    assert len(lines_of(repo, "src/checkout/auth.py")) == 25  # 24 lines and the final newline
+    assert_lines(repo, "src/checkout/auth.py", EVIDENCE_CODE)
+    assert_lines(repo, "tests/test_auth.py", EVIDENCE_TESTS)
+
+
+def test_units_evidence_overlay_adds_the_design_tag_over_a_function_of_its_own(units_repo):
+    repo = commit_on_main(units_repo(), "seeded-change", "evidence-units")
+    assert git_output(repo, "rev-parse", "--short=7", "HEAD~1").strip() == UNITS_SHA
+    assert git_output(repo, "diff", "--name-only", "HEAD~1", "HEAD").split() == EVIDENCE_FILES
+    code = lines_of(repo, "src/checkout/auth.py")
+    assert len(code) == 30  # 29 lines and the final newline
+    assert code[7:12] == [
+        "# [impl->dsn~window-counter~1]",
+        "def window_counter() -> None:",
+        '    """Count failed logins over the lockout window."""',
+        "",
+        "",
+    ]
+    assert_lines(repo, "src/checkout/auth.py", EVIDENCE_CODE, shift=5)
+    assert_lines(repo, "tests/test_auth.py", EVIDENCE_TESTS)
+
+
+def test_evidence_verdicts_answer_every_question_of_the_three_requirements():
+    verdicts = json.loads((FIXTURES / "seeded-change" / "evidence-verdicts.json").read_text(encoding="utf-8"))
+    asked = {
+        (req, question): (answer["result"], answer["location"]["file"], answer["location"]["line"])
+        for req, answers in verdicts.items()
+        for question, answer in answers.items()
+    }
+    assert asked == {
+        ("req~rate-limit~1", "implemented"): ("satisfied", "src/checkout/auth.py", 10),
+        ("req~rate-limit~1", "tested"): ("satisfied", "tests/test_auth.py", 6),
+        ("req~lockout-notice~1", "implemented"): ("satisfied", "src/checkout/auth.py", 15),
+        ("req~lockout-notice~1", "tested"): ("satisfied", "tests/test_auth.py", 12),
+        ("req~audit-log~1", "implemented"): ("satisfied", "src/checkout/auth.py", 24),
+        ("req~audit-log~1", "tested"): ("not-satisfied", "tests/test_auth.py", 17),
+    }
