@@ -1441,7 +1441,7 @@ flowchart TB
 
 Each layer runs only when requested and only over what the layers before it
 passed: the judge reads only items that reach traced, and the evidence layer
-mutates the code of traced requirements but raises only those that reach judged, so `--evidence` implies `--judge`. The
+mutates the code of traced requirements but raises only those that reach judged (where no model runs, a kept `passed` entry stands for judged; see Computed status), so `--evidence` implies `--judge`. The
 route from the state file's Stage Progress and the approvals from the audit
 shards fix the frontier, and every finding takes its position from it before output, as
 Frontier and position describes.
