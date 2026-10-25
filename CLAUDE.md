@@ -15,75 +15,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build
 
-```bash
-make              # install + build + lint + test (all sub-projects)
-make install      # install dependencies for all sub-projects
-make build        # build all sub-projects
-make lint         # lint all sub-projects
-make test         # test all sub-projects
-make package      # package distributable artifacts
-make deploy       # root-only no-op: nothing is deployable yet
-make clean        # clean build artifacts
-make lint-file    # lint one file: LINT_FILE=<path> make lint-file
-```
+`make` (install + build + lint + test), or one target: `install`, `build`, `lint`, `test`,
+`package`, `clean`. `LINT_FILE=<path> make lint-file` lints one file. The only sub-project is
+`packages/earnest` (Python 3.12+, `uv`); its settings live in its `pyproject.toml`.
 
-The only sub-project is `packages/earnest`, a Python 3.12+ package: `uv`, hatchling, no runtime
-dependencies. Lint is `ruff check` + `ruff format --check` (line length 120, max complexity 10),
-`mypy` strict, and `vulture` (min confidence 80). Run targets for it with `make -C packages/earnest <target>`.
-
-Run single tests from `packages/earnest`. Ad-hoc `uv run` needs `--all-extras`; without it the
-dev extras (pytest 9, pytest-bdd) are missing and collection fails:
+Single test or scenario, from `packages/earnest`:
 
 ```bash
-uv run --all-extras pytest tests/unit/test_ears.py::<test_name> --no-cov
-uv run --all-extras pytest tests/steps/test_judge_check.py -k "<scenario title>" --no-cov
-uv run --all-extras earnest check [--stage S] [--intent DIR] [--task ID] [--judge]
+uv run pytest tests/unit/test_ears.py::<test_name>
+uv run pytest tests/steps/test_judge_check.py -k "<scenario title>"
 ```
 
-`filterwarnings = error`: any warning fails a test. Coverage is on by default with no threshold (`--no-cov` silences it).
+Any warning fails a test (`filterwarnings = error`). Coverage runs only under `make test`.
 
 ## Architecture
 
-`earnest check` writes SARIF 2.1.0 to stdout and a summary to stderr. Exit codes: 1 means an
-error-level finding sits at plan position behind or current, 0 means none does (errors at later
-stages do not fail), 2 means the check could not run. `earnest plan` prints
-the stage plan. The full module design is `docs/design/02-structural-design.md`. The pipeline
-lives in `cli.py`:
+`uv run earnest check` writes SARIF to stdout and a summary to stderr. It exits 1 only for an
+error-level finding at plan position behind or current, and 2 when it cannot run. The pipeline in
+`cli.py` runs git → adapters → index → plan → structural and EARS checks → judge → reporter.
+Module detail is in `docs/design/02-structural-design.md`, milestones in
+`docs/design/03-implementation-plan.md`.
 
-1. `git.py` finds the repo root, HEAD, work-tree files and changed lines.
-2. `adapters/` pick a scanner by file suffix and pass lines to the grammar: Gherkin `@` tags,
-   Python `#` comments, TypeScript comments, and every Markdown line (lines inside code fences
-   are marked as fenced).
-3. `index.py` holds the link grammar (`Needs`, `Covers`, `Drivers`, `Delivers`, `Depends`,
-   `Override`) and builds items, links and near-misses. An `Override:` line sits under the item it names.
-4. `plan.py` is the AI-DLC stage engine. It reads an intent's `aidlc-state.md`, the audit shards,
-   the approvals and the units. Any `aidlc-state.md` in the work tree marks an intent; the fixtures
-   use `aidlc/spaces/<space>/intents/<id>/{inception,construction,audit}/`.
-5. `structural.py` runs the link checks that need no model and sets trace levels. `ears.py`
-   parses EARS clauses.
-6. `judge/` asks one question per traced requirement. `EARNEST_JUDGE` names the model, and only
-   `stub:<verdicts.json>` exists so far. Verdicts are cached, keyed by the item, question kind,
-   code-region and test-region hashes, model id, and the hash of `judge/prompt.txt`, so editing the
-   code or tests re-asks.
-7. `reporter.py` builds the SARIF output and reads and writes the record in
-   `.earnest/assessment.json` (atomic write). `impact.py` keeps a pytest coverage map in
-   `.earnest/coverage/<commit>` for `check --stage`.
+Non-obvious rules:
 
-Invariants:
-
-- An override sha resolves by object, never by ref: `git rev-parse --disambiguate`, at least 4 hex
-  digits, exactly one commit.
-- Rule ids are `earnest/<rule>`.
-
-Tests:
-
-- `tests/unit`, `tests/integration`, `tests/features/*.feature` (bound in `tests/steps`), and
-  fixture repos in `tests/fixtures`.
-- `conftest.py` pins the git author, committer and dates so fixture commit shas stay stable, and
-  it strips `GIT_*` env and global config.
-- The five feature files match milestones M1, M2, M2b, M3 and M4 in `docs/design/03-implementation-plan.md`. Each
-  milestone has a plan in `docs/superpowers/plans/`. `docs/design/00-04` hold the intent, logic,
-  structural, plan and BDD docs.
+- An override sha resolves by object, never by ref (`git rev-parse --disambiguate`).
+- Any `aidlc-state.md` in the work tree marks an intent.
+- The judge's only model is `EARNEST_JUDGE=stub:<verdicts.json>`. Its cache key includes the code
+  and test regions, so editing either re-asks.
+- `tests/conftest.py` pins the git identity and dates so fixture commit shas stay stable.
 
 ## Project hooks
 
