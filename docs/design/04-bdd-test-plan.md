@@ -48,7 +48,7 @@ milestone in `03`.
 | M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
 | M8 `typescript_evidence` | `typescript_evidence.feature` | `test_typescript_evidence.py` | a TypeScript fixture, named when M8 is next | SC3 for TypeScript |
 
-The scenarios of M6 to M8 are added here when each milestone's plan is written.
+The scenarios of M7 and M8 are added here when each milestone's plan is written; M6's section is below.
 
 ## How scenarios are written
 

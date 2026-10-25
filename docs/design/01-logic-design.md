@@ -1671,7 +1671,7 @@ The judge layer sends the model provider only the requirement clause, the
 tagged code regions and the tagged tests, and only when the judge layer is
 requested or `earnest calibrate` runs.
 
-`--judge` reads its model from the environment variable `EARNEST_JUDGE`,
+`--judge` and `earnest calibrate` read their model from the environment variable `EARNEST_JUDGE`,
 by the maintainer's decision; Earnest has no configuration file, so the
 variable is the one place a model is named. The value `stub:<path>` names a
 canned-verdict file, by an absolute path or one relative to the working
@@ -1683,7 +1683,7 @@ by requirement id and revision, then by question (`implemented` or
 answers each question from the file, makes no network access and needs no
 key; its model id is `stub:sha256:` and the SHA-256 of the file's bytes, so
 an edit to the file reruns every question through the judge cache key.
-`--judge` exits 2 when `EARNEST_JUDGE` is unset or names no model Earnest
+`--judge` and `earnest calibrate` exit 2 when `EARNEST_JUDGE` is unset or names no model Earnest
 knows, when the file cannot be read or is not that object, and when a
 question the judge asks has no answer in the file. The value that names a
 real model settles with "Judge model choice and prompt" in the Open
