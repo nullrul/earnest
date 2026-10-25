@@ -43,7 +43,7 @@ milestone in `03`.
 | M2b `unit_status` | `unit_status.feature` | `test_unit_status.py` | `seeded-change` (units variant) | SC1, SC8 (unit and per-unit stage status), SC9 (per-unit run header) |
 | M3 `task_change` | `task_change.feature` | `test_task_change.py` | `seeded-change` | SC6, SC7 |
 | M4 `judge_check` | `judge_check.feature` | `test_judge_check.py` | `seeded-change` | SC3 (judged), SC4 (warning), SC11 |
-| M5 `evidence_check` | `evidence_check.feature` | `test_evidence_check.py` | `seeded-change` | SC3 (in full), SC8 (done) |
+| M5 `evidence_check` | `evidence_check.feature` | `test_evidence_check.py` | `seeded-change`, and its units variant | SC3 (in full), SC8 (done) |
 | M6 `calibration_gate` | `calibration_gate.feature` | `test_calibration_gate.py` | `calibration` | SC4 |
 | M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
 | M8 `typescript_evidence` | `typescript_evidence.feature` | `test_typescript_evidence.py` | a TypeScript fixture, named when M8 is next | SC3 for TypeScript |
@@ -1615,6 +1615,7 @@ Feature: Evidence check
     And the judge is the stub model with the canned evidence verdicts of "seeded-change"
     When the coding agent runs earnest check --evidence
     Then the SARIF log holds no finding at "src/checkout/auth.py" line 5
+    And the SARIF log holds an earnest/evidence-failed finding at "src/checkout/auth.py" line 19
 
   Scenario: Each requirement lands at exactly one trace level, with three percentages (SC3)
     Given the repo maintainer's "seeded-change" repository at its base commit, with the requirements stage approved
@@ -1674,9 +1675,20 @@ Feature: Evidence check
 - The units scenarios sit on the units variant because only it has a unit;
   there `evidence-failed` against `req~lockout-notice~1` is ahead of
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
-- `the SARIF log holds no finding at "<file>" line <n>` is a new step: it
-  asserts that no SARIF result is located at that file and line, whatever its
-  rule.
+- New steps, bound in `tests/steps/test_evidence_check.py`:
+  - `the SARIF log holds no finding at "<file>" line <n>`: no SARIF result is
+    located at that file and line, whatever its rule.
+  - `the SARIF log holds an <rule> finding at "<file>" line <n>`: one is, so
+    the region-filter scenario stays red until a surviving mutant is reported.
+  - `the SARIF log holds no <rule> finding`, for any rule; M2's binding is a
+    literal for `unbumped-change`.
+  - `the judge is the stub model with the canned evidence verdicts of "<name>"`:
+    `EARNEST_JUDGE` names `evidence-verdicts.json`.
+  - `the repo maintainer runs earnest plan`, as "the coding agent runs earnest
+    plan" does, with the maintainer as actor.
+  - "the repository is unchanged" is M2's: the `.gitignore` that Earnest
+    writes in a new `.earnest/` keeps the record the check wrote out of
+    `git status`.
 - "the coding agent has run earnest check --evidence" asserts that the run
   wrote the record's `evidence` slot, so the two units scenarios stay red until
   Task 5 and the stale-key scenario cannot pass without one. The previous

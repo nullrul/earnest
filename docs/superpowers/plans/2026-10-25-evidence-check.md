@@ -192,7 +192,7 @@ def audit_lockout(member: str) -> str:
 | `x_lockout_minutes__mutmut_1` to `_6` | 19 | survived | `req~lockout-notice~1` | `evidence-failed`, one for the line |
 | `x_audit_lockout__mutmut_1` | 24 | killed | `req~audit-log~1` | none |
 
-`req~rate-limit~1` is evidenced by five killed mutants, not vacuously: a build that skips mutmut on its region would still pass, so the integration tier of Task 3 asserts the five killed results. The grain of `evidence-failed` is a reading `04` fixes; its PROPOSED draft gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
+`req~rate-limit~1` is evidenced by five killed mutants, not vacuously: a build that skips mutmut on its region would still pass, so the integration tier of Task 5, `tests/integration/test_evidence_check.py`, asserts the five killed results. The grain of `evidence-failed` is a reading `04` fixes; its PROPOSED draft gives one finding per line that holds a surviving mutant, so two rows, at lines 15 and 19.
 
 `evidence-verdicts.json`: every question of the three requirements, `satisfied` for `req~rate-limit~1` and `req~lockout-notice~1`, and `req~audit-log~1 tested` `not-satisfied`. Expected levels: `req~rate-limit~1` evidenced, `req~lockout-notice~1` judged (its evidence failed), `req~audit-log~1` traced, so the summary reads `traced 100%, judged 66%, evidenced 33%; requirements: 3`. In the units variant `task~add-limiter~1` and `unit~u1~1` are then done, and `task~notify-lockout~1` and `unit~u2~1` are not.
 

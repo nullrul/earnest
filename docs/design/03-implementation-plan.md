@@ -230,13 +230,17 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   levels with three separate percentages, and shows the evidenced task and its
   unit as done.
 - Exit command: `uv run pytest tests/steps/test_evidence_check.py`.
-- Deliverable: the Evidence rule in `impact.py`; `--evidence` in `cli.py`; the
+- Deliverable: the Evidence rule in `impact.py`, with the mutmut and StrykerJS
+  report readers, the StrykerJS one covered by unit tests only; `--evidence` in
+  `cli.py`; the
   record's `evidence` key in `reporter.py`; `plan.py` and `check` reading it
   and the judge cache, without running a test; the `seeded-change` cases its
   feature reads; `evidence_check.feature` and its step module.
 - Spec coverage: SC3 (in full), SC8 (done); the Evidence capability.
-- Context to load: `01`: Evidence rule, Trace levels, Computed status, D4.
-  `02`: `impact.py` in Module boundaries; L4.
+- Context to load: `01`: Evidence rule, Trace levels, Computed status, D4,
+  Assessment record, Frontier and position, Command surface. `02`:
+  `impact.py`, `reporter.py`, `plan.py` and `structural.py` in Module
+  boundaries; L4.
 - Gating open questions: none left. The evidence result is the record's
   `evidence` key, and the TypeScript evidence fixture moves to M8, both
   settled in `01` by the maintainer's decision of 2026-10-25 (E1 and E2 of

@@ -484,8 +484,8 @@ Status is recomputed from the graph on every run.
 | `task` | every `Delivers:` id resolves at its current revision, each delivered `req` is at trace level evidenced, and each delivered `dsn` is traced (an `impl` covers it) |
 | `unit` | a unit-table row gives its directory, it is resolved in unit order (see Per-unit stages and units), every unit it depends on is done, and its `code-generation-plan.md` holds a task and every task in it is done |
 
-A requirement reaches evidenced only from an `evidence` entry of the assessment
-record whose key matches its current regions, tests and mutation tool; any other entry, or
+A requirement reaches evidenced only from a `passed` `evidence` entry of the
+assessment record whose key matches its current regions, tests and mutation tool; any other entry, or
 none, leaves it short of evidenced. `earnest check` and the read-only `earnest
 plan` both read the entry and the judge cache, and hash the regions themselves, so either shows a
 task as done without running a test, and an edit under a requirement drops it
