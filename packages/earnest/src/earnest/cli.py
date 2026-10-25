@@ -128,6 +128,7 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
     derived = plan.place(plans, index, own)
     checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
     checked += asked
+    checked += impact.evidence_failed(world.root, index, proof) if proof is not None else []
     findings = [*plan.place(plans, index, checked), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None

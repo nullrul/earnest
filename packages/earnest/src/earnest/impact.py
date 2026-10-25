@@ -12,15 +12,15 @@ import tempfile
 import tomllib
 import xml.etree.ElementTree as ET
 from collections import deque
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from earnest import git, judge
 from earnest.git import Hunk
-from earnest.index import Index
-from earnest.reporter import Impact
+from earnest.index import Index, Link
+from earnest.reporter import Finding, Impact, evidence_message
 
 
 COVERAGE = ".earnest/coverage"
@@ -37,6 +37,10 @@ _CLASS = re.compile(r"class[ \t]+(Test\w*)\b")
 MUTMUT_MAJOR = "3"  # the major whose result format the reader parses
 _CLICK = "\u01c1"  # mutmut's separator of class and method in a mutant's name (U+01C1)
 _VERSION = "import importlib.metadata as m; print(m.version('mutmut'))"
+# mutmut 3.8's `status_by_exit_code`, read once: no test killed the mutant, or a test or the type check stopped it
+_SURVIVING = frozenset({0, 5, 33})  # survived, no tests
+_KILLED = frozenset({1, 3, 36, 24, -24, 152, 255, 37, 34})  # killed, timeout, caught by type check; skipped: nothing
+_INCOMPLETE = {-9: "segfault", -11: "segfault", 35: "suspicious", 2: "interrupted", None: "not checked"}
 
 
 def map_file(root: Path, commit: str) -> Path:
@@ -239,7 +243,11 @@ def tagged_tests(root: Path, index: Index, keys: Collection[tuple[str, str]]) ->
 
     Only Python test files give node ids: a `def test…` at the top of the file, or in a `class Test…`.
     """
-    found: set[str] = set()
+    return sorted({node for _, nodes in _test_tags(root, index, keys) for node in nodes})
+
+
+def _test_tags(root: Path, index: Index, keys: Collection[tuple[str, str]]) -> Iterator[tuple[Link, list[str]]]:
+    """Yield each Python test tag that names one of keys, with the node ids of the tests in its region."""
     for link in index.links:
         if link.owner is not None or link.type not in _TEST_TYPES or link.target.key not in keys:
             continue
@@ -247,8 +255,7 @@ def tagged_tests(root: Path, index: Index, keys: Collection[tuple[str, str]]) ->
             continue
         for region in index.regions_at(link.path, link.line):
             if region.target == link.target:
-                found.update(_node_ids(root, link.path, region.first, region.last))
-    return sorted(found)
+                yield link, _node_ids(root, link.path, link.line, region.last)  # from the tag: regions of one id merge
 
 
 def _node_ids(root: Path, path: str, first: int, last: int) -> list[str]:
@@ -517,3 +524,94 @@ def _line(
     pairs = zip(changed, unchanged, strict=False)
     offset = next((at for at, (one, other) in enumerate(pairs) if one != other), min(len(changed), len(unchanged)))
     return original[qualified].lineno + offset
+
+
+def evidence_failed(root: Path, index: Index, found: Evidence) -> list[Finding]:
+    """Return the `evidence-failed` findings of an evidence result, by the Region rule and mutmut's statuses.
+
+    A surviving mutant counts only on a line of an `impl` region of a requirement, and raises one finding per line
+    against each requirement whose region holds it. A failing tagged test raises one at its tag, against the
+    requirement the tag names.
+
+    Raises:
+        EvidenceError: a mutant's status says the mutmut run is incomplete, or mutmut gave a code it does not list.
+    """
+    return [*_mutant_findings(index, _surviving(found.mutants)), *_test_findings(root, index, found.failing)]
+
+
+def _surviving(mutants: Iterable[Mutant]) -> list[Mutant]:
+    kept = []
+    for mutant in mutants:
+        if mutant.code in _SURVIVING:
+            kept.append(mutant)
+        elif mutant.code not in _KILLED:
+            status = _INCOMPLETE.get(mutant.code, f"the exit code {mutant.code}, which mutmut does not list")
+            msg = (
+                f"evidence: mutmut left {mutant.key} at {mutant.path}:{mutant.line} {status}, so its run is incomplete"
+            )
+            raise EvidenceError(msg)
+    return kept
+
+
+def _mutant_findings(index: Index, mutants: Iterable[Mutant]) -> list[Finding]:
+    regions = [
+        (region, str(item.id))
+        for item in index.defined.values()
+        if item.id.type == "req"
+        for region in judge.regions(index, item, judge.KINDS["implemented"])
+    ]
+    lines: dict[tuple[str, int], list[str]] = {}
+    for mutant in mutants:
+        lines.setdefault((mutant.path, mutant.line), []).append(mutant.key.rpartition(".")[2])
+    return [
+        _failed(path, line, req, f"the mutant {', '.join(names)} survives the tests: add a test that kills it")
+        for (path, line), names in sorted(lines.items())
+        for req in sorted(
+            {req for region, req in regions if region.path == path and region.first <= line <= region.last}
+        )
+    ]
+
+
+def _test_findings(root: Path, index: Index, failing: Collection[str]) -> list[Finding]:
+    nearest: dict[tuple[str, tuple[str, str]], Link] = {}  # each failing test and requirement, at its closest tag
+    tagged = _test_tags(root, index, [key for key in index.defined if key[0] == "req"])
+    for link, nodes in sorted(tagged, key=lambda pair: (pair[0].path, pair[0].line)):
+        for node in set(nodes) & set(failing):
+            nearest[node, link.target.key] = link  # a later tag of one id is closer, as its nodes start at the tag
+    tags: dict[Link, list[str]] = {}
+    for (node, _), link in sorted(nearest.items()):
+        tags.setdefault(link, []).append(node)
+    return [
+        _failed(
+            link.path,
+            link.line,
+            str(index.defined[link.target.key].id),
+            f"its test {', '.join(nodes)} fails on the unmutated code: fix the test or the code",
+        )
+        for link, nodes in tags.items()
+    ]
+
+
+def _failed(path: str, line: int, req: str, cause: str) -> Finding:
+    return Finding(path, line, "earnest/evidence-failed", req, evidence_message(req, path, line, cause))
+
+
+def stryker_survivors(report: Path) -> list[tuple[str, int]]:
+    """Return the file and line of each `Survived` or `NoCoverage` mutant of a StrykerJS report, sorted, once each.
+
+    Raises:
+        EvidenceError: the report cannot be read or is not of the mutation-testing-report schema.
+    """
+    try:
+        files = json.loads(report.read_text(encoding="utf-8"))["files"]
+        return sorted(
+            {
+                (path, int(mutant["location"]["start"]["line"]))
+                for path, entry in files.items()
+                for mutant in entry["mutants"]
+                if mutant["status"] in {"Survived", "NoCoverage"}  # no test kills it, as mutmut's no tests
+            }
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        msg = f"evidence: the StrykerJS report {report} cannot be read"
+        raise EvidenceError(msg) from error

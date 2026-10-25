@@ -14,6 +14,7 @@ from urllib.parse import quote
 RuleId = Literal[
     "earnest/cycle",
     "earnest/duplicate",
+    "earnest/evidence-failed",
     "earnest/gap",
     "earnest/impact-degraded",
     "earnest/judge-not-satisfied",
@@ -35,6 +36,7 @@ Position = Literal["behind", "current", "ahead"]
 RULES: dict[RuleId, str] = {
     "earnest/cycle": "error",
     "earnest/duplicate": "error",
+    "earnest/evidence-failed": "error",
     "earnest/gap": "error",
     "earnest/impact-degraded": "note",
     "earnest/judge-not-satisfied": "warning",
@@ -106,6 +108,11 @@ def deleted_message(line: int) -> str:
         f"line {line} of the baseline commit was deleted here and no coverage data covers it, so impact selected the"
         " full suite: run every test"
     )
+
+
+def evidence_message(requirement: str, path: str, line: int, cause: str) -> str:
+    """Return the message of an `evidence-failed` finding: the requirement, the file and line, and what failed there."""
+    return f"`{requirement}` is not evidenced at {path}:{line}: {cause}"
 
 
 def out_of_task_message(task: str, tags: Sequence[str]) -> str:

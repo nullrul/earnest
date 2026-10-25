@@ -481,3 +481,90 @@ def test_a_mutmut_under_python_of_another_version_exits_2(files_repo, monkeypatc
     with pytest.raises(impact.EvidenceError, match=re.escape(f"mutmut under {python} is 3.0.0")):
         impact.evidence(repo, scanned(repo), LEVELS, python=python)
     assert calls == []
+
+
+# The region filter and `evidence-failed`.
+
+REGIONS = {
+    **EVIDENCE,
+    "src/pkg/lines.py": (
+        "def free():\n"  # 1, above every tag
+        "    return 0\n"  # 2
+        "\n\n"
+        "# [impl->req~a~1]\n"  # 5
+        "# [impl->req~u~1]\n"  # 6, stacked: one region for both
+        "def both():\n"  # 7
+        "    return 1\n"  # 8
+    ),
+}
+
+
+def mutant(path, line, code, name="x_f__mutmut_1"):
+    return impact.Mutant(path, line, f"pkg.mod.{name}", code)
+
+
+def raised(repo, *mutants, failing=()):
+    found = impact.evidence_failed(repo, scanned(repo), impact.Evidence("mutmut 3.8.0", failing, mutants))
+    return [(each.path, each.line, each.rule, each.subject) for each in found]
+
+
+def test_a_surviving_mutant_in_a_tagged_region_raises_evidence_failed_per_line_against_each_requirement(files_repo):
+    repo = files_repo(REGIONS)
+    found = raised(
+        repo,
+        mutant("src/pkg/lines.py", 8, 0, "x_both__mutmut_1"),
+        mutant("src/pkg/lines.py", 8, 0, "x_both__mutmut_2"),
+        mutant("src/pkg/lines.py", 7, 1),
+    )
+    assert found == [
+        ("src/pkg/lines.py", 8, "earnest/evidence-failed", "req~a~1"),
+        ("src/pkg/lines.py", 8, "earnest/evidence-failed", "req~u~1"),
+    ]
+    message = impact.evidence_failed(
+        repo,
+        scanned(repo),
+        impact.Evidence("mutmut 3.8.0", (), (mutant("src/pkg/lines.py", 8, 0, "x_both__mutmut_2"),)),
+    )[0].message
+    assert "`req~a~1`" in message
+    assert "src/pkg/lines.py:8" in message
+    assert "x_both__mutmut_2" in message
+
+
+def test_a_surviving_mutant_outside_every_region_or_in_a_design_region_raises_nothing(files_repo):
+    repo = files_repo(REGIONS)
+    assert raised(repo, mutant("src/pkg/lines.py", 2, 0), mutant("src/pkg/design.py", 3, 0)) == []
+
+
+@pytest.mark.parametrize(
+    ("code", "count"),
+    [(0, 1), (5, 1), (33, 1), (1, 0), (3, 0), (36, 0), (24, 0), (-24, 0), (152, 0), (255, 0), (37, 0), (34, 0)],
+)
+def test_the_status_map_counts_survived_and_no_tests_as_surviving_and_the_rest_as_nothing(files_repo, code, count):
+    repo = files_repo(REGIONS)
+    assert len(raised(repo, mutant("src/pkg/core.py", 3, code))) == count
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [(-9, "segfault"), (-11, "segfault"), (35, "suspicious"), (2, "interrupted"), (None, "not checked"), (99, "99")],
+)
+def test_an_incomplete_or_unlisted_mutmut_status_exits_2(files_repo, code, status):
+    repo = files_repo(REGIONS)
+    with pytest.raises(impact.EvidenceError, match=status):
+        raised(repo, mutant("src/pkg/lines.py", 2, code))  # outside every region, still an incomplete run
+
+
+def test_a_failing_tagged_test_raises_evidence_failed_at_its_tag_line(files_repo):
+    repo = files_repo(TAGGED)
+    found = raised(repo, failing=("tests/test_core.py::TestBox::test_box",))
+    assert found == [("tests/test_core.py", 6, "earnest/evidence-failed", "req~a~1")]
+
+
+def test_the_stryker_reader_gives_the_file_and_line_of_each_surviving_mutant_no_coverage_included():
+    report = Path(__file__).with_name("stryker-report.json")
+    assert impact.stryker_survivors(report) == [
+        ("src/limits.ts", 4),
+        ("src/limits.ts", 9),
+        ("src/notice.ts", 2),
+        ("src/notice.ts", 5),  # NoCoverage: no test reaches it, so it survives
+    ]

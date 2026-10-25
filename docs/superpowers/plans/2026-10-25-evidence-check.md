@@ -269,14 +269,14 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `reporter.py`; Create `packages/earnest/tests/unit/stryker-report.json`; Test `tests/unit/test_impact.py`, `tests/unit/test_reporter.py`.
 
-- [ ] **Step 1:** Write failing tests:
+- [x] **Step 1:** Write failing tests:
   - a surviving mutant on a tagged line raises `evidence-failed` against each requirement the region's tags cover, at the mutant's line;
   - a surviving mutant outside every region raises nothing, and one in a region tagged only for a `dsn` raises nothing;
   - the status map: no tests counts as surviving, timeout and caught by type check as killed, skipped raises nothing, and segfault, suspicious, interrupted, not checked and an unlisted code each exit 2;
   - a tagged test failing on the unmutated copy raises `evidence-failed` against each requirement its tag covers, located at the test's tag line (JUnit's 0-based `line` is not used);
   - the StrykerJS reader turns the canned report's `Survived` mutants into the same file-and-line list.
-- [ ] **Step 2:** Implement. The message names the requirement, the file and line, and the mutation.
-- [ ] **Step 3:** The two scenarios of Task 3 pass. Commit `feat: evidence-failed for surviving mutants in tagged regions`.
+- [x] **Step 2:** Implement. The message names the requirement, the file and line, and the mutation.
+- [x] **Step 3:** The two scenarios of Task 3 pass. Commit `feat: evidence-failed for surviving mutants in tagged regions`.
 
 ### Task 4: The `evidenced` level
 

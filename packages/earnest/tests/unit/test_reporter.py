@@ -40,7 +40,15 @@ def test_each_rule_has_its_sarif_level():
         "earnest/judge-uncalibrated": "warning",
         "earnest/override-expired": "warning",
         "earnest/override-drift": "warning",
+        "earnest/evidence-failed": "error",
     }
+
+
+def test_the_evidence_failed_message_names_the_requirement_the_file_and_line_and_the_mutation():
+    message = reporter.evidence_message("req~a~1", "src/a.py", 7, "the mutants x_f__mutmut_1, x_f__mutmut_2 survive")
+    assert "`req~a~1`" in message
+    assert "src/a.py:7" in message
+    assert "x_f__mutmut_1, x_f__mutmut_2 survive" in message
 
 
 def test_percentages_round_down_so_100_means_every_requirement():
