@@ -1548,7 +1548,7 @@ Feature: Judge check
 
 ## M5 `evidence_check`
 
-Status: PROPOSED, awaiting the maintainer's ratification. Nothing below binds the loop until then, and it rests on the answers E1 and E2 of the [M5 task plan](../superpowers/plans/2026-10-25-evidence-check.md), which are proposals too.
+Status: PROPOSED, awaiting the maintainer's ratification. Nothing below binds the loop until then, and it rests on the answers E1 and E2 of the [M5 task plan](../superpowers/plans/2026-10-25-evidence-check.md), approved on 2026-10-25.
 
 - Feature: `packages/earnest/tests/features/evidence_check.feature`, bound by
   `tests/steps/test_evidence_check.py`.

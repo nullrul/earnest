@@ -23,6 +23,7 @@ flowchart LR
   M3 --> M5
   M4 --> M5
   M4 --> M6["M6 calibration_gate"]
+  M5 --> M8["M8 typescript_evidence"]
   classDef done fill:#d4edda,stroke:#2e7d32
   class M1,M2,M2b,M3 done
 ```
@@ -234,8 +235,10 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Spec coverage: SC3 (in full), SC8 (done); the Evidence capability.
 - Context to load: `01`: Evidence rule, Trace levels, Computed status, D4.
   `02`: `impact.py` in Module boundaries; L4.
-- Gating open questions: evidence result in the record, and TypeScript
-  evidence fixture (`01`).
+- Gating open questions: none left. The evidence result is the record's
+  `evidence` key, and the TypeScript evidence fixture moves to M8, both
+  settled in `01` by the maintainer's decision of 2026-10-25 (E1 and E2 of
+  the task plan).
 - Task plan:
   [2026-10-25-evidence-check.md](../superpowers/plans/2026-10-25-evidence-check.md).
 
@@ -298,6 +301,25 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Task plan: the integration gate at
   `docs/superpowers/plans/<date>-aidlc-fork.md`, written when M7 is next; the
   delta's plan lives in the fork's repository.
+
+### M8 `typescript_evidence`
+
+- Goal: evidence for TypeScript through StrykerJS and Jest, end to end.
+- Depends on: M5.
+- Exit behavior: on a TypeScript fixture, `check --evidence` raises
+  `evidence-failed` for a surviving StrykerJS mutant in a tagged region and
+  none for one outside every region, and gives the requirement its level.
+- Exit command: `uv run pytest tests/steps/test_typescript_evidence.py`.
+- Deliverable: the StrykerJS run in `impact.py`, beside the report reader M5
+  writes; a TypeScript fixture with Jest and StrykerJS;
+  `typescript_evidence.feature` and its step module.
+- Spec coverage: SC3 for TypeScript; the Evidence capability.
+- Context to load: `01`: Evidence rule, D4. `02`: `impact.py`; L1, L4, L5.
+- Gating open questions: where the fixture's Node, Jest and StrykerJS come
+  from in `make test` and CI, which L5 of `02` kept out of the package's
+  tests; to be added to `01` or `02` when M8 is next.
+- Task plan: `docs/superpowers/plans/<date>-typescript-evidence.md`, written
+  when M8 is next.
 
 ## Future directions
 

@@ -484,6 +484,13 @@ Status is recomputed from the graph on every run.
 | `task` | every `Delivers:` id resolves at its current revision, each delivered `req` is at trace level evidenced, and each delivered `dsn` is traced (an `impl` covers it) |
 | `unit` | a unit-table row gives its directory, it is resolved in unit order (see Per-unit stages and units), every unit it depends on is done, and its `code-generation-plan.md` holds a task and every task in it is done |
 
+A requirement reaches evidenced only from an `evidence` entry of the assessment
+record whose key matches its current regions and tests; any other entry, or
+none, leaves it short of evidenced. `earnest check` and the read-only `earnest
+plan` both read the entry and hash the regions themselves, so either shows a
+task as done without running a test, and an edit under a requirement drops it
+below evidenced until `earnest check --evidence` runs again.
+
 A feature's `stest` going green is checked at the Build and Test stage, which
 runs once across the completed unit work.
 
@@ -711,7 +718,7 @@ SARIF is the findings contract: every finding and the observations behind it
 travel in the SARIF output. Earnest writes one thing: the `.earnest/`
 directory, which holds the assessment record, its ignore marker and the
 coverage maps of the Impact rule under `.earnest/coverage/`. The record holds
-five things:
+six things:
 
 1. the run header of each stage that `earnest check --stage` ran: commit,
    `dirty` (as the Assessment hash section defines it),
@@ -721,7 +728,10 @@ five things:
    keyed by id and revision;
 3. the commit the coverage map was taken at;
 4. the judge cache;
-5. the latest calibration result.
+5. the latest calibration result;
+6. the latest evidence result of each requirement, keyed by id and revision,
+   with the hashes of its covered regions and covering tests and the mutation
+   tool it ran under.
 
 The judge cache key is the item's id and revision, the question, the hash of
 the covered regions, the hash of the covering tests, the model id and the
@@ -1517,7 +1527,7 @@ CI job reads it as it stands.
 The assessment record is one JSON file, `.earnest/assessment.json`, at the
 root of the repository's work tree. It lies outside the stage artifacts, so a
 write to it changes no artifact that the `earnest` sensor's `matches` selects.
-It holds the five things listed under Process vocabulary, under these keys:
+It holds the six things listed under Process vocabulary, under these keys:
 
 | Key | Holds | Supplied by |
 | --- | --- | --- |
@@ -1527,6 +1537,7 @@ It holds the five things listed under Process vocabulary, under these keys:
 | `coverage` | the commit the coverage map was taken at, or null; the map itself lies under `.earnest/coverage/<commit>` | the Impact rule, at `earnest check --stage` |
 | `judge` | the judge cache | the judge layer |
 | `calibration` | the latest calibration result, or null | `earnest calibrate` |
+| `evidence` | the latest evidence result of each requirement, keyed by the requirement's id with its revision: the key it ran under (the hash of its covered regions, the hash of its covering tests, and the mutation tool with its version), `passed` or `failed`, and the run's `commit` and `dirty` | the evidence layer, at `earnest check --evidence` |
 
 The Reporter is the only writer of the file. The column names the component
 whose result the Reporter stores under each key.
@@ -1682,8 +1693,8 @@ status, and the frontier run entirely on the local repository.
 | Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the hold on an artifact that changes during a sensor run, and the check in `approve` that artifacts are unchanged since the sensor ran | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Per-unit fork work, milestone `aidlc_fork`: how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit` | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
-| Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
-| A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | before milestone `evidence_check` of `03-implementation-plan.md` |
+| Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | resolved 2026-10-25 (E1 of the M5 task plan): the record's `evidence` key, under Assessment record and Computed status |
+| A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | milestone `typescript_evidence` of `03-implementation-plan.md`, by the maintainer's decision of 2026-10-25 (E2 of the M5 task plan): `evidence_check` exits on Python and mutmut, and reads StrykerJS reports only in unit tests |
 | Which existing repository SC4's ten hand-written requirements come from | maintainer | before milestone `calibration_gate` of `03-implementation-plan.md` |
 
 ## Scope

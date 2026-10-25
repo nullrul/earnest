@@ -330,7 +330,9 @@ its line says "Owns", and each such rule has exactly one owner.
   `earnest/route-mismatch`. Computes
   each stage's status and reasons, `dirty`, and the assessment document of the
   Assessment hash section of `01`.
-- `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule.
+- `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule,
+  and hands each requirement's evidence result and key to the Reporter for the
+  record's `evidence` key.
   It runs the repository's own coverage, test and mutation tools as
   subprocesses and reads their JSON reports. At `check --stage` it takes the
   coverage map, a pytest-cov run with `--cov-context=test` whose data file is
@@ -353,7 +355,7 @@ its line says "Owns", and each such rule has exactly one owner.
 - `reporter.py`: Reporter. SARIF 2.1.0, the summary that leads with three
   percentages, and the rendering of each requirement's trace level, which
   `structural.py` computes. Owns the assessment record, reader and writer, with
-  its five contents, the canonical JSON form shared by the record, the SARIF log
+  its six contents, the canonical JSON form shared by the record, the SARIF log
   and the assessment hash, and the rendering of the plan and assessment
   properties of the SARIF run, which `plan.py` builds as `properties.plan` and
   `cli.py` as `properties.assessment`. The Container section of `01` draws the

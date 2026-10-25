@@ -1,6 +1,6 @@
 # M5 `evidence_check` Implementation Plan
 
-Status: draft for plan approval. It rests on two answers that are PROPOSED and await the maintainer's approval, one for each gating open question that the M5 section of `docs/design/03-implementation-plan.md` names: where the evidence result is kept (answer E1 below) and the TypeScript evidence fixture (answer E2). It also rests on the M5 scenarios of `docs/design/04-bdd-test-plan.md`, drafted there as PROPOSED and awaiting ratification; Task 1 copies them into the feature once ratified.
+Status: draft for plan approval. It rests on two answers, APPROVED by the maintainer on 2026-10-25, one for each gating open question that the M5 section of `docs/design/03-implementation-plan.md` names: where the evidence result is kept (answer E1 below) and the TypeScript evidence fixture (answer E2). It also rests on the M5 scenarios of `docs/design/04-bdd-test-plan.md`, drafted there as PROPOSED and awaiting ratification; Task 1 copies them into the feature once ratified.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -46,9 +46,9 @@ The exit command `uv run pytest tests/steps/test_evidence_check.py` turns green 
 
 ## Gating open questions: proposed answers
 
-Both rows sit in the Open questions section of `01`, resolved "before milestone `evidence_check`". Each answer below is **PROPOSED, awaiting maintainer approval**. Neither is recorded in `01` or `02` until the maintainer approves it; the docs revision that records it is part of Task 1.
+Both rows sat in the Open questions section of `01`, resolved "before milestone `evidence_check`". Each answer below is **APPROVED (2026-10-25)**, and the docs commit that approved them records them in `01`, `02` and `03`.
 
-### E1 Where the evidence result is kept (PROPOSED, awaiting maintainer approval)
+### E1 Where the evidence result is kept (APPROVED 2026-10-25)
 
 Question (`01`, Open questions): "Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done".
 
@@ -67,15 +67,15 @@ Basis:
 - `01`, Computed status and Invariants: a task is done when "each delivered `req` is at trace level evidenced", and "Done is computed from the graph and evidence"; the Command surface makes `earnest plan` read-only, so `plan` can only read evidence that a check kept.
 - `02`, L7: the record is "one JSON file, written by the standard library", outside the sensor's `matches`, so the new key adds no file and no artifact.
 
-Approving E1 revises three paragraphs of `01`: the Assessment record's key table (a sixth row, `evidence`, supplied by the evidence layer), the Process vocabulary's "The record holds five things" list (a sixth item), and Computed status (an evidence result counts only under a matching key). `02`'s `reporter.py` entry ("its five contents") and `impact.py` entry change to match.
+Approving E1 revised three paragraphs of `01`: the Assessment record's key table (a sixth row, `evidence`, supplied by the evidence layer), the Process vocabulary's "The record holds five things" list (a sixth item), and Computed status (an evidence result counts only under a matching key). `02`'s `reporter.py` entry ("its six contents") and `impact.py` entry changed to match.
 
 Alternative weighed: evidence stored in the run header of `--stage`. It would tie evidence to stage checks, while M5's exit behavior runs `check --evidence` with no stage, and a run header holds a stage's status, not a requirement's.
 
-### E2 A TypeScript evidence fixture (PROPOSED, awaiting maintainer approval)
+### E2 A TypeScript evidence fixture (APPROVED 2026-10-25)
 
 Question (`01`, Open questions): "A TypeScript fixture for evidence through StrykerJS and Jest".
 
-Proposed answer: M5 exits on Python and mutmut alone, with no TypeScript fixture and no Node in the package's tests. The region filter that D4 asks for is one function over a list of surviving mutants with file and line, and the StrykerJS reader is written now and unit-tested against a canned StrykerJS JSON report (`mutation-testing-report-schema`) checked in under `tests/unit/`. A live TypeScript fixture, its Jest and StrykerJS toolchain and an end-to-end scenario move to a later milestone, which a revision of `03` adds.
+Proposed answer: M5 exits on Python and mutmut alone, with no TypeScript fixture and no Node in the package's tests. The region filter that D4 asks for is one function over a list of surviving mutants with file and line, and the StrykerJS reader is written now and unit-tested against a canned StrykerJS JSON report (`mutation-testing-report-schema`) checked in under `tests/unit/`. A live TypeScript fixture, its Jest and StrykerJS toolchain and an end-to-end scenario move to M8 `typescript_evidence`, which `03` now holds.
 
 Basis:
 
@@ -85,7 +85,7 @@ Basis:
 - `02`, L4, table row "Coverage, tests and mutants": `subprocess` running the repository's tools, `json` reading their reports; the StrykerJS side is then one JSON reader, which a canned report tests without Node.
 - `01`, D4: Earnest "only filters their results by region", so the filter shared by both tools is the part Earnest owns.
 
-This narrows the question rather than closing it: `01`'s Scope keeps "evidence through mutmut and StrykerJS" in v1, so the TypeScript fixture still owes a milestone. Approving E2 revises the `01` row's "Resolved by" to that later milestone and adds it to `03`'s DAG.
+This narrows the question rather than closing it. Approving E2 set the `01` row's "Resolved by" to M8 and added M8 to `03`'s DAG. FLAGGED, unchanged: `01`'s Scope still lists "the trace, judge and evidence layers, with evidence through mutmut and StrykerJS" in v1; whether M8 stays in v1 or that line changes is the maintainer's call.
 
 ## Global Constraints
 
@@ -238,7 +238,7 @@ Outside the package, Task 1 revises `01` and `02` as E1 and E2 say and adds the 
 - Create: `packages/earnest/tests/features/evidence_check.feature`, `packages/earnest/tests/steps/test_evidence_check.py`
 - Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/integration/test_seeded_change.py`, `packages/earnest/pyproject.toml`
 
-- [ ] **Step 1:** Stop unless the maintainer has approved E1, E2 and the scenario list. Record the approved answers in `01` and `02` as each answer's last paragraph says, and close the two rows of `01`'s Open questions.
+- [x] **Step 1:** E1 and E2 approved 2026-10-25 and recorded in `01`, `02` and `03`. Stop here unless the maintainer has also ratified `04`'s M5 scenarios.
 - [x] **Step 2:** Spike, done 2026-10-25: mutmut 3.8.0 in the `dev` group, pinned `>=3.8,<4`, run on scratch copies of the base and units fixtures (3 mutants, all killed, the same `src/` and `tests/` in both) and of the proposed overlay (10 mutants, 8 survived). Recorded under mutmut 3.8 and the Fixture section.
 - [ ] **Step 3:** Write the two overlays and `evidence-verdicts.json` as the Fixture section gives them, and remove the PROPOSED status of `04`'s M5 section once the maintainer ratifies it, with the changes the maintainer asks for.
 - [ ] **Step 4:** Leave `evidence/` and `evidence-verdicts.json` out of the builders, add the step that commits `evidence/` on `main` over the units variant, and pin the units variant's sha and the overlay's lines in `test_seeded_change.py`.
