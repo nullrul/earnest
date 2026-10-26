@@ -80,12 +80,22 @@ _OVERLAYS = (
 )
 
 
+# stray bytecode in a fixture would change a commit sha, so no copy or file list takes it in
+def _is_bytecode(path: Path) -> bool:
+    return "__pycache__" in path.parts or path.suffix == ".pyc"
+
+
+def _bytecode(directory: str, names: list[str]) -> list[str]:
+    return [name for name in names if _is_bytecode(Path(name))]
+
+
 def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:
-    """Return a copytree ignore that leaves out the given paths, relative to root, of the fixture at root."""
+    """Return a copytree ignore for the given paths, relative to root, and any bytecode."""
 
     def ignore(directory: str, names: list[str]) -> list[str]:
         here = Path(directory).relative_to(root)
-        return [name for name in names if (here / name).as_posix() in paths]
+        left = {name for name in names if (here / name).as_posix() in paths}
+        return list(left | set(_bytecode(directory, names)))
 
     return ignore
 
@@ -110,7 +120,7 @@ def units_repo(tmp_path: Path) -> Callable[[], Path]:
         source = FIXTURES / "seeded-change"
         repo = tmp_path / "seeded-change"
         shutil.copytree(source, repo, ignore=_leave_out(source, *_OVERLAYS, RECORD))
-        shutil.copytree(source / "units" / "aidlc", repo / "aidlc", dirs_exist_ok=True)
+        shutil.copytree(source / "units" / "aidlc", repo / "aidlc", ignore=_bytecode, dirs_exist_ok=True)
         return _commit(repo)
 
     return build
@@ -135,9 +145,9 @@ def commit_overlay() -> Callable[[Path, str, str], Path]:
 
     def commit(repo: Path, name: str, branch: str) -> Path:
         overlay = FIXTURES / name / "change"
-        files = sorted(str(path.relative_to(overlay)) for path in overlay.rglob("*") if path.is_file())
+        files = _overlay_files(name, "change")
         _git(repo, "checkout", "-q", "-b", branch)
-        shutil.copytree(overlay, repo, dirs_exist_ok=True)
+        shutil.copytree(overlay, repo, ignore=_bytecode, dirs_exist_ok=True)
         _git(repo, "add", "--", *files)
         _git(repo, "commit", "-q", "--no-verify", "-m", "change")
         return repo
@@ -147,14 +157,15 @@ def commit_overlay() -> Callable[[Path, str, str], Path]:
 
 def _overlay_files(name: str, overlay: str) -> list[str]:
     root = FIXTURES / name / overlay
-    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*") if path.is_file())
+    paths = (path.relative_to(root) for path in root.rglob("*") if path.is_file())
+    return sorted(path.as_posix() for path in paths if not _is_bytecode(path))
 
 
 def write_overlays(repo: Path, name: str, *overlays: str) -> list[str]:
     """Copy a fixture's overlays into repo's work tree, in order, and return the paths they write."""
     written: list[str] = []
     for overlay in overlays:
-        shutil.copytree(FIXTURES / name / overlay, repo, dirs_exist_ok=True)
+        shutil.copytree(FIXTURES / name / overlay, repo, ignore=_bytecode, dirs_exist_ok=True)
         written.extend(_overlay_files(name, overlay))
     return written
 

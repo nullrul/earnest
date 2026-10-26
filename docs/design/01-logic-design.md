@@ -285,6 +285,11 @@ and "maintainer" everywhere else, and both name the same person.
 - Outcome: the maintainer runs `earnest calibrate` against a fixture; the judge
   runs over ten hand-tagged requirements, its verdicts are compared with the
   maintainer's, and the gate passes at eight or more matches (SC4).
+- Fixture: the ten requirements are `req` items in the fixture's
+  `requirements.md`, hand-tagged to its code and tests. The maintainer's
+  verdicts are its `verdicts.json`, in the canned-verdict format of the Runtime
+  and permission model. A requirement matches when the judge's `result`
+  equals the maintainer's on both `implemented` and `tested`.
 
 ### UC9 Approve a stage
 
@@ -1480,7 +1485,10 @@ demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the
 agent, the human at the gate and a CI job can each act on the exit code. While
 the record holds no passing calibration for the current model id and prompt
-hash, every judge run raises `judge-uncalibrated`.
+hash, every judge run raises `judge-uncalibrated`. `earnest calibrate` prints
+the comparison and the verdict to stdout and exits 0 on a pass, 1 on a fail,
+and 2 when it cannot run. It writes its result to the record on a pass and on
+a fail alike, so the record always holds the latest result.
 
 ### SARIF 2.1.0
 
@@ -1661,21 +1669,21 @@ the trace, judge and evidence layers that ran.
 
 The judge layer sends the model provider only the requirement clause, the
 tagged code regions and the tagged tests, and only when the judge layer is
-requested.
+requested or `earnest calibrate` runs.
 
-`--judge` reads its model from the environment variable `EARNEST_JUDGE`,
+`--judge` and `earnest calibrate` read their model from the environment variable `EARNEST_JUDGE`,
 by the maintainer's decision; Earnest has no configuration file, so the
 variable is the one place a model is named. The value `stub:<path>` names a
 canned-verdict file, by an absolute path or one relative to the working
 directory, and a test
-plugs a stub model into `--judge` this way. The file is one JSON object keyed
+plugs a stub model into `--judge` or `earnest calibrate` this way. The file is one JSON object keyed
 by requirement id and revision, then by question (`implemented` or
 `tested`), each answer an object with `result` (`satisfied` or
 `not-satisfied`), `reasoning` and `location` (`file` and `line`). The stub
 answers each question from the file, makes no network access and needs no
 key; its model id is `stub:sha256:` and the SHA-256 of the file's bytes, so
 an edit to the file reruns every question through the judge cache key.
-`--judge` exits 2 when `EARNEST_JUDGE` is unset or names no model Earnest
+`--judge` and `earnest calibrate` exit 2 when `EARNEST_JUDGE` is unset or names no model Earnest
 knows, when the file cannot be read or is not that object, and when a
 question the judge asks has no answer in the file. The value that names a
 real model settles with "Judge model choice and prompt" in the Open
@@ -1689,7 +1697,7 @@ status, and the frontier run entirely on the local repository.
 | Question | Owner | Resolved by |
 | --- | --- | --- |
 | Whether the judge applies tenets to observations | maintainer | after the calibration gate reports |
-| Judge model choice and prompt | maintainer | the calibration gate |
+| Judge model choice and prompt | maintainer | chosen 2026-10-25, which settles it for L4 of `02`; the calibration gate confirms the choice or sends it back. The choice: `EARNEST_JUDGE=anthropic:claude-opus-5-5` through the `anthropic` SDK, effort pinned to `high`, and the prompt as M4 wrote it (gating answer 3 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
 | SC4 calibration gate | maintainer | unrun; a precondition to the first AI-DLC unit the fork runs through Earnest |
 | Whether the gate or the approve transition refuses a run header with `dirty` true | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
@@ -1697,7 +1705,7 @@ status, and the frontier run entirely on the local repository.
 | Per-unit fork work, milestone `aidlc_fork`: how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit` | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | resolved 2026-10-25 (E1 of the M5 task plan): the record's `evidence` key, under Assessment record and Computed status |
 | A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | milestone `typescript_evidence` of `03-implementation-plan.md`, by the maintainer's decision of 2026-10-25 (E2 of the M5 task plan): `evidence_check` exits on Python and mutmut, and reads StrykerJS reports only in unit tests |
-| Which existing repository SC4's ten hand-written requirements come from | maintainer | before milestone `calibration_gate` of `03-implementation-plan.md` |
+| Which existing repository SC4's ten hand-written requirements come from | maintainer | resolved 2026-10-25: this repository, `nullrul/earnest`, at commit `4762161` (gating answer 2 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
 
 ## Scope
 
