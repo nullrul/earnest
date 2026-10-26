@@ -2,6 +2,7 @@
 
 import json
 import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,18 @@ def test_a_command_is_required(capsys):
         cli.main([])
     assert exit_info.value.code == 2
     assert "check" in capsys.readouterr().err
+
+
+def test_main_leaves_the_callers_signal_handlers_as_it_found_them(tmp_path, monkeypatch, capsys):
+    names = [name for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    before = [signal.getsignal(getattr(signal, name)) for name in names]
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["check"]) == 2
+    assert [signal.getsignal(getattr(signal, name)) for name in names] == before
+    with pytest.raises(SystemExit):
+        cli.main([])
+    assert [signal.getsignal(getattr(signal, name)) for name in names] == before
+    capsys.readouterr()
 
 
 def test_a_check_outside_a_work_tree_exits_2_with_one_line_on_stderr(tmp_path, monkeypatch, capsys):

@@ -453,12 +453,16 @@ class _CaseConfig(configparser.ConfigParser):
 def _configure(copy: Path, files: Sequence[str]) -> None:
     """Merge mutmut's section into the copy's `setup.cfg`, which mutmut reads only without a `[tool.mutmut]`."""
     try:
-        own = "mutmut" in tomllib.loads((copy / "pyproject.toml").read_text(encoding="utf-8")).get("tool", {})
+        tool = tomllib.loads((copy / "pyproject.toml").read_text(encoding="utf-8")).get("tool", {})
     except (OSError, tomllib.TOMLDecodeError):
-        own = False
+        tool = {}
     except UnicodeDecodeError as error:
         msg = f"evidence: pyproject.toml is not UTF-8, so [tool.mutmut] cannot be looked for ({error})"
         raise EvidenceError(msg) from error
+    if not isinstance(tool, dict):
+        msg = "evidence: pyproject.toml's tool is not a table, so [tool.mutmut] cannot be looked for"
+        raise EvidenceError(msg)
+    own = "mutmut" in tool
     if own:
         msg = "evidence: pyproject.toml has its own [tool.mutmut], which mutmut would read instead of Earnest's"
         raise EvidenceError(msg)

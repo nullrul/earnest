@@ -3,6 +3,8 @@
 import json
 import os
 import re
+import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -136,6 +138,34 @@ def test_a_timed_out_run_kills_the_processes_its_command_started(tmp_path, monke
     while _alive(grandchild) and time.monotonic() < deadline:
         time.sleep(0.05)
     assert not _alive(grandchild)
+
+
+def test_a_terminated_earnest_kills_the_processes_its_command_started(tmp_path):
+    pid = tmp_path / "pid"
+    command = ["/bin/sh", "-c", f"sleep 60 & echo $! > {pid}; wait"]
+    script = (
+        "from earnest import cli, impact\n"
+        f"cli._read = lambda: impact._process({command!r}, None, {{}})\n"
+        "cli.main(['plan'])\n"
+    )
+    child = subprocess.Popen([sys.executable, "-c", script], stderr=subprocess.DEVNULL)
+    grandchild = None
+    try:
+        deadline = time.monotonic() + 30
+        while not (pid.exists() and pid.read_text(encoding="utf-8").strip()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        grandchild = int(pid.read_text(encoding="utf-8"))
+        child.send_signal(signal.SIGTERM)
+        child.wait(timeout=10)
+        deadline = time.monotonic() + 5
+        while _alive(grandchild) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not _alive(grandchild)
+    finally:
+        child.kill()
+        child.wait()
+        if grandchild is not None and _alive(grandchild):
+            os.kill(grandchild, signal.SIGKILL)
 
 
 def _alive(pid):
@@ -451,6 +481,13 @@ def test_a_tool_mutmut_section_in_pyproject_exits_2(files_repo, monkeypatch):
     repo = files_repo({**EVIDENCE, "pyproject.toml": "[tool.mutmut]\nsource_paths = ['src']\n"})
     stub_run(monkeypatch)
     with pytest.raises(impact.EvidenceError, match=r"\[tool.mutmut\]"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
+def test_a_pyproject_whose_tool_is_not_a_table_exits_2_naming_it(files_repo, monkeypatch):
+    repo = files_repo({**EVIDENCE, "pyproject.toml": "tool = 1\n"})
+    stub_run(monkeypatch)
+    with pytest.raises(impact.EvidenceError, match=r"pyproject\.toml"):
         impact.evidence(repo, scanned(repo), LEVELS)
 
 

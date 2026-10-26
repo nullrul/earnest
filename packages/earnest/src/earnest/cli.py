@@ -3,6 +3,7 @@
 import argparse
 import os
 import posixpath
+import signal
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -59,6 +60,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
     or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
     """
+    # a SIGTERM or SIGHUP ends Python without unwinding, leaving a run's process group and temp copy behind
+    # only a default handler changes: an ignored SIGHUP, as nohup sets, or a caller's own handler stays
+    numbers = [getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    changed = [number for number in numbers if signal.getsignal(number) is signal.SIG_DFL]
+    for number in changed:
+        signal.signal(number, signal.default_int_handler)
+    try:
+        return _main(argv)
+    finally:  # the caller, such as a test run calling main in-process, gets its own handlers back
+        for number in changed:
+            signal.signal(number, signal.SIG_DFL)
+
+
+def _main(argv: Sequence[str] | None) -> int:
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     # main never dispatches on the bare command, so a bare `earnest` must stop here rather than run the check
     commands = parser.add_subparsers(dest="command", required=True)
