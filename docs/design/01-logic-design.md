@@ -1676,7 +1676,7 @@ by the maintainer's decision; Earnest has no configuration file, so the
 variable is the one place a model is named. The value `stub:<path>` names a
 canned-verdict file, by an absolute path or one relative to the working
 directory, and a test
-plugs a stub model into `--judge` this way. The file is one JSON object keyed
+plugs a stub model into `--judge` or `earnest calibrate` this way. The file is one JSON object keyed
 by requirement id and revision, then by question (`implemented` or
 `tested`), each answer an object with `result` (`satisfied` or
 `not-satisfied`), `reasoning` and `location` (`file` and `line`). The stub

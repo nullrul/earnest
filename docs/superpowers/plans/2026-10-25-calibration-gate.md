@@ -35,7 +35,7 @@ The M6 entry of `03` names three gating rows. Each answer below is **APPROVED (2
 
 ### 1. The file format of `tests/fixtures/calibration/`
 
-Row: `02`, Open questions, "The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts", resolved by "a revision of `01`, before the calibration gate runs".
+Row as asked, before Task 0 resolved it: `02`, Open questions, "The file format of `tests/fixtures/calibration/`: the ten requirements, their hand links and the maintainer's verdicts", resolved by "a revision of `01`, before the calibration gate runs".
 
 **APPROVED (2026-10-25):**
 
@@ -47,7 +47,7 @@ Row: `02`, Open questions, "The file format of `tests/fixtures/calibration/`: th
 
 ### 2. Which existing repository SC4's ten requirements come from
 
-Row: `01`, Open questions, "Which existing repository SC4's ten hand-written requirements come from", resolved "before milestone `calibration_gate` of `03-implementation-plan.md`".
+Row as asked, before Task 0 resolved it: `01`, Open questions, "Which existing repository SC4's ten hand-written requirements come from", resolved "before milestone `calibration_gate` of `03-implementation-plan.md`".
 
 **APPROVED (2026-10-25):** this repository, `nullrul/earnest`, at commit `4762161`.
 
@@ -70,7 +70,7 @@ Trade-off:
 
 ### 3. Judge model choice and prompt
 
-Row: `01`, Open questions, "Judge model choice and prompt", resolved by "the calibration gate". The gate does not choose a model; it tests one. The maintainer's approval below settles the choice for L4, so Task 7 may add the SDK, and the SC4 run then confirms the choice or sends it back.
+Row as asked, before Task 0 resolved it: `01`, Open questions, "Judge model choice and prompt", resolved by "the calibration gate". The gate does not choose a model; it tests one. The maintainer's approval below settles the choice for L4, so Task 7 may add the SDK, and the SC4 run then confirms the choice or sends it back.
 
 **APPROVED (2026-10-25):**
 
@@ -134,7 +134,7 @@ Not a gating row: the Command surface row of `01` leaves it open, and Task 0 add
 
 ## Task order and the scenarios each turns green
 
-These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote. The clause column maps each one to the M6 exit behavior of `03`: (a) the ten verdicts beside the maintainer's; (b) the match count; (c) a pass at eight or more, written to the record; (d) after that, `--judge` stops raising `judge-uncalibrated`.
+These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote. The clause column maps each one to the M6 exit behavior of `03`: (a) the judge's verdicts on the ten requirements beside the maintainer's; (b) the match count; (c) a pass at eight or more, written to the record; (d) after that, `--judge` stops raising `judge-uncalibrated`.
 
 | Scenario | Clause |
 | --- | --- |
@@ -150,14 +150,14 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | 1 | The maintainer's fixture: ten requirements, tags, `verdicts.json` | T0 | none |
 | 2 | The `calibration_gate` behavior gate, red: stubs, builder, feature, steps | T1, T0 Step 5 | none |
 | 3 | Calibration in `judge/` | T2 | none (unit tier) |
-| 4 | `earnest calibrate` in `cli.py`, the output and the slot write | T3 | "Calibration shows …", "Calibration at seven …", "Calibrate cannot run …" |
-| 5 | `judge-uncalibrated` read from the slot | T4 | "After a passing calibration …", "A calibration of another model …" |
+| 4 | `earnest calibrate` in `cli.py`, the output and the slot write | T3 | "Calibration shows …", "Calibration at seven …", "Calibrate cannot run …"; "A calibration of another model …" also passes here, trivially, since every judge run is uncalibrated until Task 5 |
+| 5 | `judge-uncalibrated` read from the slot | T4 | "After a passing calibration …"; `test_calibrated_needs_same_model_and_prompt` is the red-to-green proof of the model and prompt binding |
 | 6 | The full suite, lint and the pre-PR review | T5 | all 5 of M6, with M1 to M4 unchanged |
 | 7 | The `anthropic:` model, off the exit path | T6 | none new |
 
 **Regression expectations:**
 
-- **Tasks 2 to 5:** the regression run is `uv run pytest --ignore=tests/steps/test_calibration_gate.py` in `packages/earnest/`, and it stays green at the count of the plan's base commit (821 passed at `4762161`, before the M6 test files exist).
+- **Tasks 2 to 5:** the regression run is `uv run pytest --ignore=tests/steps/test_calibration_gate.py` in `packages/earnest/`, and it stays green at the base commit's 821 passed (at `4762161`, before the M6 test files exist) plus the tests each task adds; record the exact count. The base count needs the fixture directories free of untracked files: `fixture_repo` copies a stray `__pycache__/` into the fixture commit, which changes its sha and fails the 12 override and sha tests.
 - **Task 2:** every M6 scenario is red.
 - **Every task** records its exact count against that baseline.
 
@@ -199,7 +199,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 - [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25).
 - [x] **Step 2:** Write the M6 section of `04`: the feature, the fixture, the readings, and the five scenario titles, marked PROPOSED.
-- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commits `fcfa597`, `be0f384`, `3d09d97` and `03369f0`, then one unreviewed wording commit.
+- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commits `fcfa597`, `be0f384`, `3d09d97` and `03369f0`, the wording commit `39bbf4a`, and the pre-PR review fixes `8cc76af`, `48a435b`, `7e3dfac` and `57d9627`, then the final checker fixes.
 - [x] **Step 4:** Check that the index builds with a subdirectory as its root. Result at `ddfc072`: `git.work_tree_files` on `tests/fixtures/seeded-change` lists 22 files relative to it, and `adapters.scan`, `build_index` and `structural.traced` give 3 requirements, 3 traced. On `tests/fixtures/broken-links` they list 8 files and give 4 requirements, 2 traced. `earnest check` run from `packages/earnest/` writes SARIF byte-identical to a run from the repository root.
 - [ ] **Step 5:** Once Task 1's fixture exists, add the Gherkin of the five scenarios with exact tables, and notes for this plan, to `04`'s M6 section.
 
@@ -276,7 +276,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
   - with the working directory in a different Git repository, only the fixture's ten ids appear.
 - [ ] **Step 2:** Run them. Expected: they fail.
 - [ ] **Step 3:** Implement. `main`'s exit-2 handling already catches `GitError`, `RecordError`, `JudgeError` and `OSError`, so `calibrate` raises only exceptions `main` already catches. `load_model`'s message for an unset `EARNEST_JUDGE` becomes `earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>`, which names no flag, so it reads right for both commands. No test pins the old text.
-- [ ] **Step 4:** The three scenarios of Task 4 in the order table pass. Commit `feat: earnest calibrate`.
+- [ ] **Step 4:** The four scenarios of Task 4 in the order table pass, and the regression run is green. Commit `feat: earnest calibrate`.
 
 ### Task 5: `judge-uncalibrated` from the record
 
@@ -292,7 +292,7 @@ This task is the maintainer's: SC4 and G10 make the requirements and the verdict
   - `test_calibrated_needs_same_model_and_prompt`: a slot under another model id, or another prompt hash, returns false;
   - `test_calibrated_none`: a missing slot returns false;
   - `test_calibrated_malformed_slot`: a slot with `"pass": "false"`, and a slot with no `pass` key, each return false without raising.
-- [ ] **Step 2:** Implement. Update the one existing `judge.judge(...)` call, the `ask` helper at `tests/unit/test_judge.py:70`, to pass `Record(judge=slot or {"cache": {}})`, so its callers that pass a slot dict, such as `first.cache`, stay unchanged. `test_one_uncalibrated_finding_per_run_at_line_one_of_the_record` keeps passing with `Record()`, whose `calibration` is None.
+- [ ] **Step 2:** Implement. Update the one existing `judge.judge(...)` call, the `ask` helper at `tests/unit/test_judge.py:70`, to pass `Record(judge=slot or {"cache": {}})` (importing `Record` from `earnest.reporter`), so its callers that pass a slot dict, such as `first.cache`, stay unchanged. `test_one_uncalibrated_finding_per_run_at_line_one_of_the_record` keeps passing with `Record()`, whose `calibration` is None.
 - [ ] **Step 3:** All 5 M6 scenarios pass, M4's `judge_check` stays green (its record holds no calibration), and the regression run is green. Commit `feat: a passing calibration quiets judge-uncalibrated`.
 
 ### Task 6: The full suite, lint and the pre-PR review
