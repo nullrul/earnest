@@ -1705,7 +1705,7 @@ status, and the frontier run entirely on the local repository.
 | Per-unit fork work, milestone `aidlc_fork`: how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit` | maintainer | before milestone `aidlc_fork` of `03-implementation-plan.md` |
 | Where the evidence result is kept, so that the read-only `earnest plan` can show a task as done | maintainer | resolved 2026-10-25 (E1 of the M5 task plan): the record's `evidence` key, under Assessment record and Computed status |
 | A TypeScript fixture for evidence through StrykerJS and Jest | maintainer | milestone `typescript_evidence` of `03-implementation-plan.md`, by the maintainer's decision of 2026-10-25 (E2 of the M5 task plan): `evidence_check` exits on Python and mutmut, and reads StrykerJS reports only in unit tests |
-| Which existing repository SC4's ten hand-written requirements come from | maintainer | resolved 2026-10-25: this repository, `nullrul/earnest`, at commit `4762161` (gating answer 2 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
+| Which existing repository SC4's ten hand-written requirements come from | maintainer | resolved 2026-10-26, APPROVED (user): the 3d-pipe repository, `nullrul/apartment-twin`, from its OpenSpec specs; supersedes 2026-10-25, this repository at `4762161` (gating answer 2 of the [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md)) |
 
 ## Scope
 
