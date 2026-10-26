@@ -179,6 +179,13 @@ class Run:
     evidence: bool = False  # whether the evidence layer ran
 
 
+def layers(run: Run | None) -> list[str]:
+    """Return the layers a run ran: the judge's only with a model, and the evidence layer only after the judge."""
+    if run is None or run.model is None:
+        return ["trace"]
+    return ["trace", "judge", *(["evidence"] if run.evidence else [])]
+
+
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
     """Return the share of requirements at each level or above, in whole percent rounded down, so 100 means all."""
     ranks = [LEVELS.index(level) for level in levels.values()]
@@ -202,11 +209,10 @@ def sarif(findings: Sequence[Finding], levels: Mapping[str, str], run: Run) -> s
         properties["assessment"] = run.assessment
     if run.impact is not None:
         properties["impact"] = run.impact.as_property()
-    invocation: dict[str, object] = {"commit": run.commit, "dirty": run.dirty, "layers": ["trace"]}
+    invocation: dict[str, object] = {"commit": run.commit, "dirty": run.dirty, "layers": layers(run)}
     if run.observations is not None:
         properties["observations"] = list(run.observations)
-        layers = ["trace", "judge", "evidence"] if run.evidence else ["trace", "judge"]
-        invocation |= {"layers": layers, "model": run.model, "prompt": run.prompt}
+        invocation |= {"model": run.model, "prompt": run.prompt}
     body = {
         "tool": {"driver": {"name": "earnest"}},
         "invocations": [

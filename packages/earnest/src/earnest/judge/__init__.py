@@ -91,8 +91,9 @@ class Cache:
         """Return the cached verdict of a question whose key is unchanged, else ask the model and cache its answer."""
         item = question.item
         if (hashes := self.hashes.get(question.subject)) is None:
-            code = self._hash(regions(index, item, KINDS["implemented"]))
-            hashes = self.hashes[question.subject] = (code, self._hash(regions(index, item, KINDS["tested"])))
+            code = region_hash(self.root, regions(index, item, KINDS["implemented"]))
+            tested = region_hash(self.root, regions(index, item, KINDS["tested"]))
+            hashes = self.hashes[question.subject] = (code, tested)
         code, tests = hashes
         parts = {
             "item": question.subject,
@@ -107,9 +108,6 @@ class Cache:
         where = {"file": verdict.path, "line": verdict.line}
         self.used[key] = {**parts, "result": verdict.result, "reasoning": verdict.reasoning, "location": where}
         return verdict
-
-    def _hash(self, found: Sequence[Region]) -> str:
-        return region_hash(self.root, found)
 
 
 def region_hash(root: Path, found: Sequence[Region]) -> str:

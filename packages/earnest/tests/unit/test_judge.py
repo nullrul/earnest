@@ -467,8 +467,8 @@ def test_a_removed_tag_of_the_other_kind_does_not_drift_the_override(tmp_path):
 
 def test_an_items_region_hashes_are_taken_once_for_both_its_questions(tmp_path, monkeypatch):
     hashed = []
-    original = judge.Cache._hash
-    monkeypatch.setattr(judge.Cache, "_hash", lambda self, found: hashed.append(found) or original(self, found))
+    original = judge.region_hash
+    monkeypatch.setattr(judge, "region_hash", lambda root, found: hashed.append(found) or original(root, found))
     ask(index(), stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
     assert len(hashed) == 2
 

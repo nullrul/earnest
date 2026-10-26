@@ -19,7 +19,7 @@ from pathlib import Path
 
 from earnest import git, judge
 from earnest.git import Hunk
-from earnest.index import Index, Item, Link
+from earnest.index import Index, Item, Link, Region
 from earnest.reporter import Finding, Impact, evidence_message
 
 
@@ -121,13 +121,20 @@ def _environment() -> dict[str, str]:
 
 def _run(command: list[str], root: Path, env: Mapping[str, str]) -> int | None:
     """Run the repository's own tests or report, as `check --stage` promises; None when it timed out."""
+    done = _process(command, root, env)
+    return None if done is None else done.returncode
+
+
+def _process(
+    command: list[str], root: Path | None, env: Mapping[str, str]
+) -> subprocess.CompletedProcess[bytes] | None:
+    """Run command with no stdin, its output captured, for at most `MAP_TIMEOUT` seconds; None when it timed out."""
     try:
-        done = subprocess.run(  # noqa: S603
+        return subprocess.run(  # noqa: S603
             command, cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, check=False, timeout=MAP_TIMEOUT
         )
     except subprocess.TimeoutExpired:
         return None
-    return done.returncode
 
 
 def read_map(root: Path, commit: str) -> CoverageMap | None:
@@ -339,13 +346,20 @@ def tool() -> str | None:
 
 def mutation_files(index: Index, levels: Mapping[str, str]) -> list[str]:
     """Return the files mutmut mutates: the Python files holding an `impl` region of a traced requirement."""
-    paths = {
-        region.path
-        for item in index.defined.values()
-        if item.id.type == "req" and levels.get(str(item.id), "untraced") != "untraced"
-        for region in judge.regions(index, item, judge.KINDS["implemented"])
-    }
+    paths = {region.path for item, region in _impl_regions(index) if levels.get(str(item.id), "untraced") != "untraced"}
     return sorted(path for path in paths if path.endswith(".py"))
+
+
+def _impl_regions(index: Index) -> Iterator[tuple[Item, Region]]:
+    """Yield each `req` item the index defines with each of its `impl` regions."""
+    for item in index.defined.values():
+        if item.id.type == "req":
+            for region in judge.regions(index, item, judge.KINDS["implemented"]):
+                yield item, region
+
+
+def _req_keys(index: Index) -> list[tuple[str, str]]:
+    return [key for key in index.defined if key[0] == "req"]
 
 
 def evidence(root: Path, index: Index, levels: Mapping[str, str], python: str = sys.executable) -> Evidence:
@@ -365,9 +379,7 @@ def evidence(root: Path, index: Index, levels: Mapping[str, str], python: str = 
         copy = _copy(root, Path(temporary) / "tree")
         _configure(copy, files)
         failing = _suite(copy, Path(temporary) / "junit.xml", python)  # the report sits beside the copy, not in it
-        untagged = sorted(
-            set(failing) - set(tagged_tests(root, index, [key for key in index.defined if key[0] == "req"]))
-        )
+        untagged = sorted(set(failing) - set(tagged_tests(root, index, _req_keys(index))))
         if untagged:
             msg = f"evidence: the untagged test {', '.join(untagged)} fails on the unmutated code, so mutmut cannot run"
             raise EvidenceError(msg)
@@ -380,31 +392,24 @@ def evidence(root: Path, index: Index, levels: Mapping[str, str], python: str = 
 
 
 def _tool(python: str) -> str:
-    name = tool()
-    if name is None:
+    try:
+        own = version("mutmut")
+    except PackageNotFoundError:
         msg = "evidence: mutmut is not installed"
-        raise EvidenceError(msg)
-    own = name.removeprefix("mutmut ")
+        raise EvidenceError(msg) from None
     if own.split(".")[0] != MUTMUT_MAJOR:
         msg = f"evidence: mutmut {own} is not mutmut {MUTMUT_MAJOR}, whose results Earnest reads"
         raise EvidenceError(msg)
-    try:
-        done = subprocess.run(  # noqa: S603
-            [python, "-c", _VERSION],
-            env=_environment(),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=MAP_TIMEOUT,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        done = None
-    there = done.stdout.strip() if done is not None and done.returncode == 0 else "missing"
-    if there != own:
-        msg = f"evidence: mutmut under {python} is {there}, not the {own} that Earnest reads"
-        raise EvidenceError(msg)
-    return name
+    if python != sys.executable:  # Earnest's own interpreter has the version just read
+        try:
+            done = _process([python, "-c", _VERSION], None, _environment())
+        except OSError:
+            done = None
+        there = done.stdout.decode(errors="replace").strip() if done is not None and done.returncode == 0 else "missing"
+        if there != own:
+            msg = f"evidence: mutmut under {python} is {there}, not the {own} that Earnest reads"
+            raise EvidenceError(msg)
+    return f"mutmut {own}"
 
 
 def _copy(root: Path, copy: Path) -> Path:
@@ -570,13 +575,10 @@ def entries(
     files = set(mutation_files(index, levels))
     against = {each.subject for each in failed}
     kept: dict[str, dict[str, object]] = {}
-    for item in index.defined.values():
-        if not _mutated(index, item, files):
-            continue
-        req = str(item.id)
+    for req, (item, code) in _mutated(index, files).items():
         if req in against:
             result = "failed"
-        elif levels.get(req) == "judged" and _killed(index, item, found.mutants):  # none with a failing test
+        elif levels.get(req) == "judged" and _killed(code, found.mutants):  # none with a failing test
             result = "passed"
         else:
             continue
@@ -601,6 +603,8 @@ def keys(root: Path, index: Index, held: Collection[str]) -> dict[str, dict[str,
     Raises:
         OSError: a tagged file cannot be read.
     """
+    if not held:
+        return {}
     name = tool()
     if name is None:
         return {}
@@ -619,13 +623,12 @@ def merged(
     run reached no verdict on it; the entries of every other requirement are kept.
     """
     files = set(mutation_files(index, levels))
-    reached = {str(item.id) for item in index.defined.values() if _mutated(index, item, files)}
+    reached = _mutated(index, files)
     return {**{req: entry for req, entry in held.items() if req not in reached}, **fresh}
 
 
-def _killed(index: Index, item: Item, mutants: Iterable[Mutant]) -> bool:
-    """Return whether a mutant mutmut killed sits on a line of an `impl` region of item."""
-    code = judge.regions(index, item, judge.KINDS["implemented"])
+def _killed(code: Sequence[Region], mutants: Iterable[Mutant]) -> bool:
+    """Return whether a mutant mutmut killed sits on a line of one of the `impl` regions code."""
     return any(
         mutant.code in _KILLED and region.path == mutant.path and region.first <= mutant.line <= region.last
         for mutant in mutants
@@ -633,10 +636,12 @@ def _killed(index: Index, item: Item, mutants: Iterable[Mutant]) -> bool:
     )
 
 
-def _mutated(index: Index, item: Item, files: Collection[str]) -> bool:
-    """Return whether item is a `req` with an `impl` region in one of the files mutmut mutates."""
-    code = judge.regions(index, item, judge.KINDS["implemented"])
-    return item.id.type == "req" and any(region.path in files for region in code)
+def _mutated(index: Index, files: Collection[str]) -> dict[str, tuple[Item, list[Region]]]:
+    """Return each `req` with an `impl` region in one of the files mutmut mutates, with all its `impl` regions."""
+    found: dict[str, tuple[Item, list[Region]]] = {}
+    for item, region in _impl_regions(index):
+        found.setdefault(str(item.id), (item, []))[1].append(region)
+    return {req: (item, code) for req, (item, code) in found.items() if any(region.path in files for region in code)}
 
 
 def evidenced(
@@ -675,12 +680,7 @@ def _surviving(mutants: Iterable[Mutant]) -> list[Mutant]:
 
 
 def _mutant_findings(index: Index, mutants: Iterable[Mutant]) -> list[Finding]:
-    regions = [
-        (region, str(item.id))
-        for item in index.defined.values()
-        if item.id.type == "req"
-        for region in judge.regions(index, item, judge.KINDS["implemented"])
-    ]
+    regions = [(region, str(item.id)) for item, region in _impl_regions(index)]
     lines: dict[tuple[str, int], list[str]] = {}
     for mutant in mutants:
         lines.setdefault((mutant.path, mutant.line), []).append(mutant.key.rpartition(".")[2])
@@ -695,7 +695,7 @@ def _mutant_findings(index: Index, mutants: Iterable[Mutant]) -> list[Finding]:
 
 def _test_findings(root: Path, index: Index, failing: Collection[str]) -> list[Finding]:
     nearest: dict[tuple[str, tuple[str, str]], Link] = {}  # each failing test and requirement, at its closest tag
-    tagged = _test_tags(root, index, [key for key in index.defined if key[0] == "req"])
+    tagged = _test_tags(root, index, _req_keys(index))
     for link, nodes in sorted(tagged, key=lambda pair: (pair[0].path, pair[0].line)):
         for node in set(nodes) & set(failing):
             nearest[node, link.target.key] = link  # a later tag of one id is closer, as its nodes start at the tag

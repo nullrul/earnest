@@ -1319,8 +1319,8 @@ def _layers(run: Run | None) -> tuple[list[str], str | None, str | None]:
     The evidence layer runs only after the judge, as `--evidence` implies `--judge`.
     """
     if run is None or run.model is None:
-        return ["trace"], None, None
-    return ["trace", "judge", *(["evidence"] if run.evidence else [])], run.model, run.prompt
+        return reporter.layers(run), None, None
+    return reporter.layers(run), run.model, run.prompt
 
 
 def assessment_hash(document: Mapping[str, object]) -> str:
