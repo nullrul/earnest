@@ -267,8 +267,9 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   surface. `02`: `judge/` and `fixtures/calibration/` in Module boundaries.
 - Gating open questions: the file format of `tests/fixtures/calibration/`
   (`02`); calibration source repository, and judge model choice and prompt
-  (`01`). All three were answered on 2026-10-25 in the task plan; the judge
-  model is the candidate the SC4 run tests.
+  (`01`). All three were answered on 2026-10-25 (answer 2, the fixture source,
+  revised to 3d-pipe on 2026-10-26) in the task plan; the judge model is the
+  candidate the SC4 run tests.
 - Task plan:
   [2026-10-25-calibration-gate.md](../superpowers/plans/2026-10-25-calibration-gate.md),
   its gating answers approved by the maintainer on 2026-10-25.

@@ -1715,7 +1715,7 @@ Feature: Evidence check
 Status: the scenario titles below are PROPOSED. They rest on the gating
 answers of the task plan
 [2026-10-25-calibration-gate.md](../superpowers/plans/2026-10-25-calibration-gate.md),
-which the maintainer approved on 2026-10-25. The Gherkin and its exact tables
+which the maintainer approved on 2026-10-25 (answer 2 revised 2026-10-26). The Gherkin and its exact tables
 follow once the maintainer has written the fixture's ten requirements and
 verdicts.
 
