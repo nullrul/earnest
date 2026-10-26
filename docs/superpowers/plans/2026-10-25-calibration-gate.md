@@ -157,7 +157,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 **Regression expectations:**
 
-- **Tasks 2 to 5:** the regression run is `uv run pytest --ignore=tests/steps/test_calibration_gate.py` in `packages/earnest/`, and it stays green at the base commit's 821 passed (at `4762161`, before the M6 test files exist) plus the tests each task adds; record the exact count. The base count needs the fixture directories free of untracked files: `fixture_repo` copies a stray `__pycache__/` into the fixture commit, which changes its sha and fails the 12 override and sha tests.
+- **Tasks 2 to 5:** the regression run is `uv run pytest --ignore=tests/steps/test_calibration_gate.py` in `packages/earnest/`, and it stays green at this branch's 825 passed (821 at `4762161`, plus the four `tests/unit/test_conftest.py` tests of `1d6a5d3` and the commit after it, before the M6 test files exist) plus the tests each task adds; record the exact count. The fixture builders in `tests/conftest.py` leave bytecode out of every copy and file list, so a stray `__pycache__/` in a fixture no longer changes a commit sha.
 - **Task 2:** every M6 scenario is red.
 - **Every task** records its exact count against that baseline.
 
@@ -178,7 +178,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py` | each task's tests | 3-5 |
 | `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `uv.lock`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge.py` | Task 7's model, its root, and its dependency | 7 |
 
-`reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs change. Scope paths below cover Tasks 1 to 7; Task 0's docs are named in its Files line.
+`reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs change. Before Task 1, the branch also carries a test-tree fix in `tests/conftest.py`, so that fixture copies leave bytecode out; Task 2 builds on it. Scope paths below cover Tasks 1 to 7; Task 0's docs are named in its Files line.
 
 ## Known limits
 
@@ -199,7 +199,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 - [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25).
 - [x] **Step 2:** Write the M6 section of `04`: the feature, the fixture, the readings, and the five scenario titles, marked PROPOSED.
-- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commits `fcfa597`, `be0f384`, `3d09d97` and `03369f0`, the wording commit `39bbf4a`, and the pre-PR review fixes `8cc76af`, `48a435b`, `7e3dfac` and `57d9627`, then the final checker fixes.
+- [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed as `ddfc072` (the plan), `1d1ea25` (approvals, `04`, rows, link) and the checker-fix commits `fcfa597`, `be0f384`, `3d09d97` and `03369f0`, the wording commit `39bbf4a`, and the pre-PR review fixes `8cc76af`, `48a435b`, `7e3dfac` and `57d9627`, the checker fixes `800bfce`, the fixture-copy fix `1d6a5d3`, and its review fixes.
 - [x] **Step 4:** Check that the index builds with a subdirectory as its root. Result at `ddfc072`: `git.work_tree_files` on `tests/fixtures/seeded-change` lists 22 files relative to it, and `adapters.scan`, `build_index` and `structural.traced` give 3 requirements, 3 traced. On `tests/fixtures/broken-links` they list 8 files and give 4 requirements, 2 traced. `earnest check` run from `packages/earnest/` writes SARIF byte-identical to a run from the repository root.
 - [ ] **Step 5:** Once Task 1's fixture exists, add the Gherkin of the five scenarios with exact tables, and notes for this plan, to `04`'s M6 section.
 
