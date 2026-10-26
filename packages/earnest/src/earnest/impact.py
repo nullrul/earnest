@@ -287,9 +287,33 @@ def _test_tags(root: Path, index: Index, keys: Collection[tuple[str, str]]) -> I
 
 def _node_ids(root: Path, path: str, first: int, last: int) -> list[str]:
     try:
-        lines = (root / path).read_text(encoding="utf-8", errors="replace").split("\n")
+        text = (root / path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):  # pytest cannot import it either; the line scan still names its tests
+        return _scanned_ids(path, text.split("\n"), first, last)
+    found: list[str] = []
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+            found += [f"{path}::{node.name}::{name}" for name in _tests(node.body, first, last)]
+        found += [f"{path}::{name}" for name in _tests([node], first, last)]
+    return found
+
+
+def _tests(body: Iterable[ast.stmt], first: int, last: int) -> list[str]:
+    """Return the names of the `test…` functions of body whose `def` line is in [first, last]."""
+    return [
+        node.name
+        for node in body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name.startswith("test")
+        and first <= node.lineno <= last
+    ]
+
+
+def _scanned_ids(path: str, lines: Sequence[str], first: int, last: int) -> list[str]:
     found: list[str] = []
     owner: str | None = None
     body: str | None = None  # the indentation of the class body, from its first line

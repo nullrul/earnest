@@ -448,6 +448,28 @@ def test_a_def_nested_inside_a_test_method_is_no_test(tmp_path):
     assert impact.tagged_tests(tmp_path, index, {("req", "a")}) == ["tests/test_n.py::TestOuter::test_method"]
 
 
+def tagged_in(tmp_path, text):
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_n.py").write_text(text, encoding="utf-8")
+    index = build_index(adapters.scan(tmp_path, ["tests/test_n.py"]))
+    return impact.tagged_tests(tmp_path, index, {("req", "a")})
+
+
+def test_a_column_0_comment_in_a_test_class_keeps_the_methods_after_it(tmp_path):
+    text = "# [utest->req~a~1]\nclass TestC:\n    def test_one(self):\n        pass\n# a note\n    def test_two(self):\n        pass\n"
+    assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestC::test_one", "tests/test_n.py::TestC::test_two"]
+
+
+def test_a_multi_line_string_at_column_0_in_a_test_method_keeps_the_methods_after_it(tmp_path):
+    text = '# [utest->req~a~1]\nclass TestS:\n    def test_one(self):\n        x = """\ndef test_fake():\n"""\n    def test_two(self):\n        pass\n'
+    assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestS::test_one", "tests/test_n.py::TestS::test_two"]
+
+
+def test_an_unparsable_test_file_is_read_by_its_lines(tmp_path):
+    text = "# [utest->req~a~1]\nclass TestU:\n    def test_one(self):\n        pass(\nasync def test_two():\n    pass\n"
+    assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestU::test_one", "tests/test_n.py::test_two"]
+
+
 def test_a_deleted_file_selects_the_tests_that_covered_its_lines_and_degrades_the_rest_at_its_line_1(tmp_path):
     gone = {("src/gone.py", 2): ("tests/test_m.py::test_a",)}
     found = selected(tmp_path, {"src/gone.py": (Hunk(1, 3, 0, 0),)}, gone)
