@@ -401,6 +401,30 @@ def test_a_malformed_setup_cfg_exits_2_naming_it(files_repo, monkeypatch):
         impact.evidence(repo, scanned(repo), LEVELS)
 
 
+def test_the_copy_leaves_out_a_stale_mutants_directory(files_repo, monkeypatch):
+    repo = files_repo(EVIDENCE)
+    (repo / "mutants").mkdir()
+    (repo / "mutants" / "x.meta").write_text("{}\n", encoding="utf-8")
+    seen = {}
+
+    def mutmut(copy):
+        seen["stale"] = (copy / "mutants" / "x.meta").exists()  # and returns None: timed out
+
+    stub_run(monkeypatch, mutmut=mutmut)
+    with pytest.raises(impact.EvidenceError, match="mutmut run timed out"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+    assert seen["stale"] is False
+
+
+@pytest.mark.parametrize("name", ["pyproject.toml", "setup.cfg"])
+def test_a_config_file_that_is_not_utf_8_exits_2_naming_it(files_repo, monkeypatch, name):
+    repo = files_repo(EVIDENCE)
+    (repo / name).write_bytes(b"\xff\xfe\x00bad\n")
+    stub_run(monkeypatch)
+    with pytest.raises(impact.EvidenceError, match=name.replace(".", r"\.")):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
 def test_a_tool_mutmut_section_in_pyproject_exits_2(files_repo, monkeypatch):
     repo = files_repo({**EVIDENCE, "pyproject.toml": "[tool.mutmut]\nsource_paths = ['src']\n"})
     stub_run(monkeypatch)

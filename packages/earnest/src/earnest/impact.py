@@ -410,6 +410,8 @@ def _tool(python: str) -> str:
 def _copy(root: Path, copy: Path) -> Path:
     copy.mkdir()
     for path in git.work_tree_files(root):
+        if path.split("/", 1)[0] == "mutants":  # a hand-run's results, whose mtimes would let mutmut reuse them
+            continue
         if (root / path).is_file():  # a tracked file deleted from the work tree is listed, but is not there
             (copy / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(root / path, copy / path)
@@ -429,13 +431,16 @@ def _configure(copy: Path, files: Sequence[str]) -> None:
         own = "mutmut" in tomllib.loads((copy / "pyproject.toml").read_text(encoding="utf-8")).get("tool", {})
     except (OSError, tomllib.TOMLDecodeError):
         own = False
+    except UnicodeDecodeError as error:
+        msg = f"evidence: pyproject.toml is not UTF-8, so [tool.mutmut] cannot be looked for ({error})"
+        raise EvidenceError(msg) from error
     if own:
         msg = "evidence: pyproject.toml has its own [tool.mutmut], which mutmut would read instead of Earnest's"
         raise EvidenceError(msg)
     config = _CaseConfig(interpolation=None)
     try:
         config.read(copy / "setup.cfg", encoding="utf-8")
-    except configparser.Error as error:
+    except (configparser.Error, UnicodeDecodeError) as error:
         msg = f"evidence: setup.cfg cannot be read, so mutmut's section cannot be merged into it ({error})"
         raise EvidenceError(msg) from error
     # every top-level entry, so the tests find what they need beside `src/` and `tests/`, such as a `pytest.ini`
