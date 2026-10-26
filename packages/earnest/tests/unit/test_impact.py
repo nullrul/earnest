@@ -455,6 +455,17 @@ def tagged_in(tmp_path, text):
     return impact.tagged_tests(tmp_path, index, {("req", "a")})
 
 
+def test_a_utf8_bom_does_not_send_a_test_file_to_the_line_scan(tmp_path):
+    text = "\ufeff# [utest->req~a~1]\nclass TestC:\n    def test_one(self):\n        pass\n# a note\n    def test_two(self):\n        pass\n"
+    assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestC::test_one", "tests/test_n.py::TestC::test_two"]
+    assert (tmp_path / "tests" / "test_n.py").read_bytes()[:3] == b"\xef\xbb\xbf"
+
+
+def test_a_syntax_warning_in_a_test_file_is_not_raised(tmp_path):
+    text = '# [utest->req~a~1]\nclass TestC:\n    def test_one(self):\n        x = "\\d"\n# a note\n    def test_two(self):\n        pass\n'
+    assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestC::test_one", "tests/test_n.py::TestC::test_two"]
+
+
 def test_a_column_0_comment_in_a_test_class_keeps_the_methods_after_it(tmp_path):
     text = "# [utest->req~a~1]\nclass TestC:\n    def test_one(self):\n        pass\n# a note\n    def test_two(self):\n        pass\n"
     assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestC::test_one", "tests/test_n.py::TestC::test_two"]

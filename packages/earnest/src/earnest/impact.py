@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import warnings
 import xml.etree.ElementTree as ET
 from collections import deque
 from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
@@ -287,12 +288,15 @@ def _test_tags(root: Path, index: Index, keys: Collection[tuple[str, str]]) -> I
 
 def _node_ids(root: Path, path: str, first: int, last: int) -> list[str]:
     try:
-        text = (root / path).read_text(encoding="utf-8", errors="replace")
+        text = (root / path).read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return []
     # A file ast cannot read, which pytest cannot import either: the line scan still names its tests.
     try:
-        tree = ast.parse(text)
+        # The parse alone is muted: a SyntaxWarning in a test file is not ours to print.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SyntaxWarning)
+            tree = ast.parse(text)
     except (SyntaxError, ValueError, RecursionError, MemoryError):
         return _scanned_ids(path, text.split("\n"), first, last)
     found: list[str] = []
