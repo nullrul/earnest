@@ -77,6 +77,7 @@ earnest/
       unit/
         __init__.py
         test_<module>.py
+        stryker-report.json
         adapters/
           __init__.py
           test_<language>.py
@@ -97,6 +98,9 @@ earnest/
           override/
           override-change/
           judge-verdicts.json
+          evidence/
+          evidence-units/
+          evidence-verdicts.json
         calibration/
 ```
 
@@ -306,7 +310,8 @@ its line says "Owns", and each such rule has exactly one owner.
   comparing each item's body hash with the hash the record froze, and staleness
   one edge down. The lifecycle's later steps, expired overrides and outdated
   approvals, are computed under the Override rule in `judge/` and under Frontier
-  and position in `plan.py`. Owns each requirement's trace level, and applies
+  and position in `plan.py`. Owns each requirement's trace level up to traced;
+  `judge/` raises it to judged, and `impact.py` to evidenced. It applies
   the route rule of Stages to the Default Needs and to parentless items.
 - `ears.py`: EARS parser. Each `req` body becomes its clauses with text spans,
   the spans the judge asks about (D14), or a `req-not-ears` finding (D2).
@@ -330,9 +335,14 @@ its line says "Owns", and each such rule has exactly one owner.
   `earnest/route-mismatch`. Computes
   each stage's status and reasons, `dirty`, and the assessment document of the
   Assessment hash section of `01`.
-- `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule.
+- `impact.py`: Impact and evidence. Owns the Impact rule and the Evidence rule,
+  and the evidenced raise: a requirement judged, or traced where no model runs,
+  with a `passed` `evidence` entry whose key matches is evidenced; `cli.py`
+  calls it after the judge layer for `check` and `plan` alike,
+  and hands each requirement's evidence result and key to the Reporter for the
+  record's `evidence` key.
   It runs the repository's own coverage, test and mutation tools as
-  subprocesses and reads their JSON reports. At `check --stage` it takes the
+  subprocesses and reads their JSON and JUnit XML reports. At `check --stage` it takes the
   coverage map, a pytest-cov run with `--cov-context=test` whose data file is
   `.earnest/coverage/<commit>`, whose own options write nothing else to the
   work tree, and which runs only on a clean tree and gives no map when it times
@@ -352,8 +362,8 @@ its line says "Owns", and each such rule has exactly one owner.
 
 - `reporter.py`: Reporter. SARIF 2.1.0, the summary that leads with three
   percentages, and the rendering of each requirement's trace level, which
-  `structural.py` computes. Owns the assessment record, reader and writer, with
-  its five contents, the canonical JSON form shared by the record, the SARIF log
+  `structural.py`, `judge/` and `impact.py` compute. Owns the assessment record, reader and writer, with
+  its six contents, the canonical JSON form shared by the record, the SARIF log
   and the assessment hash, and the rendering of the plan and assessment
   properties of the SARIF run, which `plan.py` builds as `properties.plan` and
   `cli.py` as `properties.assessment`. The Container section of `01` draws the
@@ -429,6 +439,16 @@ its line says "Owns", and each such rule has exactly one owner.
 - `fixtures/seeded-change/judge-verdicts.json`: the stub model's canned
   verdicts, in the format of the Runtime and permission model of `01`. No
   commit holds it; M4's steps point `EARNEST_JUDGE` at it in place.
+- `fixtures/seeded-change/evidence/`: M5's overlay on the base history,
+  committed on `main` on top of the base commit: `src/checkout/auth.py` with
+  surviving mutants inside and outside a tagged region, and
+  `tests/test_auth.py` with a second assert that kills the
+  `req~rate-limit~1` mutants.
+- `fixtures/seeded-change/evidence-units/`: the same overlay for the units
+  variant, committed on `main` over the units variant, with the `dsn~window-counter~1`
+  tag over a function of its own.
+- `fixtures/seeded-change/evidence-verdicts.json`: the stub model's canned
+  verdicts for M5; no commit holds it, as for `judge-verdicts.json`.
 - `fixtures/calibration/`: SC4. The existing repository with ten hand-written
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
   by `earnest calibrate`; its format is an open question.
@@ -545,7 +565,7 @@ Each decision refers to the tree in the File and directory tree section.
 | Markdown items | a line scan for code fences, headings, id lines and key lines | a CommonMark parser |
 | Gherkin tags | a line scan for `@` lines | the official Gherkin parser |
 | SARIF output | `json` | a SARIF object-model package |
-| Coverage, tests and mutants | `subprocess` running the repository's tools, `json` reading their reports | importing coverage.py and mutmut as libraries |
+| Coverage, tests and mutants | `subprocess` running the repository's tools, `json` and `xml.etree.ElementTree` reading their reports, `ast` reading mutmut's mutants | importing coverage.py and mutmut as libraries |
 | Closest id for `orphaned` | `difflib` | an edit-distance package |
 
 ### L5 Three test tiers, with pytest-bdd for behavior

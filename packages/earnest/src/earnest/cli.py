@@ -3,9 +3,10 @@
 import argparse
 import os
 import posixpath
+import signal
 import sys
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from earnest import adapters, ears, git, impact, judge, plan, reporter, structural
@@ -38,6 +39,8 @@ class _Analysis:
     statuses: dict[str, dict[str, plan.StageStatus]]
     run: Run
     cache: dict[str, object] | None = None  # the record's `judge` slot as a judge run leaves it, for `--judge` to write
+    evidence: impact.Evidence | None = None  # what the evidence layer found, under `--evidence`
+    entries: dict[str, dict[str, object]] = field(default_factory=dict)  # the `evidence` slot the run leaves
 
 
 @dataclass(frozen=True)
@@ -55,8 +58,49 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
-    or newer, an intent or stage cannot be chosen, the judge's model cannot run, or the reader of the log or the summary goes away.
+    or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
+    An interrupt (Ctrl-C, SIGTERM or SIGHUP) also exits 2, after the run's cleanup.
     """
+    if sys.stdout is None or sys.stderr is None:  # Python leaves a closed fd 1 or 2 as None, with nowhere to write
+        return 2
+    # a SIGTERM or SIGHUP ends Python without unwinding, leaving a run's process group and temp copy behind
+    # only a default handler changes: an ignored SIGHUP, as nohup sets, or a caller's own handler stays
+    numbers = [getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    changed = [number for number in numbers if signal.getsignal(number) is signal.SIG_DFL]
+    for number in changed:
+        signal.signal(number, signal.default_int_handler)
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:  # raised after the run's processes and temp copy are cleaned up on the way out
+        _say("interrupted")
+        return 2
+    finally:  # the caller, such as a test run calling main in-process, gets its own handlers back
+        for number in changed:
+            signal.signal(number, signal.SIG_DFL)
+        # a gone reader or dead terminal: devnull, so the shutdown flush cannot replace the exit code with 120
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except OSError:
+            _quiet()
+
+
+def _say(line: str) -> None:
+    try:
+        sys.stderr.write(f"earnest: {line}\n")
+        sys.stderr.flush()
+        sys.stdout.flush()  # unflushed stdout bytes would otherwise hit a gone reader at shutdown
+    except OSError:  # a hung-up terminal or closed pipe: devnull stops the shutdown flush turning exit 2 into 120
+        _quiet()
+
+
+def _quiet() -> None:
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, sys.stdout.fileno())
+    os.dup2(devnull, sys.stderr.fileno())
+
+
+def _main(argv: Sequence[str] | None) -> int:
     parser = argparse.ArgumentParser(prog="earnest", description="Requirements traceability for LLM-written code.")
     # main never dispatches on the bare command, so a bare `earnest` must stop here rather than run the check
     commands = parser.add_subparsers(dest="command", required=True)
@@ -68,23 +112,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="the current task, such as task~add-limiter~1; else the Current Task line of the state file names it",
     )
     check.add_argument("--judge", action="store_true", help="ask the model EARNEST_JUDGE names each judge question")
+    check.add_argument(
+        "--evidence", action="store_true", help="run the tests and mutmut on the tagged code; implies --judge"
+    )
     commands.add_parser("plan", help="print the route, each stage's status and approval, and the frontier")
     args = parser.parse_args(argv)
     try:
         world = _read()
         result = _plan(world) if args.command == "plan" else _check(world, args)
-    except (git.GitError, OSError, reporter.RecordError, plan.PlanError, judge.JudgeError) as error:
-        sys.stderr.write(f"earnest: {error}\n")
+    except (
+        git.GitError,
+        OSError,
+        reporter.RecordError,
+        plan.PlanError,
+        judge.JudgeError,
+        impact.EvidenceError,
+    ) as error:
+        _say(str(error))
         return 2
     try:
         sys.stdout.write(result.log)
         sys.stdout.flush()
         sys.stderr.write(result.notes + result.summary)
         sys.stderr.flush()
-    except BrokenPipeError:  # a reader went away, as `head` does: send what is left to devnull, so exit stays quiet
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
-        os.dup2(devnull, sys.stderr.fileno())
+    except BrokenPipeError:  # a reader went away, as `head` does: stay silent and send what is left to devnull
+        _quiet()
+        return 2
+    except OSError as error:  # a write failed (disk full, I/O error): say why; _say goes quiet if stderr is dead too
+        _say(f"cannot write the result: {error}")
         return 2
     return result.code
 
@@ -99,7 +154,7 @@ def _read() -> _World:
     return _World(root, commit, sources, git.changes(root), record, (root / reporter.RECORD).exists(), intents)
 
 
-def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
+def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool = False) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
@@ -109,6 +164,11 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     if model is not None:
         judged = judge.judge(index, levels, model, world.root, world.record.judge)
         levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
+    proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
+    failed = impact.evidence_failed(world.root, index, proof) if proof is not None else []
+    entries = _entries(world, index, levels, proof, failed)
+    current = impact.keys(world.root, index, entries)  # a held key counts only when the tree still gives it
+    levels = impact.evidenced(levels, entries, current, judged=model is not None)
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
     frozen = plan.frozen_bodies(world.record.bodies, built)
@@ -116,6 +176,7 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
     derived = plan.place(plans, index, own)
     checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
     checked += asked
+    checked += failed
     findings = [*plan.place(plans, index, checked), *derived]
     statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
     props = plan.properties(plans, statuses, index, levels) if world.intents else None
@@ -130,8 +191,20 @@ def _analyse(world: _World, model: judge.Stub | None = None) -> _Analysis:
         model=None if model is None else model.id,
         prompt=None if model is None else judge.PROMPT_HASH,
         observations=observations,
+        evidence=evidence,
     )
-    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache)
+    return _Analysis(index, levels, plans, findings, derived, statuses, run, cache, proof, entries)
+
+
+def _entries(
+    world: _World, index: Index, levels: Mapping[str, str], proof: impact.Evidence | None, failed: list[Finding]
+) -> dict[str, dict[str, object]]:
+    """Return the record's `evidence` slot as this run leaves it: as the record holds it, without the evidence layer."""
+    if proof is None:
+        return world.record.evidence
+    stamp = {"commit": world.commit, "dirty": plan.dirty(world.changes, world.intents)}  # those of the run header
+    fresh = {req: {**entry, **stamp} for req, entry in impact.entries(world.root, index, levels, proof, failed).items()}
+    return impact.merged(world.record.evidence, fresh, index, levels)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -216,14 +289,14 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:
-    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge else None
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge or args.evidence else None
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
-        analysis = _task_change(world, _analyse(world, model), args.task)
+        analysis = _task_change(world, _analyse(world, model, evidence=args.evidence), args.task)
         findings, run = analysis.findings, analysis.run
         if analysis.cache is not None:
-            world.record.judge = analysis.cache
+            world.record.judge, world.record.evidence = analysis.cache, analysis.entries
             reporter.write_record(world.root, world.record)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
@@ -231,7 +304,9 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
             _code(findings),
         )
     chosen = plan.find_intent(world.intents, _option(world, args.intent))
-    return _stage(world, _task_change(world, _analyse(world, model), args.task), chosen, args.stage)
+    return _stage(
+        world, _task_change(world, _analyse(world, model, evidence=args.evidence), args.task), chosen, args.stage
+    )
 
 
 def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -> _Result:
@@ -256,7 +331,7 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
     if analysis.cache is not None:
-        world.record.judge = analysis.cache
+        world.record.judge, world.record.evidence = analysis.cache, analysis.entries
     reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
     # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
     reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)

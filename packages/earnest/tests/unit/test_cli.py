@@ -2,12 +2,15 @@
 
 import json
 import os
+import signal
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
-from earnest import cli, judge
+from earnest import adapters, cli, git, impact, judge
+from earnest.index import build_index
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
 
 
@@ -19,6 +22,29 @@ def test_a_command_is_required(capsys):
         cli.main([])
     assert exit_info.value.code == 2
     assert "check" in capsys.readouterr().err
+
+
+def test_main_leaves_the_callers_signal_handlers_as_it_found_them(tmp_path, monkeypatch, capsys):
+    names = [name for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
+    before = [signal.getsignal(getattr(signal, name)) for name in names]
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["check"]) == 2
+    assert [signal.getsignal(getattr(signal, name)) for name in names] == before
+    with pytest.raises(SystemExit):
+        cli.main([])
+    assert [signal.getsignal(getattr(signal, name)) for name in names] == before
+    capsys.readouterr()
+
+
+def test_an_interrupted_check_exits_2_with_one_line_on_stderr(monkeypatch, capsys):
+    def interrupt():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_read", interrupt)
+    assert cli.main(["check"]) == 2
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == "earnest: interrupted\n"
 
 
 def test_a_check_outside_a_work_tree_exits_2_with_one_line_on_stderr(tmp_path, monkeypatch, capsys):
@@ -545,3 +571,164 @@ def test_a_judged_stage_check_names_the_judge_layer_model_and_prompt_in_its_run_
         properties["model"],
         properties["prompt"],
     )
+
+
+def test_evidence_implies_judge_so_without_a_model_it_exits_two(fixture_repo, monkeypatch, capsys):
+    monkeypatch.delenv("EARNEST_JUDGE", raising=False)
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--evidence")
+    assert (code, out) == (2, "")
+    assert err.startswith("earnest: ")
+
+
+def recording(monkeypatch):
+    """Replace `impact._run`: the suite run writes a passing JUnit report; mutmut's result kills a mutant per line."""
+    calls = []
+
+    def fake(command, root, env):
+        calls.append(command)
+        for part in command:
+            if part.startswith("--junitxml="):
+                Path(part.partition("=")[2]).write_text("<testsuites/>", encoding="utf-8")
+        return 0
+
+    def killed(copy, path):
+        lines = (copy / path).read_text(encoding="utf-8").count("\n") + 1
+        return [impact.Mutant(path, line, f"m.x_f__mutmut_{line}", 1) for line in range(1, lines + 1)]
+
+    monkeypatch.setattr(impact, "_run", fake)
+    monkeypatch.setattr(impact, "_mutants", killed)
+    return calls
+
+
+def test_check_with_evidence_runs_the_suite_and_mutmut_and_without_it_runs_neither(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    calls = recording(monkeypatch)
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code == 0, err
+    suite, mutmut = calls
+    assert any(part.startswith("--junitxml=") for part in suite)
+    assert mutmut[1:] == ["-m", "mutmut", "run"]
+    calls.clear()
+    run(repo, monkeypatch, capsys, "check")
+    run(repo, monkeypatch, capsys, "check", "--judge")
+    assert calls == []
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation")
+    assert [command for command in calls if "--junitxml" in " ".join(command) or "mutmut" in command] == []
+    assert any("--cov-context=test" in command for command in calls)  # the coverage map's run, unchanged
+
+
+def test_check_with_evidence_raises_each_judged_requirement_with_no_surviving_mutant_to_evidenced(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    recording(monkeypatch)  # every mutant is killed, so nothing survives
+    _, judged, _ = run(repo, monkeypatch, capsys, "check", "--judge")
+    levels = sarif_run(judged)["properties"]["traceLevels"]
+    assert set(levels.values()) == {"judged"}
+    code, out, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code == 0, err
+    shown = sarif_run(out)
+    assert shown["properties"]["traceLevels"] == dict.fromkeys(levels, "evidenced")
+    assert shown["properties"]["percentages"] == {"traced": 100, "judged": 100, "evidenced": 100}
+    assert shown["invocations"][0]["properties"]["layers"] == ["trace", "judge", "evidence"]
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation", "--evidence")
+    (held,) = json.loads((repo / ".earnest/assessment.json").read_text(encoding="utf-8"))["runs"].values()
+    assert held["layers"] == ["trace", "judge", "evidence"]
+
+
+def test_a_mutmut_that_cannot_run_exits_two_with_one_line(fixture_repo, monkeypatch, capsys, tmp_path):
+    canned_model(monkeypatch, tmp_path)
+    monkeypatch.setattr(impact, "_run", lambda *_: None)  # timed out
+    code, out, err = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--evidence")
+    assert (code, out) == (2, "")
+    assert err.startswith("earnest: ")
+    assert "timed out" in err
+    assert len(err.splitlines()) == 1
+
+
+ASSESSMENT = ".earnest/assessment.json"
+
+
+def seed_evidence(repo, slot):
+    """Write a record that M4 could have written, plus an `evidence` slot, ignored by Git as `.earnest/` is."""
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / ".gitignore").write_text("*\n", encoding="utf-8")
+    data = {"version": 1, "runs": {}, "bodies": {}, "coverage": {"commit": None}, "judge": {"cache": {}}}
+    (repo / ASSESSMENT).write_text(json.dumps({**data, "calibration": None, "evidence": slot}), encoding="utf-8")
+
+
+def held_evidence(repo):
+    return json.loads((repo / ASSESSMENT).read_text(encoding="utf-8"))["evidence"]
+
+
+STALE = {"key": {"regions": "old", "tests": "old", "tool": "mutmut 0"}, "result": "passed", "commit": "0" * 40}
+
+
+def test_check_with_evidence_writes_each_entry_and_a_rerun_on_the_same_tree_writes_the_same_record(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    recording(monkeypatch)  # every mutant is killed, so each judged requirement passes
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code == 0, err
+    first = (repo / ASSESSMENT).read_bytes()
+    slot = held_evidence(repo)
+    assert sorted(slot) == sorted(CANNED)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True)
+    for entry in slot.values():
+        assert (entry["result"], entry["commit"], entry["dirty"]) == ("passed", head.stdout.strip(), False)
+        assert sorted(entry["key"]) == ["regions", "tests", "tool"]
+        assert entry["key"]["tool"].startswith("mutmut ")
+    run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert (repo / ASSESSMENT).read_bytes() == first
+    (repo / ASSESSMENT).unlink()
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation", "--evidence")
+    assert held_evidence(repo) == slot  # the stage check writes the same slot
+
+
+def test_a_failing_tagged_test_fails_its_requirement_drops_the_unreached_and_keeps_the_rest(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    elsewhere = {**STALE, "result": "failed"}
+    held = {f"req~{name}~1": STALE for name in ("rate-limit", "audit-log")}
+    seed_evidence(repo, {**held, "req~elsewhere~1": elsewhere})
+    calls = []
+    failing = '<testsuites><testcase file="tests/test_auth.py" name="test_count_failed_logins"><failure/></testcase>'
+
+    def fake(command, root, env):
+        calls.append(command)
+        for part in command:
+            if part.startswith("--junitxml="):
+                Path(part.partition("=")[2]).write_text(failing + "</testsuites>", encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(impact, "_run", fake)
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code != 2, err
+    assert not any("mutmut" in command for command in calls)  # with a failing test mutmut never runs
+    slot = held_evidence(repo)
+    assert sorted(slot) == ["req~elsewhere~1", "req~rate-limit~1"]  # lockout-notice and audit-log: no verdict
+    assert slot["req~rate-limit~1"]["result"] == "failed"
+    assert slot["req~rate-limit~1"]["key"] != STALE["key"]
+    assert slot["req~elsewhere~1"] == elsewhere  # a requirement outside the run keeps its entry
+
+
+def test_a_check_without_evidence_reads_the_slot_and_leaves_it_as_it_was(fixture_repo, monkeypatch, capsys, tmp_path):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    index = build_index(adapters.scan(repo, git.work_tree_files(repo)))
+    entry = {**STALE, "key": impact.keys(repo, index, ["req~rate-limit~1"])["req~rate-limit~1"]}  # the tree's key
+    seed_evidence(repo, {"req~rate-limit~1": entry})
+    _, out, _ = run(repo, monkeypatch, capsys, "check")
+    assert sarif_run(out)["properties"]["traceLevels"]["req~rate-limit~1"] == "evidenced"
+    _, out, _ = run(repo, monkeypatch, capsys, "check", "--judge")
+    levels = sarif_run(out)["properties"]["traceLevels"]
+    assert (levels["req~rate-limit~1"], levels["req~audit-log~1"]) == ("evidenced", "judged")
+    assert held_evidence(repo) == {"req~rate-limit~1": entry}

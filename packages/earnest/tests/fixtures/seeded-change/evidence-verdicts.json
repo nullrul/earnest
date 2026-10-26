@@ -1,0 +1,38 @@
+{
+  "req~audit-log~1": {
+    "implemented": {
+      "location": {"file": "src/checkout/auth.py", "line": 24},
+      "reasoning": "audit_lockout returns the member's key for the audit log.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {"file": "tests/test_auth.py", "line": 17},
+      "reasoning": "test_audit_lockout asserts only the returned key and never that the lockout reaches the audit log.",
+      "result": "not-satisfied"
+    }
+  },
+  "req~lockout-notice~1": {
+    "implemented": {
+      "location": {"file": "src/checkout/auth.py", "line": 15},
+      "reasoning": "lockout_message tells the member how many minutes to wait before trying again.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {"file": "tests/test_auth.py", "line": 12},
+      "reasoning": "test_lockout_message asserts that the message tells the member to try again.",
+      "result": "satisfied"
+    }
+  },
+  "req~rate-limit~1": {
+    "implemented": {
+      "location": {"file": "src/checkout/auth.py", "line": 10},
+      "reasoning": "count_failed_logins counts the failed logins in the window, never below zero.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {"file": "tests/test_auth.py", "line": 6},
+      "reasoning": "test_count_failed_logins asserts the count of a window and that a negative window counts zero.",
+      "result": "satisfied"
+    }
+  }
+}

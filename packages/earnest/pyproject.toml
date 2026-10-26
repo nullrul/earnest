@@ -24,6 +24,7 @@ dev = [
     "hypothesis>=6.100",
     "vulture>=2.14",
     "pytest-bdd>=8.1.0,<9",
+    "mutmut>=3.8,<4",
 ]
 
 [tool.hatch.build.targets.wheel]

@@ -1,16 +1,19 @@
 """Tests for earnest.plan: the state file's Stage Progress, the audit shards, and loading both from a work tree."""
 
+import json
 import time
+from pathlib import Path
 
 import pytest
 
-from earnest import adapters, git, plan, structural
+from earnest import adapters, cli, git, impact, judge, plan, structural
 from earnest.git import Hunk
 from earnest.index import MARKDOWN, Id, Index, Item, Link, Region, Source, build_index
 from earnest.index import digest as digest_of
 from earnest.plan import Approval, ChangedRegion, Event, Record, Row
 from earnest.reporter import Finding, Run, RunHeader
-from tests.sarif import PLAN_FILE, write
+from tests.conftest import commit_on_main
+from tests.sarif import PLAN_FILE, sarif_run, write
 from tests.sarif import REQUIREMENTS as REQUIREMENTS_FILE
 
 
@@ -2784,3 +2787,93 @@ def test_the_stage_s_counting_row_gives_its_place_in_audit_order():
     intent = baseline_intent(*rows, (GATE_REQ, "h1", "2026-09-28T12:00:00Z"))
     runs = runs_of(held_header(GATE_REQ, "h1", "c1"), held_header(GATE_CG, "h2", "c2"))
     assert plan.change_baseline(intent, runs) == "c1"
+
+
+def test_the_evidence_layer_joins_the_run_header_and_the_assessment_document_and_changes_its_hash():
+    built, _ = planned(BASE, items=[hashed("req~a~1", "h1")])
+    judged = Run(commit="a" * 40, model="stub:x", prompt="sha256:p")
+    evidenced = Run(commit="a" * 40, model="stub:x", prompt="sha256:p", evidence=True)
+    before = plan.assessment_document(built, REQUIREMENTS, TREE, [], judged)
+    after = plan.assessment_document(built, REQUIREMENTS, TREE, [], evidenced)
+    assert (before["layers"], after["layers"]) == (["trace", "judge"], ["trace", "judge", "evidence"])
+    assert plan.assessment_hash(before) != plan.assessment_hash(after)
+    status = plan.StageStatus("not done", 2, 1, "outdated")
+    held = plan.header(built, REQUIREMENTS, status, evidenced, "sha256:" + "1" * 64)
+    assert (held.layers, held.model, held.prompt) == (("trace", "judge", "evidence"), "stub:x", "sha256:p")
+
+
+def evidenced_units(units_repo, monkeypatch):
+    """Return the units repo with a record whose `passed` entry for req~rate-limit~1 has the tree's key, and its text."""
+    repo = commit_on_main(units_repo(), "seeded-change", "evidence-units")
+    found = build_index(adapters.scan(repo, git.work_tree_files(repo)))
+    item = next(each for each in found.defined.values() if str(each.id) == "req~rate-limit~1")
+    regions = judge.region_hash(repo, judge.regions(found, item, judge.KINDS["implemented"]))
+    tests = judge.region_hash(repo, judge.regions(found, item, judge.KINDS["tested"]))
+    key = {"regions": regions, "tests": tests, "tool": "mutmut 3.8.0"}
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / ".gitignore").write_text("*\n", encoding="utf-8")
+    entry = {"key": key, "result": "passed", "commit": "0" * 40, "dirty": False}
+    data = {"version": 1, "runs": {}, "bodies": {}, "coverage": {"commit": None}, "judge": {"cache": {}}}
+    text = json.dumps({**data, "calibration": None, "evidence": {"req~rate-limit~1": entry}})
+    (repo / ".earnest" / "assessment.json").write_text(text, encoding="utf-8")
+    monkeypatch.setattr(impact, "tool", lambda: "mutmut 3.8.0")
+    monkeypatch.chdir(repo)
+    return repo, text
+
+
+def test_plan_reads_the_evidence_slot_shows_the_evidenced_task_and_unit_done_and_writes_nothing(
+    units_repo, monkeypatch, capsys
+):
+    repo, text = evidenced_units(units_repo, monkeypatch)
+    assert cli.main(["plan"]) == 0
+    shown = sarif_run(capsys.readouterr().out)["properties"]["plan"]["intents"][0]
+    assert [(task["id"], task["status"]) for task in shown["tasks"]] == [
+        ("task~add-limiter~1", "done"),
+        ("task~notify-lockout~1", "not done"),
+    ]
+    assert [(unit["id"], unit["status"]) for unit in shown["units"]] == [
+        ("unit~u1~1", "done"),
+        ("unit~u2~1", "not done"),
+    ]
+    assert (repo / ".earnest" / "assessment.json").read_text(encoding="utf-8") == text  # `plan` writes nothing
+
+
+STALE = {
+    "code": (
+        "src/checkout/auth.py",
+        "    return max(window, 0)\n",
+        "    return max(window, 0)  # edited\n",
+        "mutmut 3.8.0",
+    ),
+    "test": (
+        "tests/test_auth.py",
+        "    assert count_failed_logins(3) == 3\n",
+        "    assert count_failed_logins(3) == 3  # x\n",
+        "mutmut 3.8.0",
+    ),
+    "tool": ("src/checkout/auth.py", "", "", "mutmut 3.9.0"),
+    "no mutmut": ("src/checkout/auth.py", "", "", None),
+    "fresh": ("src/checkout/auth.py", "", "", "mutmut 3.8.0"),  # the control: the key still matches
+}
+VERDICTS = Path(__file__).parents[1] / "fixtures" / "seeded-change" / "evidence-verdicts.json"
+
+
+@pytest.mark.parametrize("command", [["plan"], ["check"], ["check", "--judge"]], ids=" ".join)
+@pytest.mark.parametrize("stale", list(STALE))
+def test_a_stale_evidence_key_leaves_the_requirement_short_of_evidenced_and_its_task_not_done(
+    units_repo, monkeypatch, capsys, stale, command
+):
+    repo, _ = evidenced_units(units_repo, monkeypatch)
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{VERDICTS}")
+    path, old, new, name = STALE[stale]
+    text = (repo / path).read_text(encoding="utf-8")
+    assert not old or old in text
+    (repo / path).write_text(text.replace(old, new, 1) if old else text, encoding="utf-8")
+    monkeypatch.setattr(impact, "tool", lambda: name)
+    assert cli.main(command) != 2
+    shown = sarif_run(capsys.readouterr().out)["properties"]
+    fresh = stale == "fresh"
+    level = "evidenced" if fresh else "judged" if "--judge" in command else "traced"
+    assert shown["traceLevels"]["req~rate-limit~1"] == level
+    tasks = {task["id"]: task["status"] for task in shown["plan"]["intents"][0]["tasks"]}
+    assert tasks["task~add-limiter~1"] == ("done" if fresh else "not done")

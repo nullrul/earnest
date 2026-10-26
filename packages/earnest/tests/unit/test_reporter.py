@@ -40,7 +40,15 @@ def test_each_rule_has_its_sarif_level():
         "earnest/judge-uncalibrated": "warning",
         "earnest/override-expired": "warning",
         "earnest/override-drift": "warning",
+        "earnest/evidence-failed": "error",
     }
+
+
+def test_the_evidence_failed_message_names_the_requirement_the_file_and_line_and_the_mutation():
+    message = reporter.evidence_message("req~a~1", "src/a.py", 7, "the mutants x_f__mutmut_1, x_f__mutmut_2 survive")
+    assert "`req~a~1`" in message
+    assert "src/a.py:7" in message
+    assert "x_f__mutmut_1, x_f__mutmut_2 survive" in message
 
 
 def test_percentages_round_down_so_100_means_every_requirement():
@@ -540,3 +548,40 @@ def test_summary_states_the_runs_notes_and_the_log_leaves_them_out():
     run = Run(commit="abc", notes=("coverage map: not taken, the work tree is dirty",))
     assert "coverage map: not taken, the work tree is dirty" in reporter.summary([], {}, run).splitlines()
     assert reporter.sarif([], {}, run) == reporter.sarif([], {}, Run(commit="abc"))
+
+
+def test_invocation_names_the_evidence_layer_when_it_ran():
+    run = Run(commit="abc", model="stub:x", prompt="sha256:p", observations=(), evidence=True)
+    properties = sarif_run(reporter.sarif([], {}, run))["invocations"][0]["properties"]
+    assert properties["layers"] == ["trace", "judge", "evidence"]
+    assert (properties["model"], properties["prompt"]) == ("stub:x", "sha256:p")
+
+
+ENTRY = {
+    "key": {"regions": "sha256:" + "1" * 64, "tests": "sha256:" + "2" * 64, "tool": "mutmut 3.8.0"},
+    "result": "passed",
+    "commit": "c" * 40,
+    "dirty": False,
+}
+
+
+def test_the_evidence_slot_round_trips_in_canonical_json(tmp_path):
+    record = Record(evidence={"req~a~1": ENTRY, "req~b~1": {**ENTRY, "result": "failed"}})
+    reporter.write_record(tmp_path, record)
+    assert reporter.read_record(tmp_path) == record
+    data = stored(tmp_path)
+    assert data["evidence"] == {"req~a~1": ENTRY, "req~b~1": {**ENTRY, "result": "failed"}}
+    assert (tmp_path / ".earnest" / "assessment.json").read_text(encoding="utf-8") == reporter.canonical(
+        data, pretty=True
+    )
+    assert Record().evidence == {}
+
+
+def test_a_record_an_older_earnest_wrote_without_evidence_reads_as_the_empty_slot(tmp_path):
+    (tmp_path / ".earnest").mkdir()
+    slots = '"runs": {}, "bodies": {}, "coverage": {"commit": null}, "judge": {"cache": {}}, "calibration": null'
+    (tmp_path / ".earnest" / "assessment.json").write_text(f'{{"version": 1, {slots}}}', encoding="utf-8")
+    record = reporter.read_record(tmp_path)
+    assert (record.evidence, record.extra) == ({}, {})
+    reporter.write_record(tmp_path, record)
+    assert stored(tmp_path)["evidence"] == {}

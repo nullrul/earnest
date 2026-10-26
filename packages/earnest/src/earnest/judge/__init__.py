@@ -91,8 +91,9 @@ class Cache:
         """Return the cached verdict of a question whose key is unchanged, else ask the model and cache its answer."""
         item = question.item
         if (hashes := self.hashes.get(question.subject)) is None:
-            code = self._hash(regions(index, item, KINDS["implemented"]))
-            hashes = self.hashes[question.subject] = (code, self._hash(regions(index, item, KINDS["tested"])))
+            code = region_hash(self.root, regions(index, item, KINDS["implemented"]))
+            tested = region_hash(self.root, regions(index, item, KINDS["tested"]))
+            hashes = self.hashes[question.subject] = (code, tested)
         code, tests = hashes
         parts = {
             "item": question.subject,
@@ -108,14 +109,15 @@ class Cache:
         self.used[key] = {**parts, "result": verdict.result, "reasoning": verdict.reasoning, "location": where}
         return verdict
 
-    def _hash(self, found: Sequence[Region]) -> str:
-        """Return the digest of regions: each one's path, lines and text, in path and line order."""
-        chunks: list[bytes] = []
-        for region in sorted(found, key=lambda each: (each.path, each.first, each.last)):
-            text = (self.root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
-            chunks.append(f"{region.path}:{region.first}-{region.last}\n".encode("utf-8", "surrogateescape"))
-            chunks.append(b"\n".join(text) + b"\n")
-        return digest(b"".join(chunks))
+
+def region_hash(root: Path, found: Sequence[Region]) -> str:
+    """Return the digest of regions in root's work tree: each one's path, lines and text, in path and line order."""
+    chunks: list[bytes] = []
+    for region in sorted(found, key=lambda each: (each.path, each.first, each.last)):
+        text = (root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
+        chunks.append(f"{region.path}:{region.first}-{region.last}\n".encode("utf-8", "surrogateescape"))
+        chunks.append(b"\n".join(text) + b"\n")
+    return digest(b"".join(chunks))
 
 
 def _cached(entry: object) -> Verdict | None:

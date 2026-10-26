@@ -1314,10 +1314,13 @@ def assessment_document(
 
 
 def _layers(run: Run | None) -> tuple[list[str], str | None, str | None]:
-    """Return the layers a run ran, with the judge's model id and prompt hash, both null when the judge did not run."""
-    if run is None or run.model is None:
+    """Return the layers a run ran, with the judge's model id and prompt hash, both null when the judge did not run.
+
+    The evidence layer runs only after the judge, as `--evidence` implies `--judge`.
+    """
+    if run is None:
         return ["trace"], None, None
-    return ["trace", "judge"], run.model, run.prompt
+    return reporter.layers(run), run.model, run.prompt
 
 
 def assessment_hash(document: Mapping[str, object]) -> str:

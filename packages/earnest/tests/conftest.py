@@ -66,8 +66,18 @@ def _commit(repo: Path) -> Path:
     return repo
 
 
-# the fixture paths that no base commit holds; `judge-verdicts.json` stays in the package, outside the repository
-_OVERLAYS = ("change", "task", "units", "override", "override-change", "judge-verdicts.json")
+# the fixture paths that no base commit holds; the verdict files stay in the package, outside the repository
+_OVERLAYS = (
+    "change",
+    "task",
+    "units",
+    "override",
+    "override-change",
+    "evidence",
+    "evidence-units",
+    "judge-verdicts.json",
+    "evidence-verdicts.json",
+)
 
 
 def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:

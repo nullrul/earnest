@@ -14,6 +14,7 @@ from urllib.parse import quote
 RuleId = Literal[
     "earnest/cycle",
     "earnest/duplicate",
+    "earnest/evidence-failed",
     "earnest/gap",
     "earnest/impact-degraded",
     "earnest/judge-not-satisfied",
@@ -35,6 +36,7 @@ Position = Literal["behind", "current", "ahead"]
 RULES: dict[RuleId, str] = {
     "earnest/cycle": "error",
     "earnest/duplicate": "error",
+    "earnest/evidence-failed": "error",
     "earnest/gap": "error",
     "earnest/impact-degraded": "note",
     "earnest/judge-not-satisfied": "warning",
@@ -108,6 +110,11 @@ def deleted_message(line: int) -> str:
     )
 
 
+def evidence_message(requirement: str, path: str, line: int, cause: str) -> str:
+    """Return the message of an `evidence-failed` finding: the requirement, the file and line, and what failed there."""
+    return f"`{requirement}` is not evidenced at {path}:{line}: {cause}"
+
+
 def out_of_task_message(task: str, tags: Sequence[str]) -> str:
     """Return the message of an out-of-task finding: the current task, the region's tags or `no tag`, the exits."""
     region = f"the region of {', '.join(f'`{tag}`' for tag in tags)}" if tags else "a hunk with no tag"
@@ -169,6 +176,14 @@ class Run:
     model: str | None = None  # the judge's model id and prompt hash, when the judge layer ran
     prompt: str | None = None
     observations: tuple[Mapping[str, object], ...] | None = None  # the observations of record, when the judge ran
+    evidence: bool = False  # whether the evidence layer ran
+
+
+def layers(run: Run | None) -> list[str]:
+    """Return the layers a run ran: the judge's only with a model, and the evidence layer only after the judge."""
+    if run is None or run.model is None:
+        return ["trace"]
+    return ["trace", "judge", *(["evidence"] if run.evidence else [])]
 
 
 def percentages(levels: Mapping[str, str]) -> dict[str, int]:
@@ -194,10 +209,10 @@ def sarif(findings: Sequence[Finding], levels: Mapping[str, str], run: Run) -> s
         properties["assessment"] = run.assessment
     if run.impact is not None:
         properties["impact"] = run.impact.as_property()
-    invocation: dict[str, object] = {"commit": run.commit, "dirty": run.dirty, "layers": ["trace"]}
+    invocation: dict[str, object] = {"commit": run.commit, "dirty": run.dirty, "layers": layers(run)}
     if run.observations is not None:
         properties["observations"] = list(run.observations)
-        invocation |= {"layers": ["trace", "judge"], "model": run.model, "prompt": run.prompt}
+        invocation |= {"model": run.model, "prompt": run.prompt}
     body = {
         "tool": {"driver": {"name": "earnest"}},
         "invocations": [
@@ -293,7 +308,7 @@ def _result(finding: Finding) -> dict[str, object]:
 
 RECORD = ".earnest/assessment.json"
 VERSION = 1
-_KNOWN = frozenset({"version", "runs", "bodies", "coverage", "judge", "calibration"})
+_KNOWN = frozenset({"version", "runs", "bodies", "coverage", "judge", "calibration", "evidence"})
 
 
 class RecordError(Exception):
@@ -332,6 +347,8 @@ class Record:
     coverage: dict[str, object] = field(default_factory=lambda: {"commit": None})
     judge: dict[str, object] = field(default_factory=lambda: {"cache": {}})
     calibration: dict[str, object] | None = None
+    # each requirement's evidence entry, by id with revision: its key, result, commit and dirty flag
+    evidence: dict[str, dict[str, object]] = field(default_factory=dict)
     extra: dict[str, object] = field(default_factory=dict)
 
 
@@ -412,6 +429,7 @@ def write_record(root: Path, record: Record) -> None:
         "coverage": record.coverage,
         "judge": record.judge,
         "calibration": record.calibration,
+        "evidence": record.evidence,
     }
     # ponytail: mkstemp makes the file mode 0600 (Git tracks 100644 either way), and a write that fails after the
     # directory is new leaves its `.gitignore` behind; chmod and clean up if either ever matters
@@ -455,6 +473,7 @@ def _record(data: object) -> Record:
         coverage=dict(data["coverage"]),
         judge=dict(data["judge"]),
         calibration=None if data["calibration"] is None else dict(data["calibration"]),
+        evidence={req: dict(entry) for req, entry in data.get("evidence", {}).items()},  # none before M5
         extra={key: value for key, value in data.items() if key not in _KNOWN},
     )
 

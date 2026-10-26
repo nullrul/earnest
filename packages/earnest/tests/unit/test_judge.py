@@ -467,8 +467,8 @@ def test_a_removed_tag_of_the_other_kind_does_not_drift_the_override(tmp_path):
 
 def test_an_items_region_hashes_are_taken_once_for_both_its_questions(tmp_path, monkeypatch):
     hashed = []
-    original = judge.Cache._hash
-    monkeypatch.setattr(judge.Cache, "_hash", lambda self, found: hashed.append(found) or original(self, found))
+    original = judge.region_hash
+    monkeypatch.setattr(judge, "region_hash", lambda root, found: hashed.append(found) or original(root, found))
     ask(index(), stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
     assert len(hashed) == 2
 
@@ -553,3 +553,12 @@ def test_the_old_tags_of_a_commit_and_path_are_read_once_a_run(tmp_path, monkeyp
     lines = (f"Override: req~greet~1 implemented at {at}, why", f"Override: req~greet~1 tested at {at}, why")
     ask(overridden(*lines), stub(tmp_path, {}), tmp_path)
     assert read == [(at, "src/c.py")]
+
+
+def test_the_region_hash_is_the_one_the_cache_key_holds(tmp_path):
+    found = index()
+    (entry, *_) = ask(found, stub(tmp_path, {"req~greet~1": GREET}), tmp_path).cache["cache"].values()
+    item = next(each for each in found.defined.values() if str(each.id) == "req~greet~1")
+    assert entry["regions"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["implemented"]))
+    assert entry["tests"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["tested"]))
+    assert entry["regions"] != entry["tests"]
