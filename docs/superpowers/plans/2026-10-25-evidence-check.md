@@ -306,9 +306,9 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:** none; this task only runs the checks.
 
-- [ ] **Step 1:** From the repository root, run `rtk proxy make test; echo $?` and `rtk proxy make lint; echo $?`. Expected: both print `0`.
-- [ ] **Step 2:** In `packages/earnest/`, run `rtk proxy uv run pytest tests/steps/test_evidence_check.py; echo $?`. Expected: `0`.
-- [ ] **Step 3:** Run the `/pre-pr-review` skill on HEAD and record its verdict. Nothing is committed in this task.
+- [x] **Step 1:** From the repository root, run `rtk proxy make test; echo $?` and `rtk proxy make lint; echo $?`. Expected: both print `0`.
+- [x] **Step 2:** In `packages/earnest/`, run `rtk proxy uv run pytest tests/steps/test_evidence_check.py; echo $?`. Expected: `0`.
+- [x] **Step 3:** Run the `/pre-pr-review` skill on HEAD and record its verdict. Nothing is committed in this task.
 
 ## Scope paths
 
