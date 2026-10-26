@@ -146,9 +146,9 @@ def test_a_terminated_earnest_kills_the_processes_its_command_started(tmp_path):
     script = (
         "from earnest import cli, impact\n"
         f"cli._read = lambda: impact._process({command!r}, None, {{}})\n"
-        "cli.main(['plan'])\n"
+        "raise SystemExit(cli.main(['plan']))\n"
     )
-    child = subprocess.Popen([sys.executable, "-c", script], stderr=subprocess.DEVNULL)
+    child = subprocess.Popen([sys.executable, "-c", script], stderr=subprocess.PIPE, text=True)
     grandchild = None
     try:
         deadline = time.monotonic() + 30
@@ -156,7 +156,9 @@ def test_a_terminated_earnest_kills_the_processes_its_command_started(tmp_path):
             time.sleep(0.05)
         grandchild = int(pid.read_text(encoding="utf-8"))
         child.send_signal(signal.SIGTERM)
-        child.wait(timeout=10)
+        _, err = child.communicate(timeout=10)
+        assert child.returncode == 2
+        assert err == "earnest: interrupted\n"
         deadline = time.monotonic() + 5
         while _alive(grandchild) and time.monotonic() < deadline:
             time.sleep(0.05)

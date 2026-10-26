@@ -36,6 +36,17 @@ def test_main_leaves_the_callers_signal_handlers_as_it_found_them(tmp_path, monk
     capsys.readouterr()
 
 
+def test_an_interrupted_check_exits_2_with_one_line_on_stderr(monkeypatch, capsys):
+    def interrupt():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_read", interrupt)
+    assert cli.main(["check"]) == 2
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == "earnest: interrupted\n"
+
+
 def test_a_check_outside_a_work_tree_exits_2_with_one_line_on_stderr(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("LC_ALL", "C")
     monkeypatch.chdir(tmp_path)

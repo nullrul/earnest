@@ -59,6 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
     or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
+    An interrupt (Ctrl-C, SIGTERM or SIGHUP) also exits 2, after the run's cleanup.
     """
     # a SIGTERM or SIGHUP ends Python without unwinding, leaving a run's process group and temp copy behind
     # only a default handler changes: an ignored SIGHUP, as nohup sets, or a caller's own handler stays
@@ -68,6 +69,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         signal.signal(number, signal.default_int_handler)
     try:
         return _main(argv)
+    except KeyboardInterrupt:  # raised after the run's processes and temp copy are cleaned up on the way out
+        sys.stderr.write("earnest: interrupted\n")
+        return 2
     finally:  # the caller, such as a test run calling main in-process, gets its own handlers back
         for number in changed:
             signal.signal(number, signal.SIG_DFL)

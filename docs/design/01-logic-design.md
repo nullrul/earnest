@@ -1474,7 +1474,7 @@ read or written, the record is corrupt or newer, `.earnest` or the record is a s
 directory that does not exist, `--stage` is ambiguous (no intent given and
 no record or several records, or a bare slug that several route stages share) or names a
 stage that is not on the route, `--judge` finds no model it can run (see
-Runtime and permission model), `--evidence` finds no mutation tool it can run or gets no complete result from it, or a reader of stdout or stderr goes away. A stage's computed status is information and sets no exit code. Agents
+Runtime and permission model), `--evidence` finds no mutation tool it can run or gets no complete result from it, a reader of stdout or stderr goes away, or the run is interrupted (Ctrl-C, SIGTERM or SIGHUP), which prints one line, `earnest: interrupted`. A stage's computed status is information and sets no exit code. Agents
 and maintainers run `earnest check` on
 demand, and AI-DLC runs it at each gate through the `earnest` sensor, whose
 script reports `pass: true` exactly when `earnest check` exits 0, so the
