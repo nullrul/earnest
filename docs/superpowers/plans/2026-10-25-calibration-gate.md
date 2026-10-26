@@ -49,9 +49,9 @@ Row as asked, before Task 0 resolved it: `02`, Open questions, "The file format 
 
 Row as asked, before Task 0 resolved it: `01`, Open questions, "Which existing repository SC4's ten hand-written requirements come from", resolved "before milestone `calibration_gate` of `03-implementation-plan.md`".
 
-**APPROVED (user, 2026-10-26):** the 3d-pipe repository (`nullrul/apartment-twin`, same owner), from its OpenSpec specs. This supersedes the 2026-10-25 answer, which was this repository (`nullrul/earnest`) at `4762161`.
+**APPROVED (user, 2026-10-26):** the 3d-pipe repository (`nullrul/apartment-twin`), from its OpenSpec specs. This supersedes the 2026-10-25 answer, which was this repository (`nullrul/earnest`) at `4762161`.
 
-- The maintainer picks ten requirements from `openspec/specs/*/spec.md` and rewrites each as one EARS `req` item (D2). They vendor the code and tests that implement them into the fixture at a pinned 3d-pipe commit, tag them by hand, and rule on every question in `verdicts.json`. The code and tests are mostly Python.
+- The maintainer picks ten requirements from `openspec/specs/*/spec.md` and rewrites each as one EARS `req` item (D2). They vendor the code and tests that implement them into the fixture at a pinned 3d-pipe commit, tag them by hand, and rule on every question in `verdicts.json`.
 - At least three of the twenty answers should be `not-satisfied`, spread over at least three requirements. Then a judge that always answers `satisfied` matches at most seven and fails.
 - Source: `00` SC4 ("on one existing repository with ten hand-written requirements and hand-linked code and tests"), and `01` G10 ("Gate the judge on calibration against a maintainer's hand verdicts").
 
@@ -64,7 +64,6 @@ Why the 3d-pipe repository:
 Trade-off:
 
 - It publishes excerpts of a private repository in this public one; the owner approved that on 2026-10-26 (Task 1). It also costs a vendored snapshot and adapting OpenSpec prose to EARS.
-- How the snapshot is vendored and which ten requirements are chosen are set out in Task 1.
 
 **Not answerable by this plan:** the ten requirements, their tags, and the maintainer's twenty verdicts. SC4 and G10 make these hand-written, so Task 1 is the maintainer's.
 
@@ -221,8 +220,8 @@ Every spec in `openspec/specs/*/spec.md` describes Python code. Earnest's Python
 `nullrul/earnest` is public; `nullrul/apartment-twin` is private and has no licence for its own source (owner `nullrul` for both). Vendoring publishes the copied excerpts once the branch is pushed.
 
 - A vendored snapshot: it vendors only (i) the chosen requirements' text from `openspec/specs/*/spec.md`, copied verbatim into `SOURCE.md`, and (ii) the code and test files that implement them, under `packages/earnest/tests/fixtures/calibration/` with their 3d-pipe relative paths. `SOURCE.md` also names `nullrul/apartment-twin`, the pin, and the ownership note. The only change to a copied file is the maintainer's tags, so a diff against the pin, while it resolves, shows the tags alone. A file two candidates share is copied once.
-- Pin, informational only: `ef5b737ff6d8032c0ae2ae81b253127f660a8734`, on a local, unpushed 3d-pipe branch 25 commits past origin/main (`36c08c3220d780d92495a3924e0d0c48860a83e8`), which holds no `openspec/`. It may not resolve later; the vendored files, not the sha, are the record. Of the cited files only `blender.py`, `cli.py`, `ifc.py`, `index.py` and `test_index.py` differ from origin/main.
-- Vendor nothing else. Never vendor the client drawing-set PDF (not in the repo; the manifest pins it by SHA-256), `data/arkitscenes/*`, or the texture maps (`materials.json` and the CC0 maps `materials_fetch.py` caches). The rest of the repository stays out too, including `ral_classic.json`, the `demo/` web assets and SAM 3 / ComfyUI material.
+- Pin, informational only: `ef5b737ff6d8032c0ae2ae81b253127f660a8734`, on a local, unpushed 3d-pipe branch 25 commits past origin/main (`36c08c3220d780d92495a3924e0d0c48860a83e8`, which holds no `openspec/`). It may not resolve later; the vendored files, not the sha, are the record. Of the cited files only `blender.py`, `cli.py`, `ifc.py`, `index.py` and `test_index.py` differ from origin/main.
+- Vendor nothing else. Never vendor the client drawing-set PDF (not in the repo; the manifest pins it by SHA-256), `data/arkitscenes/*`, or the texture maps (`materials.json` and the CC0 maps `materials_fetch.py` caches). The rest of the repository stays out too, including `ral_classic.json`, the `demo/` web assets, and SAM 3 / ComfyUI models, weights and workflow files; a chosen candidate's own code and tests, such as `segment.py`, are vendored.
 - The tests import sibling fixture modules (`pdf_fixtures.py`, `detail_fixtures.py`, `record_fixtures.py`, `look_fixtures.py`, 3d-pipe's `conftest.py`) and the code imports sibling modules. These are not vendored, so the imports stay unresolved. The fixture's tests never run: earnest's `tests/conftest.py` sets `collect_ignore = ["fixtures"]`, and earnest only scans their text.
 
 #### Candidates for the maintainer
@@ -411,7 +410,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
 Alternates if one drops out: custom-pieces "Keep is idempotent" (spec 295-297; `keep.py` 188-195; `test_keep.py` 208-223) and drawing-set-index "Tagged plan that does not register" (spec 431-433; `index.py` 177-198; `test_index.py` 467-491, 494-504).
 
-- [ ] **Step 1:** Copy the chosen spec text, modules and tests from the pinned commit, as the vendoring decision above sets out.
+- [ ] **Step 1:** The maintainer picks ten of the fifteen candidates above. Copy their spec text, modules and tests from the pinned commit, as the vendoring decision above sets out.
 - [ ] **Step 2:** The maintainer writes ten EARS requirements in `requirements.md`, tags the code and tests, and writes `verdicts.json` with at least three `not-satisfied` answers over three requirements.
 - [ ] **Step 3:** Index the fixture as its own root, by the chain of Task 0 Step 4: `git.work_tree_files(fixture)`, `adapters.scan`, `build_index`, `structural.traced`. It gives ten requirements, all traced, and `ears.findings(index)` gives no `req-not-ears`. Do not run `uv run earnest check` from inside the fixture: `_read()` takes `repo_root(cwd)` and indexes the whole earnest repository. Commit `test: the calibration fixture`.
 

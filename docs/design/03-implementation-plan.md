@@ -272,8 +272,7 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   model is the candidate the SC4 run tests.
 - Task plan:
   [2026-10-25-calibration-gate.md](../superpowers/plans/2026-10-25-calibration-gate.md),
-  its gating answers approved by the maintainer on 2026-10-25 (answer 2 revised to 3d-pipe on
-  2026-10-26).
+  its gating answers approved by the maintainer on 2026-10-25.
 
 ### M7 `aidlc_fork`
 
