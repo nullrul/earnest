@@ -1,5 +1,6 @@
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
 
+import errno
 import json
 import os
 import signal
@@ -45,6 +46,19 @@ def test_an_interrupted_check_exits_2_with_one_line_on_stderr(monkeypatch, capsy
     out, err = capsys.readouterr()
     assert out == ""
     assert err == "earnest: interrupted\n"
+
+
+def test_an_interrupted_check_exits_2_even_when_stderr_is_gone(monkeypatch):
+    class DeadStderr:
+        def write(self, _text):
+            raise OSError(errno.EIO, "terminal hung up")
+
+    def interrupt():
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli, "_read", interrupt)
+    monkeypatch.setattr(sys, "stderr", DeadStderr())
+    assert cli.main(["check"]) == 2
 
 
 def test_a_check_outside_a_work_tree_exits_2_with_one_line_on_stderr(tmp_path, monkeypatch, capsys):

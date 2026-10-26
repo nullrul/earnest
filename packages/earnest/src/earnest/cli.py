@@ -1,6 +1,7 @@
 """Command surface: `earnest check` and `earnest plan`, which wire the scanner, the index, the checks and the plan."""
 
 import argparse
+import contextlib
 import os
 import posixpath
 import signal
@@ -70,7 +71,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return _main(argv)
     except KeyboardInterrupt:  # raised after the run's processes and temp copy are cleaned up on the way out
-        sys.stderr.write("earnest: interrupted\n")
+        with contextlib.suppress(OSError):  # a hung-up terminal or closed pipe must not turn the exit 2 into 1
+            sys.stderr.write("earnest: interrupted\n")
         return 2
     finally:  # the caller, such as a test run calling main in-process, gets its own handlers back
         for number in changed:
