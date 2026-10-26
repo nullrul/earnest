@@ -381,6 +381,26 @@ def test_the_copy_holds_the_listed_files_and_merges_mutmut_s_section_into_setup_
     assert "also_copy = \n\tdocs\n\tpytest.ini\n\tsetup.cfg\n\tsrc\n\ttests\n\tuntracked.txt\n\tweb\n" in seen["setup"]
 
 
+def test_the_merged_setup_cfg_keeps_the_case_of_other_sections_keys(files_repo, monkeypatch):
+    repo = files_repo({**EVIDENCE, "setup.cfg": "[options.package_data]\nMyPkg = *.json\n"})
+    seen = {}
+
+    def mutmut(copy):
+        seen["setup"] = (copy / "setup.cfg").read_text(encoding="utf-8")  # and returns None: timed out
+
+    stub_run(monkeypatch, mutmut=mutmut)
+    with pytest.raises(impact.EvidenceError, match="mutmut run timed out"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+    assert "MyPkg = *.json" in seen["setup"]
+
+
+def test_a_malformed_setup_cfg_exits_2_naming_it(files_repo, monkeypatch):
+    repo = files_repo({**EVIDENCE, "setup.cfg": "[tool:pytest]\naddopts = -q\naddopts = -x\n"})
+    stub_run(monkeypatch)
+    with pytest.raises(impact.EvidenceError, match=r"setup\.cfg"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+
+
 def test_a_tool_mutmut_section_in_pyproject_exits_2(files_repo, monkeypatch):
     repo = files_repo({**EVIDENCE, "pyproject.toml": "[tool.mutmut]\nsource_paths = ['src']\n"})
     stub_run(monkeypatch)
@@ -577,6 +597,9 @@ def requirement(found, name):
     return next(item for item in found.defined.values() if str(item.id) == name)
 
 
+KILLED = (mutant("src/pkg/core.py", 3, 1), mutant("src/pkg/other.py", 3, 1))  # one killed in each requirement
+
+
 def entries(repo, levels, proof):
     found = scanned(repo)
     return impact.entries(repo, found, levels, proof, impact.evidence_failed(repo, found, proof))
@@ -585,7 +608,7 @@ def entries(repo, levels, proof):
 def test_each_requirement_the_run_mutated_gets_an_entry_keyed_by_its_regions_its_tests_and_the_tool(files_repo):
     repo = files_repo(EVIDENCE)
     found = scanned(repo)
-    proof = impact.Evidence("mutmut 3.8.0", (), (mutant("src/pkg/other.py", 3, 0),))  # survives in req~u~1
+    proof = impact.Evidence("mutmut 3.8.0", (), (*KILLED, mutant("src/pkg/other.py", 3, 0)))  # survives in req~u~1
     held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, proof)
     item = requirement(found, "req~a~1")
     code = judge.region_hash(repo, judge.regions(found, item, judge.KINDS["implemented"]))
@@ -599,18 +622,26 @@ def test_only_a_judged_requirement_with_no_failure_passes_and_one_the_run_reache
     files_repo,
 ):
     repo = files_repo(EVIDENCE)
-    clean = impact.Evidence("mutmut 3.8.0", (), ())
+    clean = impact.Evidence("mutmut 3.8.0", (), KILLED)
     assert set(entries(repo, {"req~a~1": "traced", "req~u~1": "judged"}, clean)) == {"req~u~1"}
     failing = impact.Evidence("mutmut 3.8.0", ("tests/test_core.py::test_one",), ())  # so mutmut never ran
     held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, failing)
     assert {req: entry["result"] for req, entry in held.items()} == {"req~a~1": "failed"}
 
 
+def test_a_judged_requirement_passes_only_with_a_killed_mutant_in_its_impl_regions(files_repo):
+    repo = files_repo(EVIDENCE)
+    levels = {"req~a~1": "judged", "req~u~1": "judged"}
+    outside = impact.Evidence("mutmut 3.8.0", (), (mutant("src/pkg/other.py", 3, 1),))  # killed, in req~u~1 only
+    assert {req: entry["result"] for req, entry in entries(repo, levels, outside).items()} == {"req~u~1": "passed"}
+    assert entries(repo, levels, impact.Evidence("mutmut 3.8.0", (), ())) == {}
+
+
 def test_a_requirement_with_no_impl_region_of_a_mutated_file_gets_no_entry(files_repo):
     repo = files_repo(
         {**EVIDENCE, "src/pkg/other.py": "def other():\n    return 3\n", "web/u.ts": "// [impl->req~u~1]\n"}
     )
-    held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, impact.Evidence("mutmut 3.8.0", (), ()))
+    held = entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, impact.Evidence("mutmut 3.8.0", (), KILLED))
     assert set(held) == {"req~a~1"}
 
 
@@ -662,7 +693,7 @@ def test_an_entry_counts_only_under_the_key_of_the_current_work_tree_and_the_ins
 ):
     repo = files_repo(EVIDENCE)
     floor = "judged" if judged else "traced"
-    held = entries(repo, {"req~a~1": "judged"}, impact.Evidence("mutmut 3.8.0", (), ()))
+    held = entries(repo, {"req~a~1": "judged"}, impact.Evidence("mutmut 3.8.0", (), KILLED))
     assert held["req~a~1"]["result"] == "passed"
 
     def level():

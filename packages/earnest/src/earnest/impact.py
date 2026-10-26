@@ -416,6 +416,13 @@ def _copy(root: Path, copy: Path) -> Path:
     return copy
 
 
+class _CaseConfig(configparser.ConfigParser):
+    """A parser that keeps each option name's case, so a case-sensitive key such as a package name survives."""
+
+    def optionxform(self, optionstr: str) -> str:
+        return optionstr
+
+
 def _configure(copy: Path, files: Sequence[str]) -> None:
     """Merge mutmut's section into the copy's `setup.cfg`, which mutmut reads only without a `[tool.mutmut]`."""
     try:
@@ -425,8 +432,12 @@ def _configure(copy: Path, files: Sequence[str]) -> None:
     if own:
         msg = "evidence: pyproject.toml has its own [tool.mutmut], which mutmut would read instead of Earnest's"
         raise EvidenceError(msg)
-    config = configparser.ConfigParser(interpolation=None)
-    config.read(copy / "setup.cfg", encoding="utf-8")
+    config = _CaseConfig(interpolation=None)
+    try:
+        config.read(copy / "setup.cfg", encoding="utf-8")
+    except configparser.Error as error:
+        msg = f"evidence: setup.cfg cannot be read, so mutmut's section cannot be merged into it ({error})"
+        raise EvidenceError(msg) from error
     # every top-level entry, so the tests find what they need beside `src/` and `tests/`, such as a `pytest.ini`
     entries = sorted({path.name for path in copy.iterdir()} | {"setup.cfg"})
     config["mutmut"] = {"source_paths": "\n" + "\n".join(files), "also_copy": "\n" + "\n".join(entries)}
@@ -546,7 +557,7 @@ def entries(
 
     An entry's key hashes the requirement's `impl` regions and its test regions as the judge cache does, and names
     the tool. Its result is `failed` when failed, the run's `evidence_failed` findings, hold one against it, and `passed` when the run judged it
-    and mutmut ran; a requirement the run reached no verdict on, such as one not judged, gets no entry.
+    and mutmut killed a mutant on a line of its `impl` regions; a requirement the run reached no verdict on, such as one not judged, gets no entry.
 
     Raises:
         OSError: a tagged file cannot be read.
@@ -560,7 +571,7 @@ def entries(
         req = str(item.id)
         if req in against:
             result = "failed"
-        elif levels.get(req) == "judged" and not found.failing:  # with a failing test mutmut never ran
+        elif levels.get(req) == "judged" and _killed(index, item, found.mutants):  # none with a failing test
             result = "passed"
         else:
             continue
@@ -605,6 +616,16 @@ def merged(
     files = set(mutation_files(index, levels))
     reached = {str(item.id) for item in index.defined.values() if _mutated(index, item, files)}
     return {**{req: entry for req, entry in held.items() if req not in reached}, **fresh}
+
+
+def _killed(index: Index, item: Item, mutants: Iterable[Mutant]) -> bool:
+    """Return whether a mutant mutmut killed sits on a line of an `impl` region of item."""
+    code = judge.regions(index, item, judge.KINDS["implemented"])
+    return any(
+        mutant.code in _KILLED and region.path == mutant.path and region.first <= mutant.line <= region.last
+        for mutant in mutants
+        for region in code
+    )
 
 
 def _mutated(index: Index, item: Item, files: Collection[str]) -> bool:

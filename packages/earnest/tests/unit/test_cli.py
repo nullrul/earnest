@@ -1,9 +1,7 @@
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
 
-import configparser
 import json
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -559,7 +557,7 @@ def test_evidence_implies_judge_so_without_a_model_it_exits_two(fixture_repo, mo
 
 
 def recording(monkeypatch):
-    """Replace `impact._run`: the suite run writes a passing JUnit report, and mutmut an empty result per file."""
+    """Replace `impact._run`: the suite run writes a passing JUnit report; mutmut's result kills a mutant per line."""
     calls = []
 
     def fake(command, root, env):
@@ -567,16 +565,14 @@ def recording(monkeypatch):
         for part in command:
             if part.startswith("--junitxml="):
                 Path(part.partition("=")[2]).write_text("<testsuites/>", encoding="utf-8")
-        if command[1:4] == ["-m", "mutmut", "run"]:
-            config = configparser.ConfigParser(interpolation=None)
-            config.read(root / "setup.cfg")
-            for path in config["mutmut"]["source_paths"].split():
-                (root / "mutants" / path).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy(root / path, root / "mutants" / path)
-                (root / "mutants" / f"{path}.meta").write_text('{"exit_code_by_key": {}}', encoding="utf-8")
         return 0
 
+    def killed(copy, path):
+        lines = (copy / path).read_text(encoding="utf-8").count("\n") + 1
+        return [impact.Mutant(path, line, f"m.x_f__mutmut_{line}", 1) for line in range(1, lines + 1)]
+
     monkeypatch.setattr(impact, "_run", fake)
+    monkeypatch.setattr(impact, "_mutants", killed)
     return calls
 
 
@@ -605,7 +601,7 @@ def test_check_with_evidence_raises_each_judged_requirement_with_no_surviving_mu
 ):
     canned_model(monkeypatch, tmp_path)
     repo = fixture_repo("seeded-change")
-    recording(monkeypatch)  # every mutated file gives no mutant, so nothing survives
+    recording(monkeypatch)  # every mutant is killed, so nothing survives
     _, judged, _ = run(repo, monkeypatch, capsys, "check", "--judge")
     levels = sarif_run(judged)["properties"]["traceLevels"]
     assert set(levels.values()) == {"judged"}
@@ -653,7 +649,7 @@ def test_check_with_evidence_writes_each_entry_and_a_rerun_on_the_same_tree_writ
 ):
     canned_model(monkeypatch, tmp_path)
     repo = fixture_repo("seeded-change")
-    recording(monkeypatch)  # nothing survives, so each judged requirement passes
+    recording(monkeypatch)  # every mutant is killed, so each judged requirement passes
     code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
     assert code == 0, err
     first = (repo / ASSESSMENT).read_bytes()
