@@ -195,6 +195,43 @@ def test_a_terminated_earnest_exits_2_when_the_reader_of_stderr_is_gone(tmp_path
             os.kill(grandchild, signal.SIGKILL)
 
 
+def test_an_error_exit_is_2_when_the_reader_of_stderr_is_gone(tmp_path):
+    script = "import sys\nfrom earnest import cli\nraise SystemExit(cli.main(['check']))\n"
+    child = subprocess.Popen([sys.executable, "-c", script], cwd=tmp_path, stderr=subprocess.PIPE)
+    try:
+        child.stderr.close()  # long before the child has imported enough to write
+        assert child.wait(timeout=30) == 2
+    finally:
+        child.kill()
+        child.wait()
+
+
+def test_a_terminated_earnest_exits_2_when_the_reader_of_stdout_is_gone_with_bytes_unflushed(tmp_path):
+    pid = tmp_path / "pid"
+    command = ["/bin/sh", "-c", f"sleep 60 & echo $! > {pid}; wait"]
+    script = (
+        "import sys\n"
+        "from earnest import cli, impact\n"
+        f"cli._read = lambda: (sys.stdout.write('unflushed'), impact._process({command!r}, None, {{}}))\n"
+        "raise SystemExit(cli.main(['plan']))\n"
+    )
+    child = subprocess.Popen([sys.executable, "-c", script], stdout=subprocess.PIPE)
+    grandchild = None
+    try:
+        deadline = time.monotonic() + 30
+        while not (pid.exists() and pid.read_text(encoding="utf-8").strip()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        grandchild = int(pid.read_text(encoding="utf-8"))
+        child.stdout.close()
+        child.send_signal(signal.SIGTERM)
+        assert child.wait(timeout=10) == 2
+    finally:
+        child.kill()
+        child.wait()
+        if grandchild is not None and _alive(grandchild):
+            os.kill(grandchild, signal.SIGKILL)
+
+
 def _alive(pid):
     try:
         os.kill(pid, 0)

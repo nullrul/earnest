@@ -70,15 +70,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         return _main(argv)
     except KeyboardInterrupt:  # raised after the run's processes and temp copy are cleaned up on the way out
-        try:
-            sys.stderr.write("earnest: interrupted\n")
-            sys.stderr.flush()
-        except OSError:  # a hung-up terminal or closed pipe: devnull stops the shutdown flush turning exit 2 into 120
-            _quiet()
+        _say("interrupted")
         return 2
     finally:  # the caller, such as a test run calling main in-process, gets its own handlers back
         for number in changed:
             signal.signal(number, signal.SIG_DFL)
+
+
+def _say(line: str) -> None:
+    try:
+        sys.stderr.write(f"earnest: {line}\n")
+        sys.stderr.flush()
+        sys.stdout.flush()  # unflushed stdout bytes would otherwise hit a gone reader at shutdown
+    except OSError:  # a hung-up terminal or closed pipe: devnull stops the shutdown flush turning exit 2 into 120
+        _quiet()
 
 
 def _quiet() -> None:
@@ -115,7 +120,7 @@ def _main(argv: Sequence[str] | None) -> int:
         judge.JudgeError,
         impact.EvidenceError,
     ) as error:
-        sys.stderr.write(f"earnest: {error}\n")
+        _say(str(error))
         return 2
     try:
         sys.stdout.write(result.log)
