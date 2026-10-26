@@ -77,6 +77,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     finally:  # the caller, such as a test run calling main in-process, gets its own handlers back
         for number in changed:
             signal.signal(number, signal.SIG_DFL)
+        # a gone reader or dead terminal: devnull, so the shutdown flush cannot replace the exit code with 120
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except OSError:
+            _quiet()
 
 
 def _say(line: str) -> None:

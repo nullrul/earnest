@@ -206,6 +206,21 @@ def test_an_error_exit_is_2_when_the_reader_of_stderr_is_gone(tmp_path):
         child.wait()
 
 
+@pytest.mark.parametrize("gone", [("stdout",), ("stderr",), ("stdout", "stderr")], ids="-".join)
+@pytest.mark.parametrize("args", [["bogus"], [], ["--help"]], ids=["bogus", "bare", "help"])
+def test_an_argparse_exit_never_becomes_120(args, gone):
+    script = "import sys; from earnest import cli; raise SystemExit(cli.main(sys.argv[1:]))"
+    streams = {name: subprocess.PIPE if name in gone else subprocess.DEVNULL for name in ("stdout", "stderr")}
+    child = subprocess.Popen([sys.executable, "-c", script, *args], **streams)
+    try:
+        for name in gone:
+            getattr(child, name).close()  # long before the child has imported enough to write
+        assert child.wait(timeout=30) in (0, 2)
+    finally:
+        child.kill()
+        child.wait()
+
+
 def _plan_with_stdout_raising(tmp_path, raising):
     script = (
         "import errno, sys\n"
