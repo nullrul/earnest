@@ -298,9 +298,9 @@ Outside the package, `01`, `02` and `03` already record E1 and E2, and Task 1 on
 
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `plan.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_plan.py`.
 
-- [ ] **Step 1:** Write failing tests, red because Task 5's reader matches by id and revision alone: an edit to a covered region, to a covering test, or a different mutmut version each leaves the entry unmatched, so the requirement reads judged under `check --judge` and traced in `plan` and plain `check`, and its task is not done in all three.
-- [ ] **Step 2:** Implement.
-- [ ] **Step 3:** All 6 M5 scenarios pass, and the regression run is green. Commit `feat: stale evidence drops below evidenced`.
+- [x] **Step 1:** Write failing tests, red because Task 5's reader matches by id and revision alone: an edit to a covered region, to a covering test, or a different mutmut version each leaves the entry unmatched, so the requirement reads judged under `check --judge` and traced in `plan` and plain `check`, and its task is not done in all three.
+- [x] **Step 2:** Implement.
+- [x] **Step 3:** All 6 M5 scenarios pass, and the regression run is green. Commit `feat: stale evidence drops below evidenced`.
 
 ### Task 7: The full suite, lint and the pre-PR review
 

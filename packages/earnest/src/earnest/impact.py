@@ -557,7 +557,6 @@ def entries(
     for item in index.defined.values():
         if not _mutated(index, item, files):
             continue
-        code = judge.regions(index, item, judge.KINDS["implemented"])
         req = str(item.id)
         if req in against:
             result = "failed"
@@ -565,10 +564,31 @@ def entries(
             result = "passed"
         else:
             continue
-        tests = judge.region_hash(root, judge.regions(index, item, judge.KINDS["tested"]))
-        key = {"regions": judge.region_hash(root, code), "tests": tests, "tool": found.tool}
-        kept[req] = {"key": key, "result": result}
+        kept[req] = {"key": key(root, index, item, found.tool), "result": result}
     return kept
+
+
+def key(root: Path, index: Index, item: Item, name: str) -> dict[str, object]:
+    """Return item's evidence key in root's work tree: its `impl` and test regions hashed as the judge cache does.
+
+    Raises:
+        OSError: a tagged file cannot be read.
+    """
+    code = judge.region_hash(root, judge.regions(index, item, judge.KINDS["implemented"]))
+    tests = judge.region_hash(root, judge.regions(index, item, judge.KINDS["tested"]))
+    return {"regions": code, "tests": tests, "tool": name}
+
+
+def keys(root: Path, index: Index, held: Collection[str]) -> dict[str, dict[str, object]]:
+    """Return the current key of each held requirement the index defines, under the installed mutmut; none without one.
+
+    Raises:
+        OSError: a tagged file cannot be read.
+    """
+    name = tool()
+    if name is None:
+        return {}
+    return {str(item.id): key(root, index, item, name) for item in index.defined.values() if str(item.id) in held}
 
 
 def merged(
@@ -593,16 +613,25 @@ def _mutated(index: Index, item: Item, files: Collection[str]) -> bool:
     return item.id.type == "req" and any(region.path in files for region in code)
 
 
-def evidenced(levels: Mapping[str, str], held: Mapping[str, Mapping[str, object]], *, judged: bool) -> dict[str, str]:
-    """Return the levels with each requirement raised to evidenced whose entry for its id and revision is `passed`.
+def evidenced(
+    levels: Mapping[str, str],
+    held: Mapping[str, Mapping[str, object]],
+    current: Mapping[str, Mapping[str, object]],
+    *,
+    judged: bool,
+) -> dict[str, str]:
+    """Return the levels with each requirement raised to evidenced whose entry is `passed` under its current key.
 
+    current gives each requirement's key in the work tree, as `keys` does; an entry under any other key is stale.
     With a model a requirement must be judged; with none, traced, as only a judged requirement gets a `passed` entry.
     """
     floor = "judged" if judged else "traced"
-    return {
-        req: "evidenced" if level == floor and held.get(req, {}).get("result") == "passed" else level
-        for req, level in levels.items()
-    }
+
+    def counts(req: str) -> bool:
+        entry = held.get(req, {})
+        return entry.get("result") == "passed" and req in current and entry.get("key") == current[req]
+
+    return {req: "evidenced" if level == floor and counts(req) else level for req, level in levels.items()}
 
 
 def _surviving(mutants: Iterable[Mutant]) -> list[Mutant]:

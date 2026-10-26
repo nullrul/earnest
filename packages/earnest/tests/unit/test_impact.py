@@ -621,7 +621,7 @@ FAILED = {"key": {}, "result": "failed"}
 def test_with_a_model_a_judged_requirement_with_a_passed_entry_for_its_id_and_revision_is_evidenced():
     levels = {"req~a~1": "judged", "req~b~1": "judged", "req~c~1": "traced", "req~d~1": "judged", "req~e~1": "untraced"}
     entries = {"req~a~1": PASSED, "req~b~1": FAILED, "req~c~1": PASSED, "req~d~2": PASSED, "req~e~1": PASSED}
-    assert impact.evidenced(levels, entries, judged=True) == {
+    assert impact.evidenced(levels, entries, {req: {} for req in entries}, judged=True) == {
         "req~a~1": "evidenced",
         "req~b~1": "judged",
         "req~c~1": "traced",
@@ -633,7 +633,7 @@ def test_with_a_model_a_judged_requirement_with_a_passed_entry_for_its_id_and_re
 def test_with_no_model_a_traced_requirement_with_a_passed_entry_is_evidenced():
     levels = {"req~a~1": "traced", "req~b~1": "traced", "req~e~1": "untraced"}
     entries = {"req~a~1": PASSED, "req~b~1": FAILED, "req~e~1": PASSED}
-    assert impact.evidenced(levels, entries, judged=False) == {
+    assert impact.evidenced(levels, entries, {req: {} for req in entries}, judged=False) == {
         "req~a~1": "evidenced",
         "req~b~1": "traced",
         "req~e~1": "untraced",
@@ -642,6 +642,37 @@ def test_with_no_model_a_traced_requirement_with_a_passed_entry_is_evidenced():
 
 def test_each_requirement_keeps_exactly_one_level():
     levels = {"req~a~1": "judged", "req~b~1": "traced", "req~c~1": "untraced"}
-    raised = impact.evidenced(levels, dict.fromkeys(levels, PASSED), judged=True)
+    raised = impact.evidenced(levels, dict.fromkeys(levels, PASSED), {req: {} for req in levels}, judged=True)
     assert list(raised) == list(levels)
     assert all(level in reporter.LEVELS for level in raised.values())
+
+
+STALE = {
+    "code": ("src/pkg/core.py", "    return 1\n", "    return 1  # edited\n", "mutmut 3.8.0"),
+    "test": ("tests/test_core.py", "    assert one() == 1\n", "    assert one() == 1  # edited\n", "mutmut 3.8.0"),
+    "tool": ("src/pkg/core.py", "", "", "mutmut 3.9.0"),
+    "no mutmut": ("src/pkg/core.py", "", "", None),
+}
+
+
+@pytest.mark.parametrize("judged", [True, False], ids=["model", "no model"])
+@pytest.mark.parametrize("stale", list(STALE))
+def test_an_entry_counts_only_under_the_key_of_the_current_work_tree_and_the_installed_mutmut(
+    files_repo, monkeypatch, stale, judged
+):
+    repo = files_repo(EVIDENCE)
+    floor = "judged" if judged else "traced"
+    held = entries(repo, {"req~a~1": "judged"}, impact.Evidence("mutmut 3.8.0", (), ()))
+    assert held["req~a~1"]["result"] == "passed"
+
+    def level():
+        found = scanned(repo)
+        return impact.evidenced({"req~a~1": floor}, held, impact.keys(repo, found, held), judged=judged)["req~a~1"]
+
+    monkeypatch.setattr(impact, "tool", lambda: "mutmut 3.8.0")
+    assert level() == "evidenced"  # the key the run wrote matches the tree it ran on
+    path, old, new, name = STALE[stale]
+    text = (repo / path).read_text(encoding="utf-8")
+    (repo / path).write_text(text.replace(old, new, 1) if old else text, encoding="utf-8")
+    monkeypatch.setattr(impact, "tool", lambda: name)
+    assert level() == floor

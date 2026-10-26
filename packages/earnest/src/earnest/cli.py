@@ -124,7 +124,8 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
     proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
     failed = impact.evidence_failed(world.root, index, proof) if proof is not None else []
     entries = _entries(world, index, levels, proof, failed)
-    levels = impact.evidenced(levels, entries, judged=model is not None)
+    current = impact.keys(world.root, index, entries)  # a held key counts only when the tree still gives it
+    levels = impact.evidenced(levels, entries, current, judged=model is not None)
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
     frozen = plan.frozen_bodies(world.record.bodies, built)

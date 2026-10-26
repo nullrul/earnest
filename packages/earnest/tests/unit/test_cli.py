@@ -10,7 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from earnest import cli, impact, judge
+from earnest import adapters, cli, git, impact, judge
+from earnest.index import build_index
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
 
 
@@ -702,10 +703,12 @@ def test_a_failing_tagged_test_fails_its_requirement_drops_the_unreached_and_kee
 def test_a_check_without_evidence_reads_the_slot_and_leaves_it_as_it_was(fixture_repo, monkeypatch, capsys, tmp_path):
     canned_model(monkeypatch, tmp_path)
     repo = fixture_repo("seeded-change")
-    seed_evidence(repo, {"req~rate-limit~1": STALE})  # the key is not compared until stale keys are
+    index = build_index(adapters.scan(repo, git.work_tree_files(repo)))
+    entry = {**STALE, "key": impact.keys(repo, index, ["req~rate-limit~1"])["req~rate-limit~1"]}  # the tree's key
+    seed_evidence(repo, {"req~rate-limit~1": entry})
     _, out, _ = run(repo, monkeypatch, capsys, "check")
     assert sarif_run(out)["properties"]["traceLevels"]["req~rate-limit~1"] == "evidenced"
     _, out, _ = run(repo, monkeypatch, capsys, "check", "--judge")
     levels = sarif_run(out)["properties"]["traceLevels"]
     assert (levels["req~rate-limit~1"], levels["req~audit-log~1"]) == ("evidenced", "judged")
-    assert held_evidence(repo) == {"req~rate-limit~1": STALE}
+    assert held_evidence(repo) == {"req~rate-limit~1": entry}
