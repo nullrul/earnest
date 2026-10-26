@@ -81,11 +81,12 @@ _OVERLAYS = (
 
 
 def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:
-    """Return a copytree ignore that leaves out the given paths, relative to root, of the fixture at root."""
+    """Return a copytree ignore that leaves out the given paths, relative to root, of the fixture at root, and any bytecode."""
+    bytecode = shutil.ignore_patterns("__pycache__", "*.pyc")
 
     def ignore(directory: str, names: list[str]) -> list[str]:
         here = Path(directory).relative_to(root)
-        return [name for name in names if (here / name).as_posix() in paths]
+        return [name for name in names if (here / name).as_posix() in paths] + list(bytecode(directory, names))
 
     return ignore
 
