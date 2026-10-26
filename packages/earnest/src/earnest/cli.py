@@ -61,6 +61,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
     An interrupt (Ctrl-C, SIGTERM or SIGHUP) also exits 2, after the run's cleanup.
     """
+    if sys.stdout is None or sys.stderr is None:  # Python leaves a closed fd 1 or 2 as None, with nowhere to write
+        return 2
     # a SIGTERM or SIGHUP ends Python without unwinding, leaving a run's process group and temp copy behind
     # only a default handler changes: an ignored SIGHUP, as nohup sets, or a caller's own handler stays
     numbers = [getattr(signal, name) for name in ("SIGTERM", "SIGHUP") if hasattr(signal, name)]
@@ -127,8 +129,11 @@ def _main(argv: Sequence[str] | None) -> int:
         sys.stdout.flush()
         sys.stderr.write(result.notes + result.summary)
         sys.stderr.flush()
-    except OSError:  # a reader went away, as `head` does, or a write failed (disk full, hung-up terminal): send what is left to devnull, so exit stays quiet
+    except BrokenPipeError:  # a reader went away, as `head` does: stay silent and send what is left to devnull
         _quiet()
+        return 2
+    except OSError as error:  # a write failed (disk full, I/O error): say why; _say goes quiet if stderr is dead too
+        _say(f"cannot write the result: {error}")
         return 2
     return result.code
 

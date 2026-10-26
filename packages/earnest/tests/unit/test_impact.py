@@ -206,13 +206,13 @@ def test_an_error_exit_is_2_when_the_reader_of_stderr_is_gone(tmp_path):
         child.wait()
 
 
-def test_a_failed_write_of_the_log_exits_2_not_1(tmp_path):
+def _plan_with_stdout_raising(tmp_path, raising):
     script = (
         "import errno, sys\n"
         "from earnest import cli\n"
         "class Failing:\n"
         "    def write(self, text):\n"
-        "        raise OSError(errno.EIO, 'Input/output error')\n"
+        f"        raise {raising}\n"
         "    def flush(self):\n"
         "        pass\n"
         "    def fileno(self):\n"
@@ -222,8 +222,32 @@ def test_a_failed_write_of_the_log_exits_2_not_1(tmp_path):
         "sys.stdout = Failing()\n"
         "raise SystemExit(cli.main(['plan']))\n"
     )
-    child = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-c", script], cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False
+    )
+
+
+def test_a_failed_write_of_the_log_exits_2_and_says_why(tmp_path):
+    child = _plan_with_stdout_raising(tmp_path, "OSError(errno.ENOSPC, 'No space left on device')")
+    assert child.returncode == 2
+    assert b"earnest: cannot write the result: [Errno 28] No space left on device" in child.stderr
+    assert b"Traceback" not in child.stderr
+
+
+def test_a_gone_reader_of_the_log_exits_2_and_stays_silent(tmp_path):
+    child = _plan_with_stdout_raising(tmp_path, "BrokenPipeError(errno.EPIPE, 'Broken pipe')")
+    assert child.returncode == 2
+    assert child.stderr == b""
+
+
+@pytest.mark.parametrize("closed", ["1", "2"])
+def test_a_closed_standard_stream_exits_2_not_a_traceback(closed):
+    script = "from earnest import cli; raise SystemExit(cli.main(['plan']))"
+    child = subprocess.run(
+        ["/bin/sh", "-c", f'exec "$0" -c "$1" {closed}>&-', sys.executable, script],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
     )
     assert child.returncode == 2
     assert b"Traceback" not in child.stderr
