@@ -1,8 +1,10 @@
 """Tests for earnest.impact: the coverage map that a stage check takes, and the impact it selects."""
 
 import json
+import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -122,6 +124,26 @@ def test_the_map_run_reads_no_stdin_and_has_a_generous_timeout(files_repo, tmp_p
         {**PROJECT, "tests/test_stdin.py": "import sys\n\n\ndef test_stdin():\n    assert sys.stdin.read() == ''\n"}
     )
     assert impact.read_map(repo, taken(repo))[("src/pkg/core.py", 2)]
+
+
+def test_a_timed_out_run_kills_the_processes_its_command_started(tmp_path, monkeypatch):
+    monkeypatch.setattr(impact, "MAP_TIMEOUT", 0.5)
+    pid = tmp_path / "pid"
+    command = ["/bin/sh", "-c", f"sleep 60 & echo $! > {pid}; wait"]
+    assert impact._process(command, tmp_path, {}) is None
+    grandchild = int(pid.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while _alive(grandchild) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _alive(grandchild)
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def test_the_map_run_turns_off_the_repositorys_log_file(files_repo):
@@ -432,6 +454,14 @@ def test_a_tool_mutmut_section_in_pyproject_exits_2(files_repo, monkeypatch):
         impact.evidence(repo, scanned(repo), LEVELS)
 
 
+def test_a_mutmut_section_in_setup_cfg_exits_2(files_repo, monkeypatch):
+    repo = files_repo({**EVIDENCE, "setup.cfg": "[mutmut]\nsource_paths = src\n"})
+    calls = stub_run(monkeypatch)
+    with pytest.raises(impact.EvidenceError, match=r"setup\.cfg has its own \[mutmut\]"):
+        impact.evidence(repo, scanned(repo), LEVELS)
+    assert calls == []
+
+
 FAILING = (
     "<testsuites><testsuite>"
     '<testcase file="tests/test_core.py" classname="tests.test_core" name="test_one"><failure message="x"/></testcase>'
@@ -515,6 +545,15 @@ def test_mutmut_missing_or_of_another_major_exits_2(files_repo, monkeypatch, ver
     monkeypatch.setattr(impact, "version", version)
     with pytest.raises(impact.EvidenceError, match=message):
         impact.evidence(repo, scanned(repo), LEVELS)
+    assert calls == []
+
+
+def test_a_python_that_does_not_exist_exits_2_naming_mutmut_missing_under_it(files_repo, monkeypatch, tmp_path):
+    repo = files_repo(EVIDENCE)
+    calls = stub_run(monkeypatch)
+    python = str(tmp_path / "no-such-python")
+    with pytest.raises(impact.EvidenceError, match=re.escape(f"mutmut under {python} is missing")):
+        impact.evidence(repo, scanned(repo), LEVELS, python=python)
     assert calls == []
 
 
@@ -659,6 +698,12 @@ def test_a_judged_requirement_passes_only_with_a_killed_mutant_in_its_impl_regio
     outside = impact.Evidence("mutmut 3.8.0", (), (mutant("src/pkg/other.py", 3, 1),))  # killed, in req~u~1 only
     assert {req: entry["result"] for req, entry in entries(repo, levels, outside).items()} == {"req~u~1": "passed"}
     assert entries(repo, levels, impact.Evidence("mutmut 3.8.0", (), ())) == {}
+
+
+def test_a_skipped_mutant_is_no_kill(files_repo):
+    repo = files_repo(EVIDENCE)
+    skipped = impact.Evidence("mutmut 3.8.0", (), (mutant("src/pkg/core.py", 3, 34),))
+    assert entries(repo, {"req~a~1": "judged", "req~u~1": "judged"}, skipped) == {}
 
 
 def test_a_requirement_with_no_impl_region_of_a_mutated_file_gets_no_entry(files_repo):

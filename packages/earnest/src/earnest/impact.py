@@ -2,10 +2,12 @@
 
 import ast
 import configparser
+import contextlib
 import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,7 +41,8 @@ _CLICK = "\u01c1"  # mutmut's separator of class and method in a mutant's name (
 _VERSION = "import importlib.metadata as m; print(m.version('mutmut'))"
 # mutmut 3.8's `status_by_exit_code`, read once: no test killed the mutant, or a test or the type check stopped it
 _SURVIVING = frozenset({0, 5, 33})  # survived, no tests
-_KILLED = frozenset({1, 3, 36, 24, -24, 152, 255, 37, 34})  # killed, timeout, caught by type check; skipped: nothing
+_KILLED = frozenset({1, 3, 36, 24, -24, 152, 255, 37})  # killed, timeout, caught by type check
+_SKIPPED = frozenset({34})  # skipped: neither a survivor nor a kill
 _INCOMPLETE = {-9: "segfault", -11: "segfault", 35: "suspicious", 2: "interrupted", None: "not checked"}
 
 
@@ -128,13 +131,30 @@ def _run(command: list[str], root: Path, env: Mapping[str, str]) -> int | None:
 def _process(
     command: list[str], root: Path | None, env: Mapping[str, str]
 ) -> subprocess.CompletedProcess[bytes] | None:
-    """Run command with no stdin, its output captured, for at most `MAP_TIMEOUT` seconds; None when it timed out."""
-    try:
-        return subprocess.run(  # noqa: S603
-            command, cwd=root, env=env, stdin=subprocess.DEVNULL, capture_output=True, check=False, timeout=MAP_TIMEOUT
-        )
-    except subprocess.TimeoutExpired:
-        return None
+    """Run command with no stdin, its output captured, for at most `MAP_TIMEOUT` seconds; None when it timed out.
+
+    The command runs in its own session, so a timeout or an interrupt kills its whole process group, such as the
+    workers mutmut forks, not the direct child alone.
+    """
+    with subprocess.Popen(  # noqa: S603
+        command,
+        cwd=root,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    ) as child:
+        try:
+            out, err = child.communicate(timeout=MAP_TIMEOUT)
+        except BaseException as error:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(child.pid, signal.SIGKILL)
+            child.wait()
+            if isinstance(error, subprocess.TimeoutExpired):
+                return None
+            raise
+    return subprocess.CompletedProcess(command, child.returncode, out, err)
 
 
 def read_map(root: Path, commit: str) -> CoverageMap | None:
@@ -370,7 +390,7 @@ def evidence(root: Path, index: Index, levels: Mapping[str, str], python: str = 
 
     Raises:
         EvidenceError: mutmut is missing, of another major, or of another version under python; the copy's
-            `pyproject.toml` has its own `[tool.mutmut]`; an untagged test fails; or a run times out or gives no result.
+            `pyproject.toml` has its own `[tool.mutmut]` or its `setup.cfg` its own `[mutmut]`; an untagged test fails; or a run times out or gives no result.
         OSError: the copy cannot be written.
     """
     name = _tool(python)
@@ -448,6 +468,9 @@ def _configure(copy: Path, files: Sequence[str]) -> None:
     except (configparser.Error, UnicodeDecodeError) as error:
         msg = f"evidence: setup.cfg cannot be read, so mutmut's section cannot be merged into it ({error})"
         raise EvidenceError(msg) from error
+    if config.has_section("mutmut"):
+        msg = "evidence: setup.cfg has its own [mutmut], which Earnest's section would replace"
+        raise EvidenceError(msg)
     # every top-level entry, so the tests find what they need beside `src/` and `tests/`, such as a `pytest.ini`
     entries = sorted({path.name for path in copy.iterdir()} | {"setup.cfg"})
     config["mutmut"] = {"source_paths": "\n" + "\n".join(files), "also_copy": "\n" + "\n".join(entries)}
@@ -670,7 +693,7 @@ def _surviving(mutants: Iterable[Mutant]) -> list[Mutant]:
     for mutant in mutants:
         if mutant.code in _SURVIVING:
             kept.append(mutant)
-        elif mutant.code not in _KILLED:
+        elif mutant.code not in _KILLED | _SKIPPED:
             status = _INCOMPLETE.get(mutant.code, f"the exit code {mutant.code}, which mutmut does not list")
             msg = (
                 f"evidence: mutmut left {mutant.key} at {mutant.path}:{mutant.line} {status}, so its run is incomplete"

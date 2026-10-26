@@ -1318,8 +1318,8 @@ def _layers(run: Run | None) -> tuple[list[str], str | None, str | None]:
 
     The evidence layer runs only after the judge, as `--evidence` implies `--judge`.
     """
-    if run is None or run.model is None:
-        return reporter.layers(run), None, None
+    if run is None:
+        return ["trace"], None, None
     return reporter.layers(run), run.model, run.prompt
 
 
