@@ -127,7 +127,7 @@ def _main(argv: Sequence[str] | None) -> int:
         sys.stdout.flush()
         sys.stderr.write(result.notes + result.summary)
         sys.stderr.flush()
-    except BrokenPipeError:  # a reader went away, as `head` does: send what is left to devnull, so exit stays quiet
+    except OSError:  # a reader went away, as `head` does, or a write failed (disk full, hung-up terminal): send what is left to devnull, so exit stays quiet
         _quiet()
         return 2
     return result.code

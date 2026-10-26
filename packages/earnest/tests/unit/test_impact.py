@@ -206,6 +206,29 @@ def test_an_error_exit_is_2_when_the_reader_of_stderr_is_gone(tmp_path):
         child.wait()
 
 
+def test_a_failed_write_of_the_log_exits_2_not_1(tmp_path):
+    script = (
+        "import errno, sys\n"
+        "from earnest import cli\n"
+        "class Failing:\n"
+        "    def write(self, text):\n"
+        "        raise OSError(errno.EIO, 'Input/output error')\n"
+        "    def flush(self):\n"
+        "        pass\n"
+        "    def fileno(self):\n"
+        "        return 1\n"
+        "cli._read = lambda: None\n"
+        "cli._plan = lambda world: cli._Result(log='log', summary='summary', code=0)\n"
+        "sys.stdout = Failing()\n"
+        "raise SystemExit(cli.main(['plan']))\n"
+    )
+    child = subprocess.run(
+        [sys.executable, "-c", script], cwd=tmp_path, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=False
+    )
+    assert child.returncode == 2
+    assert b"Traceback" not in child.stderr
+
+
 def test_a_terminated_earnest_exits_2_when_the_reader_of_stdout_is_gone_with_bytes_unflushed(tmp_path):
     pid = tmp_path / "pid"
     command = ["/bin/sh", "-c", f"sleep 60 & echo $! > {pid}; wait"]
