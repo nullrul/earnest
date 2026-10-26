@@ -470,6 +470,11 @@ def test_an_unparsable_test_file_is_read_by_its_lines(tmp_path):
     assert tagged_in(tmp_path, text) == ["tests/test_n.py::TestU::test_one", "tests/test_n.py::test_two"]
 
 
+def test_a_test_file_too_deep_for_the_parser_is_read_by_its_lines(tmp_path):
+    text = "# [utest->req~a~1]\ndef test_ok():\n    pass\n\nBIG = " + " + ".join(["1"] * 10000) + "\n"
+    assert tagged_in(tmp_path, text) == ["tests/test_n.py::test_ok"]
+
+
 def test_a_deleted_file_selects_the_tests_that_covered_its_lines_and_degrades_the_rest_at_its_line_1(tmp_path):
     gone = {("src/gone.py", 2): ("tests/test_m.py::test_a",)}
     found = selected(tmp_path, {"src/gone.py": (Hunk(1, 3, 0, 0),)}, gone)

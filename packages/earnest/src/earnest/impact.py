@@ -290,9 +290,10 @@ def _node_ids(root: Path, path: str, first: int, last: int) -> list[str]:
         text = (root / path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return []
+    # A file ast cannot read, which pytest cannot import either: the line scan still names its tests.
     try:
         tree = ast.parse(text)
-    except (SyntaxError, ValueError):  # pytest cannot import it either; the line scan still names its tests
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
         return _scanned_ids(path, text.split("\n"), first, last)
     found: list[str] = []
     for node in tree.body:
