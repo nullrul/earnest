@@ -1,6 +1,6 @@
 # M6 `calibration_gate` Implementation Plan
 
-Status: gating answers approved; execution starts once the maintainer supplies Task 1's fixture. The maintainer approved the three gating answers and the output contract on 2026-10-25 and revised answer 2 (the fixture source) on 2026-10-26 and approved vendoring the 3d-pipe excerpts on 2026-10-26, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
+Status: gating answers approved; execution starts once the maintainer supplies Task 1's fixture. The maintainer approved the three gating answers and the output contract on 2026-10-25, and on 2026-10-26 revised answer 2 (the fixture source) and approved vendoring the 3d-pipe excerpts, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -64,7 +64,7 @@ Why the 3d-pipe repository:
 Trade-off:
 
 - It publishes excerpts of a private repository in this public one; the owner approved that on 2026-10-26 (Task 1). It also costs a vendored snapshot and adapting OpenSpec prose to EARS.
-- How the snapshot is vendored and which ten requirements are chosen are set out in Task 1: the vendoring is approved and the ten requirements are the maintainer's choice.
+- How the snapshot is vendored and which ten requirements are chosen are set out in Task 1.
 
 **Not answerable by this plan:** the ten requirements, their tags, and the maintainer's twenty verdicts. SC4 and G10 make these hand-written, so Task 1 is the maintainer's.
 
@@ -167,6 +167,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | --- | --- | --- |
 | `tests/fixtures/calibration/requirements.md` | the ten `req` items | 1 |
 | `tests/fixtures/calibration/<copied src and tests>` | the hand-tagged code and tests from the pinned commit | 1 |
+| `tests/fixtures/calibration/SOURCE.md` | the chosen requirements' spec text, verbatim; the source repository, the pin and the ownership note | 1 |
 | `tests/fixtures/calibration/verdicts.json` | the maintainer's twenty answers | 1 |
 | `tests/fixtures/calibration/stub-pass.json`, `stub-fail.json` | `verdicts.json` with results flipped on two, then three, requirements | 2 |
 | `tests/conftest.py` | the two stubs added to `_OVERLAYS`; `verdicts_file`, `model_id`, `prompt_hash` and the `stub_judge` step moved here from `test_judge_check.py` | 2 |
@@ -197,7 +198,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 **Files:** Create `docs/superpowers/plans/2026-10-25-calibration-gate.md`; Modify `docs/design/01-logic-design.md`, `docs/design/02-structural-design.md`, `docs/design/03-implementation-plan.md`, `docs/design/04-bdd-test-plan.md`.
 
-- [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25).
+- [x] **Step 1:** Replace each PROPOSED answer with the maintainer's decision. Done: all four APPROVED (2026-10-25; answer 2 revised 2026-10-26).
 - [x] **Step 2:** Write the M6 section of `04`: the feature, the fixture, the readings, and the five scenario titles, marked PROPOSED.
 - [x] **Step 3:** Resolve the three rows in `01` and `02`, add answers 1 and 4 to `01` (UC8 and the Command surface's exit-code paragraph), name `earnest calibrate` in `01`'s provider sentence and the judge's whole-record exception in `02`, and link this plan from M6's entry in `03`. Run `LINT_FILE=<path> make lint-file` on each file. Committed, as rebased onto `0a30de5`, as `ae14d2e` (the plan), `de3271b` (approvals, `04`, rows, link) and the checker-fix commits `3c8e37d`, `0b80f04`, `b727ee0` and `d128133`, the wording commit `dee9be9`, and the pre-PR review fixes `52a8621`, `8c9d571`, `84eed86` and `5153cde`, the checker fixes `e6f4852`, the fixture-copy fix `bc26d79`, its review fix `62f78e1`, the end-to-end tests `a5e0859`, and their review fix `fcc2667`.
 - [x] **Step 4:** Check that the index builds with a subdirectory as its root. Result at `fcc2667`, after the rebase onto `0a30de5`: `git.work_tree_files` on `tests/fixtures/seeded-change` lists 27 files relative to it (22 before M5 added its `evidence` overlays), and `adapters.scan`, `build_index` and `structural.traced` give 3 requirements, 3 traced. On `tests/fixtures/broken-links` they list 8 files and give 4 requirements, 2 traced. `earnest check` run from `packages/earnest/` writes SARIF byte-identical to a run from the repository root.
@@ -207,7 +208,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 **Files:** Create everything under `packages/earnest/tests/fixtures/calibration/` except the two stubs.
 
-This task is the maintainer's: SC4 and G10 make the requirements and the verdicts hand-written. An agent may copy the chosen files from the pinned commit, and nothing else.
+This task is the maintainer's: SC4 and G10 make the requirements and the verdicts hand-written. An agent may copy the chosen files from the pinned commit and write `SOURCE.md`, as set out below, and nothing else.
 
 #### Adapter finding
 
@@ -217,12 +218,12 @@ Every spec in `openspec/specs/*/spec.md` describes Python code. Earnest's Python
 
 **APPROVED (user, 2026-10-26):**
 
-`nullrul/earnest` is public; `nullrul/apartment-twin` is private and has no licence for its own source (owner `nullrul` for both). Vendoring publishes the copied excerpts once the branch is pushed. The owner approved publishing them.
+`nullrul/earnest` is public; `nullrul/apartment-twin` is private and has no licence for its own source (owner `nullrul` for both). Vendoring publishes the copied excerpts once the branch is pushed.
 
 - A vendored snapshot: it vendors only (i) the chosen requirements' text from `openspec/specs/*/spec.md`, copied verbatim into `SOURCE.md`, and (ii) the code and test files that implement them, under `packages/earnest/tests/fixtures/calibration/` with their 3d-pipe relative paths. `SOURCE.md` also names `nullrul/apartment-twin`, the pin, and the ownership note. The only change to a copied file is the maintainer's tags, so a diff against the pin shows the tags alone. A file two candidates share is copied once. The vendored files are the record.
-- Pin, informational only: `ef5b737ff6d8032c0ae2ae81b253127f660a8734`, on a local, unpushed 3d-pipe branch 25 commits past origin/main (`36c08c3220d780d92495a3924e0d0c48860a83e8`), which holds no `openspec/`. It may not resolve later; the vendored files, not the sha, are the record. Of the cited files only `blender.py`, `ifc.py`, `index.py` and `test_index.py` differ from origin/main.
+- Pin, informational only: `ef5b737ff6d8032c0ae2ae81b253127f660a8734`, on a local, unpushed 3d-pipe branch 25 commits past origin/main (`36c08c3220d780d92495a3924e0d0c48860a83e8`), which holds no `openspec/`. It may not resolve later; the vendored files, not the sha, are the record. Of the cited files only `blender.py`, `cli.py`, `ifc.py`, `index.py` and `test_index.py` differ from origin/main.
 - Vendor nothing else. Never vendor the client drawing-set PDF (not in the repo; the manifest pins it by SHA-256), `data/arkitscenes/*`, or the texture maps (`materials.json` and the CC0 maps `materials_fetch.py` caches). The rest of the repository stays out too, including `ral_classic.json`, the `demo/` web assets and SAM 3 / ComfyUI material.
-- Tests import sibling fixture modules (`pdf_fixtures.py`, `detail_fixtures.py`, `record_fixtures.py`, `look_fixtures.py`, `conftest.py`), and the code imports sibling modules. pytest skips them (`collect_ignore` in `tests/conftest.py`), and earnest only scans their text.
+- The tests import sibling fixture modules (`pdf_fixtures.py`, `detail_fixtures.py`, `record_fixtures.py`, `look_fixtures.py`, 3d-pipe's `conftest.py`) and the code imports sibling modules. These are not vendored, so the imports stay unresolved. The fixture's tests never run: earnest's `tests/conftest.py` sets `collect_ignore = ["fixtures"]`, and earnest only scans their text.
 
 #### Candidates for the maintainer
 
@@ -344,9 +345,9 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
     When a view needs segmenting and ComfyUI does not answer, `segment` SHALL stop with `blocked: comfyui unreachable (make comfy-tunnel)` and exit 2, and SHALL NOT start a pod or ComfyUI itself. A failure of SAM 3 once ComfyUI answers SHALL be reported as a usage error.
     ```
 
-    - Code: `packages/blueprint/src/blueprint/segment.py` 64 (`_UNREACHABLE`), 157-195 (`segment`, ComfyUI probe and error mapping at 183-194). The change from `Blocked` to exit 2 happens in `packages/blueprint/src/blueprint/cli.py` 48-80 (`except Blocked` at 75), which the fixture would vendor with it.
+    - Code: `packages/blueprint/src/blueprint/segment.py` 64 (`_UNREACHABLE`), 157-195 (`segment`, ComfyUI probe and error mapping at 183-194). The change from `Blocked` to exit 2 happens in `packages/blueprint/src/blueprint/cli.py` 48-77 (`except Blocked` at 75), which the fixture would vendor with it.
     - Test: `packages/blueprint/tests/test_segment.py` 307-332 `test_segment_blocks_without_comfyui`.
-    - Vendor: 659 lines.
+    - Vendor: 736 lines.
 
 11. inspection-cameras, `openspec/specs/inspection-cameras/spec.md` lines 152-154, "Compare rejects stale or mismatched inputs"
 
