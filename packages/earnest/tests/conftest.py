@@ -81,11 +81,12 @@ _OVERLAYS = (
 
 
 # stray bytecode in a fixture would change a commit sha, so no copy or file list takes it in
-_BYTECODE = shutil.ignore_patterns("__pycache__", "*.pyc")
-
-
 def _is_bytecode(path: Path) -> bool:
     return "__pycache__" in path.parts or path.suffix == ".pyc"
+
+
+def _bytecode(directory: str, names: list[str]) -> list[str]:
+    return [name for name in names if _is_bytecode(Path(name))]
 
 
 def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]:
@@ -94,7 +95,7 @@ def _leave_out(root: Path, *paths: str) -> Callable[[str, list[str]], list[str]]
     def ignore(directory: str, names: list[str]) -> list[str]:
         here = Path(directory).relative_to(root)
         left = {name for name in names if (here / name).as_posix() in paths}
-        return list(left | set(_BYTECODE(directory, names)))
+        return list(left | set(_bytecode(directory, names)))
 
     return ignore
 
@@ -119,7 +120,7 @@ def units_repo(tmp_path: Path) -> Callable[[], Path]:
         source = FIXTURES / "seeded-change"
         repo = tmp_path / "seeded-change"
         shutil.copytree(source, repo, ignore=_leave_out(source, *_OVERLAYS, RECORD))
-        shutil.copytree(source / "units" / "aidlc", repo / "aidlc", ignore=_BYTECODE, dirs_exist_ok=True)
+        shutil.copytree(source / "units" / "aidlc", repo / "aidlc", ignore=_bytecode, dirs_exist_ok=True)
         return _commit(repo)
 
     return build
@@ -146,7 +147,7 @@ def commit_overlay() -> Callable[[Path, str, str], Path]:
         overlay = FIXTURES / name / "change"
         files = _overlay_files(name, "change")
         _git(repo, "checkout", "-q", "-b", branch)
-        shutil.copytree(overlay, repo, ignore=_BYTECODE, dirs_exist_ok=True)
+        shutil.copytree(overlay, repo, ignore=_bytecode, dirs_exist_ok=True)
         _git(repo, "add", "--", *files)
         _git(repo, "commit", "-q", "--no-verify", "-m", "change")
         return repo
@@ -164,7 +165,7 @@ def write_overlays(repo: Path, name: str, *overlays: str) -> list[str]:
     """Copy a fixture's overlays into repo's work tree, in order, and return the paths they write."""
     written: list[str] = []
     for overlay in overlays:
-        shutil.copytree(FIXTURES / name / overlay, repo, ignore=_BYTECODE, dirs_exist_ok=True)
+        shutil.copytree(FIXTURES / name / overlay, repo, ignore=_bytecode, dirs_exist_ok=True)
         written.extend(_overlay_files(name, overlay))
     return written
 

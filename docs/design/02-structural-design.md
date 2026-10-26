@@ -378,7 +378,8 @@ its line says "Owns", and each such rule has exactly one owner.
   markers that ruff's `INP` rule asks for, which also keep test module names
   unique across tiers.
 - `conftest.py`: shared fixtures and the steps two or more features share. It
-  copies a fixture's files, less its `change/`, `task/` and `units/` overlays,
+  copies a fixture's files, less its `change/`, `task/` and `units/` overlays
+  and any bytecode,
   into `tmp_path` and commits them with `git` as a base commit on `main`, and a
   separate step commits the `change/` overlay on a second branch, because the
   record must be written between the two commits. An M3 step commits the
@@ -389,6 +390,7 @@ its line says "Owns", and each such rule has exactly one owner.
 - `sarif.py`: the plain helpers shared by the step modules and the unit and
   integration tests.
 - `unit/test_<module>.py`: one test module per module of `src/earnest/`.
+- `unit/test_conftest.py`: tests for the fixture builders in `conftest.py`.
 - `unit/adapters/test_<language>.py`: one per host adapter.
 - `integration/test_<flow>.py`: two or more modules wired over a fixture
   repository, with real files and `git`.
