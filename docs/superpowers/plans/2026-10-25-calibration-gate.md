@@ -344,7 +344,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
     When a view needs segmenting and ComfyUI does not answer, `segment` SHALL stop with `blocked: comfyui unreachable (make comfy-tunnel)` and exit 2, and SHALL NOT start a pod or ComfyUI itself. A failure of SAM 3 once ComfyUI answers SHALL be reported as a usage error.
     ```
 
-    - Code: `packages/blueprint/src/blueprint/segment.py` 64 (`_UNREACHABLE`), 157-195 (`segment`, ComfyUI probe and error mapping at 183-194). The change from `Blocked` to exit 2 happens in `packages/blueprint/src/blueprint/cli.py` 48-77 (`except Blocked` at 75), which the fixture would vendor with it.
+    - Code: `packages/blueprint/src/blueprint/segment.py` 64 (`_UNREACHABLE`), 157-195 (`segment`, ComfyUI probe and error mapping at 183-194). The change from `Blocked` to exit 2 happens in `packages/blueprint/src/blueprint/cli.py` 48-77 (`except Blocked` at 75), which the fixture vendors with it.
     - Test: `packages/blueprint/tests/test_segment.py` 307-332 `test_segment_blocks_without_comfyui`.
     - Vendor: 736 lines.
 
@@ -410,7 +410,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
 Alternates if one drops out: custom-pieces "Keep is idempotent" (spec 295-297; `keep.py` 188-195; `test_keep.py` 208-223) and drawing-set-index "Tagged plan that does not register" (spec 431-433; `index.py` 177-198; `test_index.py` 467-491, 494-504).
 
-- [ ] **Step 1:** The maintainer picks ten of the fifteen candidates above. Copy their spec text, modules and tests from the pinned commit, as the vendoring decision above sets out. Before committing, grep the copied files for 64-hex-digit hashes (the drawing set's SHA-256 among them), client or project names, absolute local paths and hostnames or URLs; on any hit, stop and ask the owner whether to redact it or drop the candidate.
+- [ ] **Step 1:** The maintainer picks ten of the fifteen candidates above. Copy their spec text, modules and tests from the pinned commit, as the vendoring decision above sets out. Before committing, grep the copied files for 64-hex-digit hashes (the drawing set's SHA-256 among them), API keys or tokens, absolute local paths, hostnames or URLs, and the client and project names the owner supplies for this scan. On any hit, stop and ask the owner whether to redact it or drop the candidate.
 - [ ] **Step 2:** The maintainer writes ten EARS requirements in `requirements.md`, tags the code and tests, and writes `verdicts.json` with at least three `not-satisfied` answers over three requirements.
 - [ ] **Step 3:** Index the fixture as its own root, by the chain of Task 0 Step 4: `git.work_tree_files(fixture)`, `adapters.scan`, `build_index`, `structural.traced`. It gives ten requirements, all traced, and `ears.findings(index)` gives no `req-not-ears`. Do not run `uv run earnest check` from inside the fixture: `_read()` takes `repo_root(cwd)` and indexes the whole earnest repository. Commit `test: the calibration fixture`.
 
