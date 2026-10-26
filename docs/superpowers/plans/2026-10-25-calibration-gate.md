@@ -1,6 +1,6 @@
 # M6 `calibration_gate` Implementation Plan
 
-Status: gating answers approved; execution starts once the maintainer supplies Task 1's fixture. The maintainer approved the three gating answers and the output contract on 2026-10-25 and revised answer 2 (the fixture source) on 2026-10-26, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
+Status: gating answers approved; execution starts once the maintainer supplies Task 1's fixture, which is blocked until the two preconditions at the head of Task 1 hold. The maintainer approved the three gating answers and the output contract on 2026-10-25 and revised answer 2 (the fixture source) on 2026-10-26, as set out in Gating open questions below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -55,15 +55,15 @@ Row as asked, before Task 0 resolved it: `01`, Open questions, "Which existing r
 - At least three of the twenty answers should be `not-satisfied`, spread over at least three requirements. Then a judge that always answers `satisfied` matches at most seven and fails.
 - Source: `00` SC4 ("on one existing repository with ten hand-written requirements and hand-linked code and tests"), and `01` G10 ("Gate the judge on calibration against a maintainer's hand verdicts").
 
-Why this repository:
+Why the 3d-pipe repository:
 
-- It lies outside this repository, so it is a more independent test of the judge. This was the first point of the old trade-off.
+- It lies outside this repository, so it is a more independent test of the judge.
 - Its specs are already written, by the maintainer's own project, so the hand verdicts are informed.
 - Its code is mostly Python, so the Python adapter reads it.
 
 Trade-off:
 
-- It costs a vendored snapshot with an ownership note, a pinned commit, and adapting OpenSpec prose to EARS.
+- It publishes excerpts of a private repository in this public one, so it is blocked until the preconditions at the head of Task 1 hold. It also costs a vendored snapshot, a pinned commit, and adapting OpenSpec prose to EARS.
 - How the snapshot is vendored and which ten requirements are chosen are proposed in Task 1.
 
 **Not answerable by this plan:** the ten requirements, their tags, and the maintainer's twenty verdicts. SC4 and G10 make these hand-written, so Task 1 is the maintainer's.
@@ -209,6 +209,8 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 
 This task is the maintainer's: SC4 and G10 make the requirements and the verdicts hand-written. An agent may copy the chosen files from the pinned commit, and nothing else.
 
+**Blocked until:** (1) the owner approves publishing the chosen 3d-pipe excerpts in this public repository, after reading each chosen file for client details (names, addresses, the drawing set's content or hash) and dropping any candidate whose files hold them; and (2) the pin below is pushed or tagged in `nullrul/apartment-twin`, so it resolves later.
+
 #### Adapter finding
 
 Every spec in `openspec/specs/*/spec.md` describes Python code. Earnest's Python adapter reads the `.py` code and tests: 41 src and 39 tests in `packages/blueprint`, 10 and 7 in `packages/gates`, and 22 in `tests/behavior`. The Gherkin adapter reads the 9 `.feature` files in `tests/behavior`. The Markdown adapter reads `spec.md`. The TypeScript adapter is not needed. Earnest cannot read the Workflow loop code (`.claude/workflows/*.js`, 2 files, and `tests/workflows/*.mjs`, 3 files), and no candidate depends on it.
@@ -217,12 +219,12 @@ Every spec in `openspec/specs/*/spec.md` describes Python code. Earnest's Python
 
 **PROPOSED (2026-10-26):**
 
-`nullrul/earnest` is public; `nullrul/apartment-twin` is private and has no licence for its own source (owner `nullrul` for both). Vendoring publishes the copied excerpts once the branch is pushed, so Step 1 needs the owner's explicit OK to publish them.
+`nullrul/earnest` is public; `nullrul/apartment-twin` is private and has no licence for its own source (owner `nullrul` for both). Vendoring publishes the copied excerpts once the branch is pushed, hence precondition (1).
 
-- A vendored snapshot: the chosen code and test files copied byte-for-byte under `packages/earnest/tests/fixtures/calibration/` (keep their 3d-pipe relative paths), plus a `SOURCE.md` naming the repo `nullrul/apartment-twin`, the full pin sha, and the ownership note. The vendored bytes, not the sha, are the record.
-- Pin: `ef5b737ff6d8032c0ae2ae81b253127f660a8734`. origin/main (`36c08c3220d780d92495a3924e0d0c48860a83e8`) holds no `openspec/`. ef5b737 is 25 commits past it on a local, unpushed worktree branch and may be rebased away. Of the cited files only `blender.py`, `ifc.py`, `index.py` and `test_index.py` differ from origin/main. Proposed step: the maintainer pushes or tags that commit before Step 1 so the pin resolves later.
+- A vendored snapshot: the chosen code and test files copied from the pin under `packages/earnest/tests/fixtures/calibration/` (keep their 3d-pipe relative paths), plus a `SOURCE.md` naming the repo `nullrul/apartment-twin`, the full pin sha, and the ownership note. The only change to a copied file is the maintainer's tags, so a diff against the pin shows the tags alone. A file two candidates share is copied once. The vendored files, not the sha, are the record.
+- Pin: `ef5b737ff6d8032c0ae2ae81b253127f660a8734`, on a local, unpushed 3d-pipe branch 25 commits past origin/main (`36c08c3220d780d92495a3924e0d0c48860a83e8`), which holds no `openspec/`; it may be rebased away until precondition (2) holds. Of the cited files only `blender.py`, `ifc.py`, `index.py` and `test_index.py` differ from origin/main.
 - Do not vendor: the client drawing-set PDF (not in the repo; the manifest pins it by SHA-256), `data/arkitscenes/*` (Apple ARKitScenes ids), `packages/blueprint/src/blueprint/ral_classic.json` (RAL colour data), `materials.json` and the CC0 maps `materials_fetch.py` caches, `demo/` vendored web assets, and SAM 3 / ComfyUI material (licences listed in `LICENSES.md`).
-- Tests import sibling fixture modules (`pdf_fixtures.py`, `detail_fixtures.py`, `record_fixtures.py`, `look_fixtures.py`, `conftest.py`), and the code imports sibling modules. Earnest only scans text, so the vendored tests need not run.
+- Tests import sibling fixture modules (`pdf_fixtures.py`, `detail_fixtures.py`, `record_fixtures.py`, `look_fixtures.py`, `conftest.py`), and the code imports sibling modules. pytest skips them (`collect_ignore` in `tests/conftest.py`), and earnest only scans their text.
 
 #### Candidates for the maintainer
 
@@ -238,7 +240,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/blender.py` 199-204 (`_build_scene`).
    - Test: `packages/blueprint/tests/test_blender.py` 203-220 `test_bounds_writes_each_objects_world_box_and_the_scenes_units`.
-   - Vendor: 569 + 545 = 1114 lines.
+   - Vendor: 1114 lines.
 
 2. scene-export, `openspec/specs/scene-export/spec.md` lines 55-57, "Pass index to part map"
 
@@ -250,7 +252,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/blender.py` 117-137 (`_add_parts`), 206-212 (index write).
    - Test: `packages/blueprint/tests/test_blender.py` 181-194 `test_shell_parts_keep_their_pass_indices_when_a_piece_is_added`.
-   - Vendor: 569 + 545 = 1114 lines.
+   - Vendor: 1114 lines.
 
 3. scene-export, `openspec/specs/scene-export/spec.md` lines 23-25, "Atomic output"
 
@@ -262,7 +264,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/scene.py` 28-60 (`scene`).
    - Test: `packages/blueprint/tests/test_blender.py` 496-504 `test_a_failed_scene_run_leaves_nothing_behind`.
-   - Vendor: 63 + 545 = 608 lines.
+   - Vendor: 608 lines.
 
 4. shell-model, `openspec/specs/shell-model/spec.md` lines 145-147, "Opening host checks and ordering"
 
@@ -274,7 +276,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/ifc.py` 145-157 (`_anchor`), 258-278 (`_Model.opening`), 307-327 (`build_model`).
    - Test: `packages/blueprint/tests/test_ifc.py` 352-375 `test_a_part_that_cannot_be_built_names_itself` (cases `missing-host`, `off-the-wall`, `past-the-wall-end`, `outside-the-arc`).
-   - Vendor: 334 + 444 = 778 lines.
+   - Vendor: 778 lines.
 
 5. shell-model, `openspec/specs/shell-model/spec.md` lines 178-180, "Stable identifiers"
 
@@ -286,7 +288,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/ifc.py` 41-42 (`NAMESPACE`), 192-198 (`_Model._element`).
    - Test: `packages/blueprint/tests/test_ifc.py` 272-284 `test_global_ids_are_stable_across_builds`, 294-309 `test_occurrences_share_a_name_and_keep_their_own_ids`.
-   - Vendor: 334 + 444 = 778 lines.
+   - Vendor: 778 lines.
 
 6. custom-pieces, `openspec/specs/custom-pieces/spec.md` lines 225-227, "Keep wins on IoU"
 
@@ -298,7 +300,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/keep.py` 36 (`NOISE_FLOOR`), 136-150 (`_beats`), 204-208 (in `keep`).
    - Test: `packages/blueprint/tests/test_keep.py` 75-91 `test_keep_promotes_a_better_attempt`, 94-103 `test_keep_leaves_a_worse_one`, 292-295 `test_the_noise_floor_is_the_frozen_repeat_spread`.
-   - Vendor: 227 + 616 = 843 lines.
+   - Vendor: 843 lines.
 
 7. custom-pieces, `openspec/specs/custom-pieces/spec.md` lines 281-283, "Extent safeguard veto"
 
@@ -310,7 +312,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/keep.py` 44 (`EXTENT_VETO`), 95-115 (`_comparable`, `_extent_worse`), 204-208, 221-222 (in `keep`).
    - Test: `packages/blueprint/tests/test_keep.py` 488-503 `test_a_win_that_worsens_the_extent_is_not_kept_r73`, 506-520 `test_the_extent_veto_compares_to_six_decimals_r73`, 523-545 `test_an_extent_not_comparable_leaves_the_win_as_before_r73`, 548-559 `test_a_vetoed_keep_twice_writes_one_row_r73`.
-   - Vendor: 227 + 616 = 843 lines.
+   - Vendor: 843 lines.
 
 8. custom-pieces, `openspec/specs/custom-pieces/spec.md` lines 313-315, "Review records a grade against a spec hash"
 
@@ -322,7 +324,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/review.py` 68-94 (`review`).
    - Test: `packages/blueprint/tests/test_review.py` 31-38 `test_review_keys_on_the_kept_specs_hash`, 41-50 `test_each_grade_is_recorded_as_its_own_measure`, 53-63 `test_a_repeated_review_prints_the_first_line`, 66-79 `test_a_round_used_on_another_spec_is_refused`.
-   - Vendor: 97 + 124 = 221 lines.
+   - Vendor: 221 lines.
 
 9. inspection-cameras, `openspec/specs/inspection-cameras/spec.md` lines 180-182, "Yaw normalisation"
 
@@ -334,7 +336,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
    - Code: `packages/blueprint/src/blueprint/verdict.py` 103-134 (`parse_vote`, the normalisation at 131-132).
    - Test: `packages/blueprint/tests/test_verdict.py` 188-194 `test_a_turn_around_is_one_yaw_however_it_is_written`.
-   - Vendor: 360 + 748 = 1108 lines.
+   - Vendor: 1108 lines.
 
 10. inspection-cameras, `openspec/specs/inspection-cameras/spec.md` lines 124-126, "Segment degrades to a blocked exit"
 
@@ -344,9 +346,9 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
     When a view needs segmenting and ComfyUI does not answer, `segment` SHALL stop with `blocked: comfyui unreachable (make comfy-tunnel)` and exit 2, and SHALL NOT start a pod or ComfyUI itself. A failure of SAM 3 once ComfyUI answers SHALL be reported as a usage error.
     ```
 
-    - Code: `packages/blueprint/src/blueprint/segment.py` 64 (`_UNREACHABLE`), 157-195 (`segment`, ComfyUI probe and error mapping at 183-194). The change from `Blocked` to exit 2 happens in the shared CLI runner, which is not cited here.
+    - Code: `packages/blueprint/src/blueprint/segment.py` 64 (`_UNREACHABLE`), 157-195 (`segment`, ComfyUI probe and error mapping at 183-194). The change from `Blocked` to exit 2 happens in `packages/blueprint/src/blueprint/cli.py` 48-80 (`except Blocked` at 75), which the fixture would vendor with it.
     - Test: `packages/blueprint/tests/test_segment.py` 307-332 `test_segment_blocks_without_comfyui`.
-    - Vendor: 198 + 461 = 659 lines.
+    - Vendor: 659 lines.
 
 11. inspection-cameras, `openspec/specs/inspection-cameras/spec.md` lines 152-154, "Compare rejects stale or mismatched inputs"
 
@@ -358,7 +360,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
     - Code: `packages/blueprint/src/blueprint/compare.py` 114-137 (`_mask_ious` guards); `packages/blueprint/src/blueprint/segment.py` 82-88 (`cached`).
     - Test: `packages/blueprint/tests/test_compare.py` 458-467 `test_compare_refuses_masks_made_with_other_settings`, 428-438 `test_mask_iou_needs_an_id_image_the_size_of_the_camera`.
-    - Vendor: 198 + 198 + 482 = 878 lines.
+    - Vendor: 878 lines.
 
 12. drawing-set-index, `openspec/specs/drawing-set-index/spec.md` lines 9-11, "Drawing-set precondition"
 
@@ -370,7 +372,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
     - Code: `packages/blueprint/src/blueprint/index.py` 131-141, 164 (`index`); `packages/blueprint/src/blueprint/pdf.py` 75-90 (`verified_pdf`).
     - Test: `packages/blueprint/tests/test_index.py` 564-575 `test_index_blocks_without_pdf`, 578-583 `test_index_rejects_changed_pdf`.
-    - Vendor: 291 + 196 + 588 = 1075 lines.
+    - Vendor: 1075 lines.
 
 13. drawing-set-index, `openspec/specs/drawing-set-index/spec.md` lines 76-78, "Shell seed specs and stale seed removal"
 
@@ -382,7 +384,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
     - Code: `packages/blueprint/src/blueprint/index.py` 146-151, 160-161 (`index`).
     - Test: `packages/blueprint/tests/test_index.py` 107-125 `test_index_replaces_its_own_stale_specs_only`.
-    - Vendor: 291 + 588 = 879 lines.
+    - Vendor: 879 lines.
 
 14. drawing-conventions, `openspec/specs/drawing-conventions/spec.md` lines 123-125, "Camera markers are drawn in red"
 
@@ -394,7 +396,7 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
     - Code: `packages/blueprint/src/blueprint/markers.py` 28-33 (constants), 51-58 (`_is_chevron`, `_is_label`).
     - Test: `packages/blueprint/tests/test_markers.py` 64-79 `test_markers_from_chevrons`, 82-87 `test_markers_reject_a_label_nearest_two_chevrons`, 90-92 `test_markers_need_a_label`.
-    - Vendor: 118 + 92 = 210 lines.
+    - Vendor: 210 lines.
 
 15. blueprint-gates, `openspec/specs/blueprint-gates/spec.md` lines 117-119, "Outcomes and exit codes"
 
@@ -406,11 +408,11 @@ Fifteen requirements from `openspec/specs/*/spec.md` at the pin, each quoted ver
 
     - Code: `packages/gates/src/gates/report.py` 18-21 (`EXIT_CODES`), 112-117 (`status`).
     - Test: `packages/gates/tests/test_report.py` 200-214 `test_status_and_its_exit_code`.
-    - Vendor: 151 + 304 = 455 lines.
+    - Vendor: 455 lines.
 
 Alternates if one drops out: custom-pieces "Keep is idempotent" (spec 295-297; `keep.py` 188-195; `test_keep.py` 208-223) and drawing-set-index "Tagged plan that does not register" (spec 431-433; `index.py` 177-198; `test_index.py` 467-491, 494-504).
 
-- [ ] **Step 1:** Copy the chosen modules and tests from the pinned commit, as the vendoring proposal above sets out, once the owner has approved publishing them.
+- [ ] **Step 1:** Copy the chosen modules and tests from the pinned commit, as the vendoring proposal above sets out, once both preconditions hold.
 - [ ] **Step 2:** The maintainer writes ten EARS requirements in `requirements.md`, tags the code and tests, and writes `verdicts.json` with at least three `not-satisfied` answers over three requirements.
 - [ ] **Step 3:** Index the fixture as its own root, by the chain of Task 0 Step 4: `git.work_tree_files(fixture)`, `adapters.scan`, `build_index`, `structural.traced`. It gives ten requirements, all traced, and `ears.findings(index)` gives no `req-not-ears`. Do not run `uv run earnest check` from inside the fixture: `_read()` takes `repo_root(cwd)` and indexes the whole earnest repository. Commit `test: the calibration fixture`.
 
