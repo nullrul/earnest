@@ -555,3 +555,33 @@ def test_invocation_names_the_evidence_layer_when_it_ran():
     properties = sarif_run(reporter.sarif([], {}, run))["invocations"][0]["properties"]
     assert properties["layers"] == ["trace", "judge", "evidence"]
     assert (properties["model"], properties["prompt"]) == ("stub:x", "sha256:p")
+
+
+ENTRY = {
+    "key": {"regions": "sha256:" + "1" * 64, "tests": "sha256:" + "2" * 64, "tool": "mutmut 3.8.0"},
+    "result": "passed",
+    "commit": "c" * 40,
+    "dirty": False,
+}
+
+
+def test_the_evidence_slot_round_trips_in_canonical_json(tmp_path):
+    record = Record(evidence={"req~a~1": ENTRY, "req~b~1": {**ENTRY, "result": "failed"}})
+    reporter.write_record(tmp_path, record)
+    assert reporter.read_record(tmp_path) == record
+    data = stored(tmp_path)
+    assert data["evidence"] == {"req~a~1": ENTRY, "req~b~1": {**ENTRY, "result": "failed"}}
+    assert (tmp_path / ".earnest" / "assessment.json").read_text(encoding="utf-8") == reporter.canonical(
+        data, pretty=True
+    )
+    assert Record().evidence == {}
+
+
+def test_a_record_an_older_earnest_wrote_without_evidence_reads_as_the_empty_slot(tmp_path):
+    (tmp_path / ".earnest").mkdir()
+    slots = '"runs": {}, "bodies": {}, "coverage": {"commit": null}, "judge": {"cache": {}}, "calibration": null'
+    (tmp_path / ".earnest" / "assessment.json").write_text(f'{{"version": 1, {slots}}}', encoding="utf-8")
+    record = reporter.read_record(tmp_path)
+    assert (record.evidence, record.extra) == ({}, {})
+    reporter.write_record(tmp_path, record)
+    assert stored(tmp_path)["evidence"] == {}

@@ -1,16 +1,18 @@
 """Tests for earnest.plan: the state file's Stage Progress, the audit shards, and loading both from a work tree."""
 
+import json
 import time
 
 import pytest
 
-from earnest import adapters, git, plan, structural
+from earnest import adapters, cli, git, plan, structural
 from earnest.git import Hunk
 from earnest.index import MARKDOWN, Id, Index, Item, Link, Region, Source, build_index
 from earnest.index import digest as digest_of
 from earnest.plan import Approval, ChangedRegion, Event, Record, Row
 from earnest.reporter import Finding, Run, RunHeader
-from tests.sarif import PLAN_FILE, write
+from tests.conftest import commit_on_main
+from tests.sarif import PLAN_FILE, sarif_run, write
 from tests.sarif import REQUIREMENTS as REQUIREMENTS_FILE
 
 
@@ -2797,3 +2799,27 @@ def test_the_evidence_layer_joins_the_run_header_and_the_assessment_document_and
     status = plan.StageStatus("not done", 2, 1, "outdated")
     held = plan.header(built, REQUIREMENTS, status, evidenced, "sha256:" + "1" * 64)
     assert (held.layers, held.model, held.prompt) == (("trace", "judge", "evidence"), "stub:x", "sha256:p")
+
+
+def test_plan_reads_the_evidence_slot_shows_the_evidenced_task_and_unit_done_and_writes_nothing(
+    units_repo, monkeypatch, capsys
+):
+    repo = commit_on_main(units_repo(), "seeded-change", "evidence-units")
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / ".gitignore").write_text("*\n", encoding="utf-8")
+    entry = {"key": {"regions": "r", "tests": "t", "tool": "mutmut 3.8.0"}, "result": "passed", "commit": "0" * 40}
+    data = {"version": 1, "runs": {}, "bodies": {}, "coverage": {"commit": None}, "judge": {"cache": {}}}
+    text = json.dumps({**data, "calibration": None, "evidence": {"req~rate-limit~1": {**entry, "dirty": False}}})
+    (repo / ".earnest" / "assessment.json").write_text(text, encoding="utf-8")
+    monkeypatch.chdir(repo)
+    assert cli.main(["plan"]) == 0
+    shown = sarif_run(capsys.readouterr().out)["properties"]["plan"]["intents"][0]
+    assert [(task["id"], task["status"]) for task in shown["tasks"]] == [
+        ("task~add-limiter~1", "done"),
+        ("task~notify-lockout~1", "not done"),
+    ]
+    assert [(unit["id"], unit["status"]) for unit in shown["units"]] == [
+        ("unit~u1~1", "done"),
+        ("unit~u2~1", "not done"),
+    ]
+    assert (repo / ".earnest" / "assessment.json").read_text(encoding="utf-8") == text  # `plan` writes nothing

@@ -302,7 +302,7 @@ def _result(finding: Finding) -> dict[str, object]:
 
 RECORD = ".earnest/assessment.json"
 VERSION = 1
-_KNOWN = frozenset({"version", "runs", "bodies", "coverage", "judge", "calibration"})
+_KNOWN = frozenset({"version", "runs", "bodies", "coverage", "judge", "calibration", "evidence"})
 
 
 class RecordError(Exception):
@@ -341,6 +341,8 @@ class Record:
     coverage: dict[str, object] = field(default_factory=lambda: {"commit": None})
     judge: dict[str, object] = field(default_factory=lambda: {"cache": {}})
     calibration: dict[str, object] | None = None
+    # each requirement's evidence entry, by id with revision: its key, result, commit and dirty flag
+    evidence: dict[str, dict[str, object]] = field(default_factory=dict)
     extra: dict[str, object] = field(default_factory=dict)
 
 
@@ -421,6 +423,7 @@ def write_record(root: Path, record: Record) -> None:
         "coverage": record.coverage,
         "judge": record.judge,
         "calibration": record.calibration,
+        "evidence": record.evidence,
     }
     # ponytail: mkstemp makes the file mode 0600 (Git tracks 100644 either way), and a write that fails after the
     # directory is new leaves its `.gitignore` behind; chmod and clean up if either ever matters
@@ -464,6 +467,7 @@ def _record(data: object) -> Record:
         coverage=dict(data["coverage"]),
         judge=dict(data["judge"]),
         calibration=None if data["calibration"] is None else dict(data["calibration"]),
+        evidence={req: dict(entry) for req, entry in data.get("evidence", {}).items()},  # none before M5
         extra={key: value for key, value in data.items() if key not in _KNOWN},
     )
 

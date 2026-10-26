@@ -627,3 +627,85 @@ def test_a_mutmut_that_cannot_run_exits_two_with_one_line(fixture_repo, monkeypa
     assert err.startswith("earnest: ")
     assert "timed out" in err
     assert len(err.splitlines()) == 1
+
+
+ASSESSMENT = ".earnest/assessment.json"
+
+
+def seed_evidence(repo, slot):
+    """Write a record that M4 could have written, plus an `evidence` slot, ignored by Git as `.earnest/` is."""
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / ".gitignore").write_text("*\n", encoding="utf-8")
+    data = {"version": 1, "runs": {}, "bodies": {}, "coverage": {"commit": None}, "judge": {"cache": {}}}
+    (repo / ASSESSMENT).write_text(json.dumps({**data, "calibration": None, "evidence": slot}), encoding="utf-8")
+
+
+def held_evidence(repo):
+    return json.loads((repo / ASSESSMENT).read_text(encoding="utf-8"))["evidence"]
+
+
+STALE = {"key": {"regions": "old", "tests": "old", "tool": "mutmut 0"}, "result": "passed", "commit": "0" * 40}
+
+
+def test_check_with_evidence_writes_each_entry_and_a_rerun_on_the_same_tree_writes_the_same_record(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    recording(monkeypatch)  # nothing survives, so each judged requirement passes
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code == 0, err
+    first = (repo / ASSESSMENT).read_bytes()
+    slot = held_evidence(repo)
+    assert sorted(slot) == sorted(CANNED)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True)
+    for entry in slot.values():
+        assert (entry["result"], entry["commit"], entry["dirty"]) == ("passed", head.stdout.strip(), False)
+        assert sorted(entry["key"]) == ["regions", "tests", "tool"]
+        assert entry["key"]["tool"].startswith("mutmut ")
+    run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert (repo / ASSESSMENT).read_bytes() == first
+    (repo / ASSESSMENT).unlink()
+    run(repo, monkeypatch, capsys, "check", "--stage", "construction/code-generation", "--evidence")
+    assert held_evidence(repo) == slot  # the stage check writes the same slot
+
+
+def test_a_failing_tagged_test_fails_its_requirement_drops_the_unreached_and_keeps_the_rest(
+    fixture_repo, monkeypatch, capsys, tmp_path
+):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    elsewhere = {**STALE, "result": "failed"}
+    held = {f"req~{name}~1": STALE for name in ("rate-limit", "audit-log")}
+    seed_evidence(repo, {**held, "req~elsewhere~1": elsewhere})
+    calls = []
+    failing = '<testsuites><testcase file="tests/test_auth.py" name="test_count_failed_logins"><failure/></testcase>'
+
+    def fake(command, root, env):
+        calls.append(command)
+        for part in command:
+            if part.startswith("--junitxml="):
+                Path(part.partition("=")[2]).write_text(failing + "</testsuites>", encoding="utf-8")
+        return 0
+
+    monkeypatch.setattr(impact, "_run", fake)
+    code, _, err = run(repo, monkeypatch, capsys, "check", "--evidence")
+    assert code != 2, err
+    assert not any("mutmut" in command for command in calls)  # with a failing test mutmut never runs
+    slot = held_evidence(repo)
+    assert sorted(slot) == ["req~elsewhere~1", "req~rate-limit~1"]  # lockout-notice and audit-log: no verdict
+    assert slot["req~rate-limit~1"]["result"] == "failed"
+    assert slot["req~rate-limit~1"]["key"] != STALE["key"]
+    assert slot["req~elsewhere~1"] == elsewhere  # a requirement outside the run keeps its entry
+
+
+def test_a_check_without_evidence_reads_the_slot_and_leaves_it_as_it_was(fixture_repo, monkeypatch, capsys, tmp_path):
+    canned_model(monkeypatch, tmp_path)
+    repo = fixture_repo("seeded-change")
+    seed_evidence(repo, {"req~rate-limit~1": STALE})  # the key is not compared until stale keys are
+    _, out, _ = run(repo, monkeypatch, capsys, "check")
+    assert sarif_run(out)["properties"]["traceLevels"]["req~rate-limit~1"] == "evidenced"
+    _, out, _ = run(repo, monkeypatch, capsys, "check", "--judge")
+    levels = sarif_run(out)["properties"]["traceLevels"]
+    assert (levels["req~rate-limit~1"], levels["req~audit-log~1"]) == ("evidenced", "judged")
+    assert held_evidence(repo) == {"req~rate-limit~1": STALE}

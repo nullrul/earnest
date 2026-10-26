@@ -39,7 +39,7 @@ class _Analysis:
     run: Run
     cache: dict[str, object] | None = None  # the record's `judge` slot as a judge run leaves it, for `--judge` to write
     evidence: impact.Evidence | None = None  # what the evidence layer found, under `--evidence`
-    entries: Mapping[str, Mapping[str, object]] = field(default_factory=dict)  # each requirement's evidence entry
+    entries: dict[str, dict[str, object]] = field(default_factory=dict)  # the `evidence` slot the run leaves
 
 
 @dataclass(frozen=True)
@@ -123,7 +123,7 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
         levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
     proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
     failed = impact.evidence_failed(world.root, index, proof) if proof is not None else []
-    entries = impact.entries(world.root, index, levels, proof, failed) if proof is not None else {}
+    entries = _entries(world, index, levels, proof, failed)
     levels = impact.evidenced(levels, entries, judged=model is not None)
     plans = [plan.build(current, index) for current in world.intents]
     built = [each.intent for each in plans]  # each with its per-unit stages and the approvals that count for them
@@ -150,6 +150,17 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
         evidence=evidence,
     )
     return _Analysis(index, levels, plans, findings, derived, statuses, run, cache, proof, entries)
+
+
+def _entries(
+    world: _World, index: Index, levels: Mapping[str, str], proof: impact.Evidence | None, failed: list[Finding]
+) -> dict[str, dict[str, object]]:
+    """Return the record's `evidence` slot as this run leaves it: as the record holds it, without the evidence layer."""
+    if proof is None:
+        return world.record.evidence
+    stamp = {"commit": world.commit, "dirty": plan.dirty(world.changes, world.intents)}  # those of the run header
+    fresh = {req: {**entry, **stamp} for req, entry in impact.entries(world.root, index, levels, proof, failed).items()}
+    return impact.merged(world.record.evidence, fresh, index, levels)
 
 
 def _in_any(intents: Sequence[plan.Intent], path: str) -> bool:
@@ -241,7 +252,7 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
         analysis = _task_change(world, _analyse(world, model, evidence=args.evidence), args.task)
         findings, run = analysis.findings, analysis.run
         if analysis.cache is not None:
-            world.record.judge = analysis.cache
+            world.record.judge, world.record.evidence = analysis.cache, analysis.entries
             reporter.write_record(world.root, world.record)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
@@ -276,7 +287,7 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     world.record.bodies = plan.next_bodies(world.record.bodies, current, stage)
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
     if analysis.cache is not None:
-        world.record.judge = analysis.cache
+        world.record.judge, world.record.evidence = analysis.cache, analysis.entries
     reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
     # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
     reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)

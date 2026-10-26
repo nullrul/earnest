@@ -19,7 +19,7 @@ from pathlib import Path
 
 from earnest import git, judge
 from earnest.git import Hunk
-from earnest.index import Index, Link
+from earnest.index import Index, Item, Link
 from earnest.reporter import Finding, Impact, evidence_message
 
 
@@ -555,10 +555,10 @@ def entries(
     against = {each.subject for each in failed}
     kept: dict[str, dict[str, object]] = {}
     for item in index.defined.values():
+        if not _mutated(index, item, files):
+            continue
         code = judge.regions(index, item, judge.KINDS["implemented"])
         req = str(item.id)
-        if item.id.type != "req" or not any(region.path in files for region in code):
-            continue
         if req in against:
             result = "failed"
         elif levels.get(req) == "judged" and not found.failing:  # with a failing test mutmut never ran
@@ -569,6 +569,28 @@ def entries(
         key = {"regions": judge.region_hash(root, code), "tests": tests, "tool": found.tool}
         kept[req] = {"key": key, "result": result}
     return kept
+
+
+def merged(
+    held: Mapping[str, dict[str, object]],
+    fresh: Mapping[str, dict[str, object]],
+    index: Index,
+    levels: Mapping[str, str],
+) -> dict[str, dict[str, object]]:
+    """Return the evidence slot as a run leaves it: held, with the run's own requirements' entries replaced.
+
+    The run's own are the requirements whose files it set out to mutate: each takes its fresh entry, or none when the
+    run reached no verdict on it; the entries of every other requirement are kept.
+    """
+    files = set(mutation_files(index, levels))
+    reached = {str(item.id) for item in index.defined.values() if _mutated(index, item, files)}
+    return {**{req: entry for req, entry in held.items() if req not in reached}, **fresh}
+
+
+def _mutated(index: Index, item: Item, files: Collection[str]) -> bool:
+    """Return whether item is a `req` with an `impl` region in one of the files mutmut mutates."""
+    code = judge.regions(index, item, judge.KINDS["implemented"])
+    return item.id.type == "req" and any(region.path in files for region in code)
 
 
 def evidenced(levels: Mapping[str, str], held: Mapping[str, Mapping[str, object]], *, judged: bool) -> dict[str, str]:
