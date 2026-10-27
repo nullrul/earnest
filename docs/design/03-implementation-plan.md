@@ -277,6 +277,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Task plan:
   [2026-10-25-calibration-gate.md](../superpowers/plans/2026-10-25-calibration-gate.md),
   its gating answers approved by the maintainer on 2026-10-25.
+- Demo: [m6-calibrate.md](../demo/m6-calibrate.md), run by
+  `docs/demo/m6-calibrate.sh` on the synthetic fixture.
 
 ### M7 `aidlc_fork`
 
