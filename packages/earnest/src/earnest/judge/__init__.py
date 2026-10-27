@@ -426,12 +426,12 @@ def not_satisfied(question: Question, verdict: Verdict, observed: Mapping[str, o
     inside = any(_holds(region, verdict.path, verdict.line) for region in question.regions)
     path, line = (verdict.path, verdict.line) if inside else (question.item.path, question.item.line)
     message = (
-        f"the judge answered `{question.subject}` {question.kind} with not-satisfied: {_escaped(verdict.reasoning)}"
+        f"the judge answered `{question.subject}` {question.kind} with not-satisfied: {escaped(verdict.reasoning)}"
     )
     return Finding(path, line, "earnest/judge-not-satisfied", question.subject, message, observations=(observed,))
 
 
-def _escaped(text: str) -> str:
+def escaped(text: str) -> str:
     """Return the model's text with each control character, a newline or an ANSI escape, written as its escape."""
     return "".join(character if character.isprintable() else ascii(character)[1:-1] for character in text)
 

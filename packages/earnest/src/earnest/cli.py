@@ -59,6 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
     or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
+    `earnest calibrate <fixture>` exits 0 when the judge passes calibration, 1 when it fails and 2 when it cannot run.
     An interrupt (Ctrl-C, SIGTERM or SIGHUP) also exits 2, after the run's cleanup.
     """
     if sys.stdout is None or sys.stderr is None:  # Python leaves a closed fd 1 or 2 as None, with nowhere to write
@@ -301,20 +302,33 @@ def _calibrate(fixture: Path) -> _Result:
     maintainer = judge.load_verdicts(fixture / "verdicts.json")
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
     calibration = judge.calibrate(index, structural.traced(index), model, maintainer)
-    lines = [
-        f"{row.subject} judge {_pair(row.judge)} maintainer {_pair(row.maintainer)} {'match' if row.matched else 'differs'}"
-        for row in calibration.rows
-    ]
     root = git.repo_root(Path.cwd())
     record = reporter.read_record(root)
     record.calibration = judge.slot(calibration)
     reporter.write_record(root, record)
+    return _Result(_comparison(calibration), "", 0 if calibration.passed else 1)
+
+
+def _comparison(calibration: judge.Calibration) -> str:
+    """Return calibrate's stdout: a header, a line per requirement with both answers under a differing one, the verdict."""
+    width = max(len(row.subject) for row in calibration.rows)
+    lines = [f"calibration of {calibration.model} with the prompt {judge.PROMPT_HASH}"]
+    for row in calibration.rows:
+        results = [
+            f"{who} {'/'.join(verdicts[kind].result for kind in judge.QUESTIONS)}" for who, verdicts in _sides(row)
+        ]
+        lines.append(f"{row.subject:<{width}}  {'  '.join(results)}  {'match' if row.matched else 'differs'}")
+        for kind in judge.QUESTIONS:
+            if row.judge[kind].result != row.maintainer[kind].result:
+                for who, verdicts in _sides(row):
+                    v = verdicts[kind]
+                    lines.append(f"    {kind} {who}: {v.result} at {v.path}:{v.line}: {judge.escaped(v.reasoning)}")
     lines += [f"matches: {calibration.matches}/{judge.TOTAL}", "pass" if calibration.passed else "fail"]
-    return _Result("\n".join(lines) + "\n", "", 0 if calibration.passed else 1)
+    return "\n".join(lines) + "\n"
 
 
-def _pair(verdicts: Mapping[str, judge.Verdict]) -> str:
-    return "/".join(verdicts[kind].result for kind in judge.QUESTIONS)
+def _sides(row: judge.Row) -> tuple[tuple[str, Mapping[str, judge.Verdict]], ...]:
+    return (("judge", row.judge), ("maintainer", row.maintainer))
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:
