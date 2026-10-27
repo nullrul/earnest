@@ -9,12 +9,14 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import anthropic
 import pytest
 
 from earnest import adapters, cli, git, impact, judge
 from earnest.index import build_index
 from tests.conftest import model_id, prompt_hash, verdicts_file
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
+from tests.unit.test_judge_anthropic import MODEL, Messages, reply
 
 
 CHECK = [sys.executable, "-c", "import sys; from earnest.cli import main; sys.exit(main(['check']))"]
@@ -784,6 +786,21 @@ def test_calibrate_asks_the_model_about_the_fixture_s_files(fixture_repo, monkey
     monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
     code, _, _ = run(repo, monkeypatch, capsys, "calibrate", str(repo))
     assert (code, roots) == (0, [repo])
+
+
+def test_calibrate_run_outside_the_fixture_shows_claude_the_fixture_s_code(
+    fixture_repo, files_repo, monkeypatch, capsys
+):
+    verdict = {"result": "satisfied", "reasoning": "ok", "location": {"file": "src/meter.py", "line": 1}}
+    messages = Messages(reply(json.dumps(verdict)))
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: SimpleNamespace(messages=messages))
+    monkeypatch.setenv("EARNEST_JUDGE", MODEL)
+    fixture = fixture_repo("calibration-dev")
+    elsewhere = files_repo({"docs/a.md": "# A\n"})  # the repo root found from cwd is not the fixture
+    code, _, err = run(elsewhere, monkeypatch, capsys, "calibrate", str(fixture))
+    assert code in (0, 1), err
+    asked = "".join(request["messages"][0]["content"] for request in messages.requests)
+    assert "def barrier_opens(card_approved: bool) -> bool:" in asked
 
 
 def cannot_run(result):
