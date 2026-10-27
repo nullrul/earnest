@@ -1,4 +1,4 @@
-"""Command surface: `earnest check` and `earnest plan`, which wire the scanner, the index, the checks and the plan."""
+"""Command surface: `earnest check`, `earnest plan` and `earnest calibrate`, which wire the scanner, the index, the checks and the plan."""
 
 import argparse
 import os
@@ -116,10 +116,17 @@ def _main(argv: Sequence[str] | None) -> int:
         "--evidence", action="store_true", help="run the tests and mutmut on the tagged code; implies --judge"
     )
     commands.add_parser("plan", help="print the route, each stage's status and approval, and the frontier")
+    calibrate = commands.add_parser("calibrate", help="compare the judge's verdicts on a fixture with the maintainer's")
+    calibrate.add_argument(
+        "fixture", type=Path, help="a directory in a Git work tree: ten requirements and verdicts.json"
+    )
     args = parser.parse_args(argv)
     try:
-        world = _read()
-        result = _plan(world) if args.command == "plan" else _check(world, args)
+        if args.command == "calibrate":  # before _read(): the fixture, not the working directory, is what it indexes
+            result = _calibrate(args.fixture)
+        else:
+            world = _read()
+            result = _plan(world) if args.command == "plan" else _check(world, args)
     except (
         git.GitError,
         OSError,
@@ -154,7 +161,7 @@ def _read() -> _World:
     return _World(root, commit, sources, git.changes(root), record, (root / reporter.RECORD).exists(), intents)
 
 
-def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool = False) -> _Analysis:
+def _analyse(world: _World, model: judge.Model | None = None, *, evidence: bool = False) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
@@ -162,7 +169,7 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
     cache: dict[str, object] | None = None
     observations: tuple[Mapping[str, object], ...] | None = None
     if model is not None:
-        judged = judge.judge(index, levels, model, world.root, world.record.judge)
+        judged = judge.judge(index, levels, model, world.root, world.record)
         levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
     proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
     failed = impact.evidence_failed(world.root, index, proof) if proof is not None else []
@@ -286,6 +293,28 @@ def _baseline(world: _World, analysis: _Analysis, task: Item) -> tuple[str | Non
 def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
     note = f"task change: {reason}; no out-of-task check and no impact"
     return replace(analysis, run=replace(analysis.run, notes=(*analysis.run.notes, note)))
+
+
+def _calibrate(fixture: Path) -> _Result:
+    """Run the judge over the fixture's ten requirements, print them beside the maintainer's, and record the result."""
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE"))
+    maintainer = judge.load_verdicts(fixture / "verdicts.json")
+    index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
+    calibration = judge.calibrate(index, structural.traced(index), model, maintainer)
+    lines = [
+        f"{row.subject} judge {_pair(row.judge)} maintainer {_pair(row.maintainer)} {'match' if row.matched else 'differs'}"
+        for row in calibration.rows
+    ]
+    root = git.repo_root(Path.cwd())
+    record = reporter.read_record(root)
+    record.calibration = judge.slot(calibration)
+    reporter.write_record(root, record)
+    lines += [f"matches: {calibration.matches}/{judge.TOTAL}", "pass" if calibration.passed else "fail"]
+    return _Result("\n".join(lines) + "\n", "", 0 if calibration.passed else 1)
+
+
+def _pair(verdicts: Mapping[str, judge.Verdict]) -> str:
+    return "/".join(verdicts[kind].result for kind in judge.QUESTIONS)
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:

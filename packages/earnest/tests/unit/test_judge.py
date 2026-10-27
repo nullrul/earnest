@@ -7,6 +7,7 @@ import pytest
 
 from earnest import judge
 from earnest.index import COMMENT, MARKDOWN, Line, Source, build_index, split_lines
+from earnest.reporter import Record
 from tests.conftest import _git as commit_as_fixture
 from tests.sarif import git_output
 
@@ -67,7 +68,7 @@ def one(result, rule):
 def ask(found, model, root, slot=None):
     if not (root / "src").exists():
         write_code(root)
-    return judge.judge(found, LEVELS, model, root, slot or {"cache": {}})
+    return judge.judge(found, LEVELS, model, root, Record(judge=slot or {"cache": {}}))
 
 
 def stub(tmp_path, data):
@@ -562,3 +563,153 @@ def test_the_region_hash_is_the_one_the_cache_key_holds(tmp_path):
     assert entry["regions"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["implemented"]))
     assert entry["tests"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["tested"]))
     assert entry["regions"] != entry["tests"]
+
+
+# Calibration (M6): ten traced EARS requirements, judged against the maintainer's verdicts.
+TEN = tuple(f"req~r{number}~1" for number in range(1, 11))
+
+
+def ten_index(count=10, plain=(), untraced=(), extra=""):
+    """Return the index of `count` requirements, each tagged by an impl and a utest unless untraced."""
+    body = "# Requirements\n\n" + "".join(
+        f"`req~r{n}~1`\n\n"
+        + ("Members get greeted.\n\n" if n in plain else f"When {n} happens, the system shall act.\n\n")
+        for n in range(1, count + 1)
+    )
+    tags = [
+        code(f"{kind}/r{n}.py", f"{tag}->req~r{n}~1", 3)
+        for n in range(1, count + 1)
+        if n not in untraced
+        for kind, tag in (("src", "impl"), ("tests", "utest"))
+    ]
+    return build_index(
+        [
+            Source(
+                SPEC,
+                MARKDOWN,
+                split_lines(
+                    body.replace(
+                        "When 1 happens, the system shall act.\n", "When 1 happens, the system shall act.\n" + extra, 1
+                    )
+                ),
+            ),
+            *tags,
+        ]
+    )
+
+
+def ten_levels(count=10, untraced=()):
+    return {f"req~r{n}~1": "untraced" if n in untraced else "traced" for n in range(1, count + 1)}
+
+
+def verdict(result="satisfied"):
+    return judge.Verdict(result, "because", "src/r1.py", 2)
+
+
+def maintainer(no=()):
+    """Return the maintainer's verdicts: satisfied except for both questions of each requirement number in no."""
+    return {
+        subject: dict.fromkeys(judge.QUESTIONS, verdict("not-satisfied" if int(subject[5:-2]) in no else "satisfied"))
+        for subject in TEN
+    }
+
+
+def model(wrong=(), one=()):
+    """Return a stub that agrees with maintainer() except on both questions of `wrong` and `implemented` of `one`."""
+    answers = {
+        subject: {
+            kind: verdict(
+                "not-satisfied"
+                if int(subject[5:-2]) in wrong or (kind == "implemented" and int(subject[5:-2]) in one)
+                else "satisfied"
+            )
+            for kind in judge.QUESTIONS
+        }
+        for subject in TEN
+    }
+    return judge.Stub("stub:t", answers)
+
+
+def calibrate(stub_model=None, verdicts=None, found=None):
+    return judge.calibrate(found or ten_index(), ten_levels(), stub_model or model(), verdicts or maintainer())
+
+
+def test_eight_matches_pass():
+    result = calibrate(model(wrong=(9, 10)))
+    assert (result.matches, result.passed) == (8, True)
+    assert [row.subject for row in result.rows] == sorted(TEN)
+    assert result.model == "stub:t"
+
+
+def test_seven_matches_fail():
+    result = calibrate(model(wrong=(8, 9, 10)))
+    assert (result.matches, result.passed) == (7, False)
+
+
+def test_match_needs_both_questions():
+    result = calibrate(model(one=(1,)))
+    assert result.matches == 9
+    assert [row.subject for row in result.rows if not row.matched] == ["req~r1~1"]
+
+
+def test_constant_judge_fails():
+    result = calibrate(model(), maintainer(no=(1, 2, 3)))
+    assert (result.matches, result.passed) == (7, False)
+
+
+def test_overrides_ignored():
+    override = f"Override: req~r1~1 implemented at {'a' * 40}, the gateway greets\n"
+    found = ten_index(extra=override)
+    assert any(item.overrides for item in found.defined.values())
+    assert calibrate(found=found).matches == 10
+
+
+@pytest.mark.parametrize(
+    "found",
+    [ten_index(9), ten_index(11, untraced=(11,)), ten_index(plain=(4,))],
+    ids=["nine", "eleven-one-untraced", "one-not-ears"],
+)
+def test_not_ten_judgeable_exits(found):
+    levels = {str(item.id): "untraced" if "r11" in str(item.id) else "traced" for item in found.defined.values()}
+    with pytest.raises(judge.JudgeError, match="exactly ten"):
+        judge.calibrate(found, levels, model(), maintainer())
+
+
+def test_missing_maintainer_answer_raises():
+    verdicts = maintainer()
+    del verdicts["req~r3~1"]["tested"]
+    with pytest.raises(
+        judge.JudgeError,
+        match=r"the maintainer's verdicts.*req~r3~1.*tested|req~r3~1.*tested.*the maintainer's verdicts",
+    ):
+        calibrate(verdicts=verdicts)
+
+
+def test_slot_shape():
+    assert judge.slot(calibrate()) == {
+        "model": "stub:t",
+        "prompt": judge.PROMPT_HASH,
+        "matches": 10,
+        "total": 10,
+        "pass": True,
+    }
+
+
+def test_load_verdicts_missing_file_names_it(tmp_path):
+    with pytest.raises(judge.JudgeError, match=r"the maintainer's verdicts cannot be read.*verdicts\.json"):
+        judge.load_verdicts(tmp_path / "verdicts.json")
+
+
+def test_load_verdicts_malformed_raises(tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text("[]")
+    with pytest.raises(
+        judge.JudgeError, match=r"the maintainer's verdicts .*verdicts\.json is not an object of canned"
+    ):
+        judge.load_verdicts(path)
+
+
+def test_load_verdicts_reads_the_answers(tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text(json.dumps({"req~r1~1": {"tested": answer()}}))
+    assert judge.load_verdicts(path) == {"req~r1~1": {"tested": judge.Verdict("satisfied", "it does", "src/a.py", 3)}}

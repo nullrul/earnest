@@ -5,10 +5,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
+from typing import Protocol
 
 from earnest import adapters, ears, git
 from earnest.index import Index, Item, Link, Override, Region, build_index, digest
-from earnest.reporter import RECORD, Finding, canonical, location
+from earnest.reporter import RECORD, Finding, Record, canonical, location
 
 
 # The questions, and the artifact types whose regions each asks about.
@@ -16,6 +17,8 @@ KINDS = {"implemented": frozenset({"impl"}), "tested": frozenset({"utest", "ites
 QUESTIONS = tuple(KINDS)
 PROMPT_HASH = digest(files(__package__).joinpath("prompt.txt").read_bytes())
 _RESULTS = ("satisfied", "not-satisfied")
+PASS_MATCHES = 8  # SC4: the judge passes calibration when it matches the maintainer on eight of ten requirements
+TOTAL = 10
 
 
 class JudgeError(Exception):
@@ -45,6 +48,17 @@ class Question:
     def subject(self) -> str:
         """Return the requirement's id with its revision."""
         return str(self.item.id)
+
+
+class Model(Protocol):
+    """A model that answers questions: the stub, or a real model."""
+
+    @property
+    def id(self) -> str:
+        """Return the model's id, the key of its calibration."""
+
+    def ask(self, question: Question) -> Verdict:
+        """Return the verdict of a question."""
 
 
 @dataclass(frozen=True)
@@ -82,7 +96,7 @@ class Cache:
     """The judge cache: the record's entries, and the ones this run used, which are what the slot keeps."""
 
     root: Path
-    model: Stub
+    model: Model
     held: Mapping[str, object]
     used: dict[str, object] = field(default_factory=dict)
     hashes: dict[str, tuple[str, str]] = field(default_factory=dict)  # each item's code and test region hashes
@@ -136,22 +150,40 @@ def load_model(value: str | None) -> Stub:
             canned verdicts.
     """
     if not value:
-        msg = "--judge needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>"
+        msg = "earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>"
         raise JudgeError(msg)
     kind, _, path = value.partition(":")
     if kind != "stub" or not path:
         msg = f"EARNEST_JUDGE names no model Earnest knows: {value!r}; use stub:<path>"
         raise JudgeError(msg)
+    data, answers = _read_answers(Path(path), "the stub model's file")
+    return Stub("stub:" + digest(data), answers)
+
+
+def _read_answers(path: Path, name: str) -> tuple[bytes, dict[str, dict[str, Verdict]]]:
+    """Return the bytes of a file of canned verdicts and its answers; name is how the messages call the file.
+
+    Raises:
+        JudgeError: the file cannot be read or is not the object of canned verdicts.
+    """
     try:
-        data = Path(path).read_bytes()
-        answers = _answers(json.loads(data))
+        data = path.read_bytes()
+        return data, _answers(json.loads(data))
     except OSError as error:
-        msg = f"the stub model's file cannot be read: {error}"
+        msg = f"{name} cannot be read: {error}"
         raise JudgeError(msg) from error
     except (ValueError, TypeError, KeyError, RecursionError) as error:  # UnicodeDecodeError is a ValueError
-        msg = f"the stub model's file {path} is not an object of canned verdicts: {error}"
+        msg = f"{name} {path} is not an object of canned verdicts: {error}"
         raise JudgeError(msg) from error
-    return Stub("stub:" + digest(data), answers)
+
+
+def load_verdicts(path: Path) -> dict[str, dict[str, Verdict]]:
+    """Return the maintainer's verdicts, keyed by requirement id and revision, then by question.
+
+    Raises:
+        JudgeError: the file cannot be read or is not the object of canned verdicts.
+    """
+    return _read_answers(path, "the maintainer's verdicts")[1]
 
 
 def _answers(data: object) -> dict[str, dict[str, Verdict]]:
@@ -218,20 +250,22 @@ def observation(question: Question, author: str, verdict: Verdict) -> dict[str, 
     }
 
 
-def judge(index: Index, levels: Mapping[str, str], model: Stub, root: Path, slot: Mapping[str, object]) -> Judgement:
+def judge(index: Index, levels: Mapping[str, str], model: Model, root: Path, record: Record) -> Judgement:
     """Ask each question no standing override answers, and return the findings, observations, levels and cache.
 
-    The cache is the record's `judge` slot, read from root's work tree; the questions this run asked or reused stay.
+    The cache is the record's `judge` slot, read from root's work tree; a judge run that the record's `calibration`
+    slot does not cover for this model and prompt raises `judge-uncalibrated`; the questions this run asked or reused stay.
 
     Raises:
         JudgeError: the model cannot answer a question.
         OSError: a tagged file cannot be read.
     """
-    held = slot.get("cache")
+    held = record.judge.get("cache")
     cache = Cache(root, model, held if isinstance(held, dict) else {})
     standing, found = overrides(index)
     past = Past(root)
-    found.insert(0, uncalibrated(model))
+    if not calibrated(record.calibration, model):
+        found.insert(0, uncalibrated(model))
     observations: list[dict[str, object]] = []
     satisfied: dict[str, int] = {}
     for question in questions(index, levels):
@@ -406,12 +440,97 @@ def _holds(region: Region, path: str, line: int) -> bool:
     return region.path == path and region.first <= line <= region.last
 
 
-def uncalibrated(model: Stub) -> Finding:
+def uncalibrated(model: Model) -> Finding:
     """Return the run's `judge-uncalibrated` finding, at line 1 of the record; it reaches no stage."""
-    # shortcut: the record holds no calibration until M6 writes one, so every judge run is uncalibrated; read the
-    # `calibration` slot for a passing result of this model id and prompt hash when `earnest calibrate` exists
     message = (
         f"no passing calibration exists for the model {model.id} and the prompt {PROMPT_HASH}:"
         " run earnest calibrate before relying on the judge's verdicts"
     )
     return Finding(RECORD, 1, "earnest/judge-uncalibrated", model.id, message)
+
+
+@dataclass(frozen=True)
+class Row:
+    """One requirement's calibration: the judge's and the maintainer's verdict on each question."""
+
+    subject: str
+    judge: Mapping[str, Verdict]
+    maintainer: Mapping[str, Verdict]
+
+    @property
+    def matched(self) -> bool:
+        """Return whether the judge and the maintainer agree on both questions."""
+        return all(self.judge[kind].result == self.maintainer[kind].result for kind in QUESTIONS)
+
+
+@dataclass(frozen=True)
+class Calibration:
+    """A model's calibration: one row per requirement of the fixture."""
+
+    model: str
+    rows: tuple[Row, ...]
+
+    @property
+    def matches(self) -> int:
+        """Return the count of requirements the judge matched."""
+        return sum(row.matched for row in self.rows)
+
+    @property
+    def passed(self) -> bool:
+        """Return whether the judge matched enough requirements (SC4)."""
+        return self.matches >= PASS_MATCHES
+
+
+def calibrate(
+    index: Index, levels: Mapping[str, str], model: Model, maintainer: Mapping[str, Mapping[str, Verdict]]
+) -> Calibration:
+    """Ask the model both questions of the ten requirements and set its verdicts beside the maintainer's.
+
+    Overrides are ignored: every question is asked of the model.
+
+    Raises:
+        JudgeError: the index does not hold exactly ten traced EARS requirements, or the maintainer's verdicts lack
+            an answer to one of their questions.
+    """
+    reqs = [item for item in index.defined.values() if item.id.type == "req"]
+    faulty = [str(item.id) for item in reqs if levels.get(str(item.id)) != "traced" or ears.parse(item.body) is None]
+    if len(reqs) != TOTAL or faulty:
+        msg = f"calibration needs exactly ten traced EARS requirements, not {len(reqs)}"
+        raise JudgeError(msg + (f"; untraced or not EARS: {', '.join(faulty)}" if faulty else ""))
+    subjects = {str(item.id) for item in reqs}
+    asked = [question for question in questions(index, levels) if question.subject in subjects]
+    for question in asked:
+        if question.kind not in maintainer.get(question.subject, {}):
+            msg = f"the maintainer's verdicts hold no answer to `{question.subject}` {question.kind}"
+            raise JudgeError(msg)
+    judged = {(question.subject, question.kind): model.ask(question) for question in asked}
+    rows = tuple(
+        Row(
+            subject,
+            {kind: judged[subject, kind] for kind in QUESTIONS},
+            {kind: maintainer[subject][kind] for kind in QUESTIONS},
+        )
+        for subject in sorted(subjects)
+    )
+    return Calibration(model.id, rows)
+
+
+def slot(calibration: Calibration) -> dict[str, object]:
+    """Return the record's `calibration` value."""
+    return {
+        "model": calibration.model,
+        "prompt": PROMPT_HASH,
+        "matches": calibration.matches,
+        "total": TOTAL,
+        "pass": calibration.passed,
+    }
+
+
+def calibrated(held: Mapping[str, object] | None, model: Model) -> bool:
+    """Return whether the record's `calibration` slot holds a pass for this model id and the current prompt hash."""
+    return (
+        held is not None
+        and held.get("pass") is True
+        and held.get("model") == model.id
+        and held.get("prompt") == PROMPT_HASH
+    )

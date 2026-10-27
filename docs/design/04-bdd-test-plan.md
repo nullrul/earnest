@@ -1712,16 +1712,18 @@ Feature: Evidence check
 
 ## M6 `calibration_gate`
 
-Status: the scenario titles below are PROPOSED. They rest on the gating
-answers of the task plan
+Status: the scenarios are PROPOSED. They rest on the gating answers of the
+task plan
 [2026-10-25-calibration-gate.md](../superpowers/plans/2026-10-25-calibration-gate.md),
-which the maintainer approved on 2026-10-25 (answer 2 revised 2026-10-26). The Gherkin and its exact tables
-follow once the maintainer has written the fixture's ten requirements and
-verdicts.
+which the maintainer approved on 2026-10-25 (answer 2 revised 2026-10-26). Their
+Gherkin runs against the SYNTHETIC development fixture
+`tests/fixtures/calibration-dev/` (user decision 2026-10-27), which is
+agent-written and never SC4 evidence. The maintainer's
+`tests/fixtures/calibration/` drops in later as data only.
 
 - Feature: `packages/earnest/tests/features/calibration_gate.feature`, bound by
   `tests/steps/test_calibration_gate.py`.
-- Fixture: `tests/fixtures/calibration/`, plain files committed once on `main`
+- Fixture: `tests/fixtures/calibration-dev/`, plain files committed once on `main`
   at test time. It holds ten hand-written requirements, their hand-tagged code
   and tests, and the maintainer's verdicts in `verdicts.json`, in the
   canned-verdict format of the Runtime and permission model of `01`.
@@ -1736,25 +1738,106 @@ giving eight and seven matches. A requirement matches when both of its
 questions agree. Every scenario runs with the built fixture as the working
 directory, so `calibrate` and `check --judge` read and write one record.
 
-### Proposed scenarios
+### Calibration gate feature
 
-All five titles are PROPOSED:
+```gherkin
+Feature: Calibration gate
+  Against the stub model, the repo maintainer learns from earnest calibrate
+  how the judge's verdicts on ten hand-tagged requirements compare with their
+  own, how many match, and whether the judge passes at eight or more. A
+  passing calibration for the current model id and prompt hash stops the judge
+  run raising judge-uncalibrated (UC8, SC4). The fixture is the synthetic
+  development fixture, never SC4 evidence.
 
-- "Calibration shows each verdict beside the maintainer's and passes at eight
-  matches"
-- "Calibration at seven matches fails and records the failure"
-- "After a passing calibration the judge run is not uncalibrated"
-- "A calibration of another model leaves the judge uncalibrated"
-- "Calibrate cannot run without a model or a valid fixture"
+  Background:
+    Given the repo maintainer's "calibration-dev" repository committed on main
+
+  Scenario: Calibration shows each verdict beside the maintainer's and passes at eight matches
+    Given the judge is the stub model with the canned verdicts "stub-pass.json" of "calibration-dev"
+    When the repo maintainer runs earnest calibrate
+    Then the calibration lists these requirements:
+      | requirement         | judge                   | maintainer              | agreement |
+      | req~card-refusal~1  | satisfied/satisfied     | satisfied/satisfied     | match     |
+      | req~daily-cap~1     | satisfied/satisfied     | not-satisfied/satisfied | differs   |
+      | req~entry-time~1    | satisfied/satisfied     | satisfied/satisfied     | match     |
+      | req~ev-discount~1   | not-satisfied/satisfied | not-satisfied/satisfied | match     |
+      | req~fare-rounding~1 | satisfied/not-satisfied | satisfied/satisfied     | differs   |
+      | req~full-sign~1     | satisfied/satisfied     | satisfied/satisfied     | match     |
+      | req~grace-period~1  | satisfied/satisfied     | satisfied/satisfied     | match     |
+      | req~lost-ticket~1   | satisfied/not-satisfied | satisfied/not-satisfied | match     |
+      | req~night-rate~1    | satisfied/satisfied     | satisfied/satisfied     | match     |
+      | req~receipt-total~1 | satisfied/satisfied     | satisfied/satisfied     | match     |
+    And the calibration ends with "matches: 8/10" and "pass"
+    And the calibrate exits with code 0
+    And the record's calibration slot holds the model of "stub-pass.json", the prompt hash, 8 matches of 10 and a pass
+
+  Scenario: Calibration at seven matches fails and records the failure
+    Given the judge is the stub model with the canned verdicts "stub-fail.json" of "calibration-dev"
+    When the repo maintainer runs earnest calibrate
+    Then the calibration lists "req~daily-cap~1", "req~fare-rounding~1" and "req~grace-period~1" as differing
+    And the calibration ends with "matches: 7/10" and "fail"
+    And the calibrate exits with code 1
+    And the record's calibration slot holds the model of "stub-fail.json", the prompt hash, 7 matches of 10 and no pass
+
+  Scenario: After a passing calibration the judge run is not uncalibrated
+    Given the judge is the stub model with the canned verdicts "stub-pass.json" of "calibration-dev"
+    And the repo maintainer has run earnest calibrate
+    When the coding agent runs earnest check --judge
+    Then the SARIF log holds no earnest/judge-uncalibrated finding
+    And the SARIF log gives the model of "stub-pass.json" and the prompt hash in the run's invocation
+
+  Scenario: A calibration of another model leaves the judge uncalibrated
+    Given the judge is the stub model with the canned verdicts "stub-pass.json" of "calibration-dev"
+    And the repo maintainer has run earnest calibrate
+    And the judge is the stub model with the canned verdicts "stub-fail.json" of "calibration-dev"
+    When the coding agent runs earnest check --judge
+    Then the earnest/judge-uncalibrated finding names the model of "stub-fail.json" and the prompt hash
+
+  Scenario Outline: Calibrate cannot run without a model or a valid fixture
+    Given the judge is the stub model with the canned verdicts "stub-pass.json" of "calibration-dev"
+    And <fault>
+    When the repo maintainer runs earnest calibrate
+    Then the calibrate exits with code 2, with empty stdout and one line on stderr naming "<cause>"
+    And the record holds no calibration
+
+    Examples:
+      | fault                                     | cause         |
+      | EARNEST_JUDGE is unset                    | EARNEST_JUDGE |
+      | the fixture's verdicts.json is deleted    | verdicts.json |
+      | the fixture's last requirement is deleted | exactly ten   |
+```
+
+### Notes for the M6 task plan
+
+- New steps are bound in `tests/steps/test_calibration_gate.py`: the Given for
+  the "calibration-dev" repository, the Givens that run calibrate, unset
+  `EARNEST_JUDGE`, delete `verdicts.json` and delete the last requirement, the
+  calibrate When, and the Thens on the listing, the closing lines, the exit
+  code, the record's `calibration` slot and the uncalibrated finding.
+- "the coding agent runs earnest check --judge" and "the SARIF log holds no
+  `<rule>` finding" are rebound from `test_judge_check.py` and
+  `test_evidence_check.py`; only `conftest.py` steps are shared.
+- The steps read calibrate's stdout: line 1 is `calibration of <model id> with
+  the prompt <prompt hash>`; then one line per requirement, sorted by id:
+  `<id>  judge <implemented>/<tested>  maintainer <implemented>/<tested>
+  <match|differs>`, columns split on runs of spaces.
+- Indented lines (four spaces) under a differing row carry reasoning detail
+  and are ignored by the steps. The last two lines are `matches: <n>/10` and
+  `pass` or `fail`.
+- `stub-pass.json` flips daily-cap and fare-rounding, giving eight matches;
+  `stub-fail.json` flips grace-period too, giving seven.
+- Every scenario runs in the built fixture, so `calibrate` and `check --judge`
+  share one record. The guard example "EARNEST_JUDGE is unset" fails today on
+  argparse's two-line usage error, so the CLI must exit 2 with one line.
 
 ## Scope (v1)
 
 - One behavior feature per milestone of `03`, nine in all, with the scenarios
   of M1, M2, M2b, M3, M4 and M5 in full.
 - Three test tiers under one runner, pytest, with pytest-bdd for the features.
-- Three fixture repositories, `broken-links`, `seeded-change` and
-  `calibration`, each plain files with its history built at test time, and a
-  TypeScript fixture at M8.
+- Four fixture repositories, `broken-links`, `seeded-change`, `calibration`
+  and `calibration-dev` (synthetic), each plain files with its history built
+  at test time, and a TypeScript fixture at M8.
 
 ## Future directions
 
