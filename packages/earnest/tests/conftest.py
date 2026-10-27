@@ -1,10 +1,12 @@
 """Shared fixtures: every test's Git shut off from the user's, and fixture repositories committed in tmp_path."""
 
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 from collections.abc import Callable
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -30,6 +32,33 @@ from tests.sarif import (
 collect_ignore = ["fixtures"]  # fixture repositories are data, and their tests are not this package's
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def verdicts_file(name, file="judge-verdicts.json"):
+    """Return the path of a fixture's canned-verdicts file."""
+    return FIXTURES / name / file
+
+
+def model_id(name, file="judge-verdicts.json"):
+    """Return the model id the stub judge records for a fixture's canned-verdicts file."""
+    return "stub:sha256:" + hashlib.sha256(verdicts_file(name, file).read_bytes()).hexdigest()
+
+
+def prompt_hash():
+    """Return the hash the judge records for its prompt."""
+    return "sha256:" + hashlib.sha256(files("earnest.judge").joinpath("prompt.txt").read_bytes()).hexdigest()
+
+
+@given(parsers.parse('the judge is the stub model with the canned verdicts of "{name}"'))
+def stub_judge(monkeypatch, name):
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file(name)}")
+
+
+@given(parsers.parse('the judge is the stub model with the canned verdicts "{file}" of "{name}"'))
+def stub_judge_file(monkeypatch, file, name):
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file(name, file)}")
+
+
 # Pinned names and dates give a fixture commit the same sha on every run, and M4's overrides name that sha.
 _IDENTITY = {
     "GIT_AUTHOR_NAME": "Earnest Fixture",
@@ -77,6 +106,8 @@ _OVERLAYS = (
     "evidence-units",
     "judge-verdicts.json",
     "evidence-verdicts.json",
+    "stub-pass.json",
+    "stub-fail.json",
 )
 
 

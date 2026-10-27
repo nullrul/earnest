@@ -1,0 +1,182 @@
+{
+  "req~card-refusal~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 11
+      },
+      "reasoning": "barrier_opens meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 23
+      },
+      "reasoning": "test_declined_card_keeps_barrier_closed checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~daily-cap~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 17
+      },
+      "reasoning": "capped takes the smaller of the fare and the daily cap.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 29
+      },
+      "reasoning": "test_capped_fare_is_the_cap checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~entry-time~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 23
+      },
+      "reasoning": "entry_stamp meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 35
+      },
+      "reasoning": "test_entry_stamp_drops_seconds checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~ev-discount~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 29
+      },
+      "reasoning": "discounted takes 5 percent off, not the required ten percent.",
+      "result": "not-satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 41
+      },
+      "reasoning": "test_electric_car_pays_less checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~fare-rounding~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 35
+      },
+      "reasoning": "rounded meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 47
+      },
+      "reasoning": "test_fare_rounds_up checks one fare and never a fare already on a ten-cent step.",
+      "result": "not-satisfied"
+    }
+  },
+  "req~full-sign~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 41
+      },
+      "reasoning": "full_sign meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 53
+      },
+      "reasoning": "test_full_sign_when_all_taken checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~grace-period~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 47
+      },
+      "reasoning": "fare meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 60
+      },
+      "reasoning": "test_grace_period_is_free checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~lost-ticket~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 53
+      },
+      "reasoning": "lost_ticket_fare meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 66
+      },
+      "reasoning": "test_lost_ticket_charges_something only asserts a positive fare and never checks the daily cap.",
+      "result": "not-satisfied"
+    }
+  },
+  "req~night-rate~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 59
+      },
+      "reasoning": "hourly_rate meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 72
+      },
+      "reasoning": "test_night_rate_is_half checks the requirement.",
+      "result": "satisfied"
+    }
+  },
+  "req~receipt-total~1": {
+    "implemented": {
+      "location": {
+        "file": "src/meter.py",
+        "line": 65
+      },
+      "reasoning": "receipt meets the requirement.",
+      "result": "satisfied"
+    },
+    "tested": {
+      "location": {
+        "file": "tests/test_meter.py",
+        "line": 79
+      },
+      "reasoning": "test_receipt_shows_total checks the requirement.",
+      "result": "satisfied"
+    }
+  }
+}

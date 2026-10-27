@@ -262,6 +262,10 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Deliverable: `earnest calibrate` in `cli.py`; calibration in `judge/`;
   `tests/fixtures/calibration/`; `calibration_gate.feature` and its step
   module.
+- Development fixture: the SYNTHETIC `tests/fixtures/calibration-dev/` (user
+  decision 2026-10-27), agent-written and never used to claim SC4. The exit
+  command and the demo run on it; `tests/fixtures/calibration/` waits for the
+  maintainer's fixture, and the SC4 real-model run is unrun.
 - Spec coverage: UC8; SC4; the Calibration capability.
 - Context to load: `00`: SC4. `01`: UC8, G10, Process vocabulary, Command
   surface. `02`: `judge/` and `fixtures/calibration/` in Module boundaries.

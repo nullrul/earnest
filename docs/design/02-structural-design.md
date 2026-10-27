@@ -456,6 +456,8 @@ its line says "Owns", and each such rule has exactly one owner.
   requirements, hand-linked code and tests, and the maintainer's verdicts, read
   by `earnest calibrate`; its format is gating answer 1 of the
   [M6 task plan](../superpowers/plans/2026-10-25-calibration-gate.md).
+- `fixtures/calibration-dev/`: SYNTHETIC development fixture, same layout as
+  `fixtures/calibration/`, agent-written (2026-10-27); never SC4 evidence.
 
 ## Layout and reuse-scaffolds decision
 

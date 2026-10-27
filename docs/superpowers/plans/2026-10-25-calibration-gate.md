@@ -1,6 +1,6 @@
 # M6 `calibration_gate` Implementation Plan
 
-Status: gating answers approved; execution starts once the maintainer supplies Task 1's fixture. The maintainer approved the three gating answers and the output contract on 2026-10-25, and on 2026-10-26 revised answer 2 (the fixture source) and approved vendoring the 3d-pipe excerpts, as set out in Gating open questions and Task 1 below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
+Status: gating answers approved; on 2026-10-27 the user decided that Tasks 2 to 5 and 7 build against the synthetic `tests/fixtures/calibration-dev/`, while Task 1 stays the maintainer's. The maintainer approved the three gating answers and the output contract on 2026-10-25, and on 2026-10-26 revised answer 2 (the fixture source) and approved vendoring the 3d-pipe excerpts, as set out in Gating open questions and Task 1 below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -102,6 +102,17 @@ Not a gating row: the Command surface row of `01` leaves it open, and Task 0 add
 - It exits 0 on a pass, 1 on a fail, and 2 when it cannot run.
 - It writes the slot on a pass and on a fail. The record holds "the latest calibration result" (`01` Process vocabulary, item 5), so a failing run replaces an earlier pass.
 
+### 5. The development fixture
+
+**APPROVED (user, 2026-10-27):**
+
+- The maintainer's hand-written ten-requirement fixture (Task 1, G10, SC4) is not available yet.
+- Tasks 2 to 5 and 7, and a demo, build against a SYNTHETIC development fixture at `packages/earnest/tests/fixtures/calibration-dev/`. It has the layout of Task 1's fixture: `requirements.md`, tagged code and tests, `verdicts.json`, `stub-pass.json` and `stub-fail.json`.
+- The fixture is agent-written and is not the SC4 calibration set. Its `README.md` says so, and it is never used to claim SC4.
+- `tests/fixtures/calibration/` stays reserved for the maintainer's fixture as a data-only drop-in. No code change is needed when it lands.
+- The feature and the demo point at `calibration-dev`, and a pass there is no SC4 evidence. The SC4 real-model run stays unrun.
+- The demo is `docs/demo/m6-calibrate.sh`, with its captured output in `docs/demo/m6-calibrate.md`.
+
 ## Global Constraints
 
 - **Layout and lint:**
@@ -169,6 +180,13 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `tests/fixtures/calibration/SOURCE.md` | the chosen requirements' spec text, verbatim; the source repository, the pin and the ownership note | 1 |
 | `tests/fixtures/calibration/verdicts.json` | the maintainer's twenty answers | 1 |
 | `tests/fixtures/calibration/stub-pass.json`, `stub-fail.json` | `verdicts.json` with results flipped on two, then three, requirements | 2 |
+| `tests/fixtures/calibration-dev/README.md` | marks the fixture SYNTHETIC: agent-written, not the SC4 set | dev |
+| `tests/fixtures/calibration-dev/requirements.md` | the synthetic `req` items | dev |
+| `tests/fixtures/calibration-dev/src/meter.py`, `tests/test_meter.py` | the tagged code and tests | dev |
+| `tests/fixtures/calibration-dev/verdicts.json` | the synthetic verdicts | dev |
+| `tests/fixtures/calibration-dev/stub-pass.json`, `stub-fail.json` | `verdicts.json` with results flipped on two, then three, requirements | 2 |
+| `docs/demo/m6-calibrate.sh` | the demo script, run on `calibration-dev` | demo |
+| `docs/demo/m6-calibrate.md` | the demo's captured output | demo |
 | `tests/conftest.py` | the two stubs added to `_OVERLAYS`; `verdicts_file`, `model_id`, `prompt_hash` and the `stub_judge` step moved here from `test_judge_check.py` | 2 |
 | `tests/steps/test_judge_check.py` | loses `verdicts_file`, `model_id`, `prompt_hash` and `stub_judge` to `conftest.py` | 2 |
 | `tests/features/calibration_gate.feature` | M6's 5 scenarios, verbatim from `04` | 2 |
@@ -178,7 +196,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py` | each task's tests | 3-5 |
 | `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `uv.lock`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge.py` | Task 7's model, its root, and its dependency | 7 |
 
-`reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs change. Before Task 1, the branch also carries a test-tree fix in `tests/conftest.py`, so that fixture copies leave bytecode out; Task 2 builds on it. Scope paths below cover Tasks 1 to 7; Task 0's docs are named in its Files line.
+`reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs and the demo files `docs/demo/m6-calibrate.sh` and `docs/demo/m6-calibrate.md` change. Before Task 1, the branch also carries a test-tree fix in `tests/conftest.py`, so that fixture copies leave bytecode out; Task 2 builds on it. Scope paths below cover Tasks 1 to 7; Task 0's docs are named in its Files line.
 
 ## Known limits
 
@@ -187,6 +205,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 - Effort is pinned in code and is not part of the model id. A change to it is a code change, and a new calibration should follow.
 - The slot binds the model id and the prompt hash, as the Command surface of `01` says, and not the fixture's content. An edit to `verdicts.json` or `requirements.md` after a pass leaves the judge calibrated until `calibrate` runs again.
 - The match compares `result` alone. A judge that is right for the wrong reason still matches, and the printed reasoning is for the maintainer to read.
+- Until Task 1 lands, every M6 test and the demo run on the synthetic `calibration-dev` fixture, and a pass there is no SC4 evidence.
 - The SC4 gate is unrun until the maintainer runs Task 7's model over the fixture: `EARNEST_JUDGE=anthropic:claude-opus-5-5 uv run earnest calibrate tests/fixtures/calibration`, from `packages/earnest/`.
 
 ---
@@ -535,6 +554,9 @@ This builds the model of gating answer 3. Load the `claude-api` skill before wri
   "packages/earnest/tests/unit/test_judge_anthropic.py",
   "packages/earnest/tests/unit/test_cli.py",
   "packages/earnest/tests/integration/test_calibration_gate.py",
-  "packages/earnest/tests/fixtures/calibration/"
+  "packages/earnest/tests/fixtures/calibration/",
+  "packages/earnest/tests/fixtures/calibration-dev/",
+  "docs/demo/m6-calibrate.sh",
+  "docs/demo/m6-calibrate.md"
 ]
 ```
