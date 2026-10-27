@@ -919,3 +919,16 @@ def test_calibrate_escapes_the_model_s_location_file(fixture_repo, monkeypatch, 
     assert "\x1b" not in out
     assert [line for line in out.splitlines() if line.startswith("matches:")] == ["matches: 8/10"]
     assert "src/meter.py\\x1b[2J\\nmatches: 10/10\\npass:17" in out
+
+
+def test_calibrate_escapes_the_model_s_reasoning(fixture_repo, monkeypatch, tmp_path, capsys):
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    answers["req~daily-cap~1"]["implemented"]["reasoning"] = "ok\x1b[2J\nmatches: 10/10\npass"
+    stub = tmp_path / "forged.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    _, out, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert "\x1b" not in out
+    assert [line for line in out.splitlines() if line.startswith("matches:")] == ["matches: 8/10"]
+    assert "ok\\x1b[2J\\nmatches: 10/10\\npass" in out

@@ -605,14 +605,18 @@ def calibrate(
     Overrides are ignored: every question is asked of the model.
 
     Raises:
-        JudgeError: the index does not hold exactly ten traced EARS requirements, or the maintainer's verdicts lack
+        JudgeError: the index does not hold exactly ten traced EARS requirements, each defined once, or the maintainer's verdicts lack
             an answer to one of their questions.
     """
     reqs = [item for item in index.defined.values() if item.id.type == "req"]
     faulty = [str(item.id) for item in reqs if levels.get(str(item.id)) != "traced" or ears.parse(item.body) is None]
-    if len(reqs) != TOTAL or faulty:
+    # index.defined keeps one item per id, so a second definition would swap the sentence the maintainer judged
+    every = [str(item.id) for item in index.items if item.id.type == "req"]
+    twice = sorted({key for key in every if every.count(key) > 1})
+    if len(reqs) != TOTAL or faulty or twice:
         msg = f"calibration needs exactly ten traced EARS requirements, not {len(reqs)}"
-        raise JudgeError(msg + (f"; untraced or not EARS: {', '.join(faulty)}" if faulty else ""))
+        msg += f"; untraced or not EARS: {', '.join(faulty)}" if faulty else ""
+        raise JudgeError(msg + (f"; defined more than once: {', '.join(twice)}" if twice else ""))
     subjects = {str(item.id) for item in reqs}
     asked = [question for question in questions(index, levels) if question.subject in subjects]
     for question in asked:

@@ -711,6 +711,13 @@ def test_not_ten_judgeable_exits(found):
         judge.calibrate(found, levels, model(), maintainer())
 
 
+def test_a_requirement_defined_twice_exits():
+    found = ten_index(extra="\n`req~r3~1`\n\nWhen 3 happens, the system shall do nothing.\n")
+    assert len(found.items) > len(found.defined)
+    with pytest.raises(judge.JudgeError, match=r"exactly ten.*defined more than once: req~r3~1"):
+        calibrate(found=found)
+
+
 def test_missing_maintainer_answer_raises():
     verdicts = maintainer()
     del verdicts["req~r3~1"]["tested"]
