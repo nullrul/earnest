@@ -749,3 +749,13 @@ def test_load_verdicts_reads_the_answers(tmp_path):
     path = tmp_path / "verdicts.json"
     path.write_text(json.dumps({"req~r1~1": {"tested": answer()}}))
     assert judge.load_verdicts(path) == {"req~r1~1": {"tested": judge.Verdict("satisfied", "it does", "src/a.py", 3)}}
+
+
+def test_a_requirement_named_twice_in_a_verdicts_file_cannot_run(tmp_path):
+    entry = '{"implemented": {"result": "satisfied", "reasoning": "r", "location": {"file": "a", "line": 1}}}'
+    path = tmp_path / "verdicts.json"
+    path.write_text(f'{{"req~a~1": {entry}, "req~a~1": {entry}}}', encoding="utf-8")
+    with pytest.raises(judge.JudgeError, match=r"req~a~1"):
+        judge.load_verdicts(path)
+    with pytest.raises(judge.JudgeError, match=r"req~a~1"):
+        judge.load_model(f"stub:{path}", tmp_path)

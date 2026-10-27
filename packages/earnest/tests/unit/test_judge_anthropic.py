@@ -1,6 +1,7 @@
 """Unit tests for the `anthropic:` judge model, with a fake client: no test reaches the API or needs a key."""
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -150,3 +151,19 @@ def test_a_client_that_cannot_start_cannot_run(tmp_path, monkeypatch):
 def test_an_anthropic_value_without_a_model_name_cannot_run(tmp_path):
     with pytest.raises(judge.JudgeError, match="names no model"):
         judge.load_model("anthropic:", tmp_path)
+
+
+def test_an_sdk_type_error_on_a_request_cannot_run(tmp_path):
+    messages = Messages(error=TypeError("Could not resolve authentication method"))
+    with pytest.raises(judge.JudgeError, match="cannot answer `req~greet~1` implemented"):
+        model(tmp_path, messages).ask(question(tmp_path))
+
+
+def test_the_real_client_with_no_credentials_cannot_run(tmp_path, monkeypatch):
+    for name in [name for name in os.environ if name.startswith("ANTHROPIC_")]:
+        monkeypatch.delenv(name)
+    monkeypatch.setenv("HOME", str(tmp_path))  # no profile or config file supplies credentials
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:9")
+    loaded = judge.load_model("anthropic:claude-x", tmp_path)
+    with pytest.raises(judge.JudgeError, match="cannot answer"):
+        loaded.ask(question(tmp_path))

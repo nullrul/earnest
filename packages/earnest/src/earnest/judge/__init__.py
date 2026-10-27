@@ -239,7 +239,7 @@ class Claude:
                 messages=[{"role": "user", "content": question_text(self.root, question)}],
                 output_config=config,
             )
-        except anthropic.AnthropicError as error:
+        except (anthropic.AnthropicError, TypeError) as error:  # the SDK raises TypeError when it finds no credentials
             msg = f"the model {self.id} cannot answer {asked}: {error}"
             raise JudgeError(msg) from error
         if reply.stop_reason != "end_turn":  # a refusal, or a reply cut off at max_tokens
@@ -276,13 +276,22 @@ def _read_answers(path: Path, name: str) -> tuple[bytes, dict[str, dict[str, Ver
     """
     try:
         data = path.read_bytes()
-        return data, _answers(json.loads(data))
+        return data, _answers(json.loads(data, object_pairs_hook=_unique))
     except OSError as error:
         msg = f"{name} cannot be read: {error}"
         raise JudgeError(msg) from error
     except (ValueError, TypeError, KeyError, RecursionError) as error:  # UnicodeDecodeError is a ValueError
         msg = f"{name} {path} is not an object of canned verdicts: {error}"
         raise JudgeError(msg) from error
+
+
+def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Return the object of pairs; a key named twice raises, as json.loads would keep only the last."""
+    keys = [key for key, _ in pairs]
+    if twice := sorted({key for key in keys if keys.count(key) > 1}):
+        msg = f"it names {', '.join(twice)} more than once"
+        raise ValueError(msg)
+    return dict(pairs)
 
 
 def load_verdicts(path: Path) -> dict[str, dict[str, Verdict]]:

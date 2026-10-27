@@ -1,11 +1,13 @@
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
 
+import functools
 import json
 import os
 import signal
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -859,3 +861,61 @@ def test_calibrate_from_a_directory_outside_any_repository_exits_2(fixture_repo,
     outside = tmp_path / "outside"
     outside.mkdir()
     cannot_run(run(outside, monkeypatch, capsys, "calibrate", str(repo)))
+
+
+def never_asked(monkeypatch):
+    def ask(*_):
+        pytest.fail("calibrate asked the model before it knew it could keep the result")
+
+    monkeypatch.setattr(judge, "calibrate", ask)
+
+
+def test_calibrate_with_a_corrupt_record_exits_2_before_asking_the_model(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / "assessment.json").write_text("{bad", encoding="utf-8")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    never_asked(monkeypatch)
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
+
+
+def test_calibrate_outside_any_repository_exits_2_before_asking_the_model(fixture_repo, monkeypatch, tmp_path, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    never_asked(monkeypatch)
+    cannot_run(run(outside, monkeypatch, capsys, "calibrate", str(repo)))
+
+
+def test_calibrate_from_another_directory_sends_the_real_model_the_fixture_s_files(fixture_repo, monkeypatch, capsys):
+    import anthropic  # noqa: PLC0415
+
+    from tests.unit.test_judge_anthropic import Messages, reply  # noqa: PLC0415
+
+    verdict = {"result": "satisfied", "reasoning": "r", "location": {"file": "src/meter.py", "line": 1}}
+    messages = Messages(reply(json.dumps(verdict)))
+    monkeypatch.setattr(anthropic, "Anthropic", functools.partial(SimpleNamespace, messages=messages))
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", "anthropic:claude-x")
+    code, _, err = run(repo / "src", monkeypatch, capsys, "calibrate", str(repo))
+    assert code in {0, 1}, err
+    assert len(messages.requests) == 20
+    capped = next(
+        line for line in (repo / "src" / "meter.py").read_text(encoding="utf-8").splitlines() if "def capped" in line
+    )
+    assert any(capped in request["messages"][0]["content"] for request in messages.requests)
+
+
+def test_calibrate_escapes_the_model_s_location_file(fixture_repo, monkeypatch, tmp_path, capsys):
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    answers["req~daily-cap~1"]["implemented"]["location"]["file"] = "src/meter.py\x1b[2J\nmatches: 10/10\npass"
+    stub = tmp_path / "forged.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    _, out, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert "\x1b" not in out
+    assert [line for line in out.splitlines() if line.startswith("matches:")] == ["matches: 8/10"]
+    assert "src/meter.py\\x1b[2J\\nmatches: 10/10\\npass:17" in out

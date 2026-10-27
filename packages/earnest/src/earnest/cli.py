@@ -298,12 +298,12 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
 
 def _calibrate(fixture: Path) -> _Result:
     """Run the judge over the fixture's ten requirements, print them beside the maintainer's, and record the result."""
+    root = git.repo_root(Path.cwd())  # the record is read before any paid question, so a bad one costs nothing
+    record = reporter.read_record(root)
     model = judge.load_model(os.environ.get("EARNEST_JUDGE"), fixture)  # its regions name fixture paths
     maintainer = judge.load_verdicts(fixture / "verdicts.json")
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
     calibration = judge.calibrate(index, structural.traced(index), model, maintainer)
-    root = git.repo_root(Path.cwd())
-    record = reporter.read_record(root)
     record.calibration = judge.slot(calibration)
     reporter.write_record(root, record)
     return _Result(_comparison(calibration), "", 0 if calibration.passed else 1)
@@ -322,7 +322,9 @@ def _comparison(calibration: judge.Calibration) -> str:
             if row.judge[kind].result != row.maintainer[kind].result:
                 for who, verdicts in _sides(row):
                     v = verdicts[kind]
-                    lines.append(f"    {kind} {who}: {v.result} at {v.path}:{v.line}: {judge.escaped(v.reasoning)}")
+                    lines.append(
+                        f"    {kind} {who}: {v.result} at {judge.escaped(v.path)}:{v.line}: {judge.escaped(v.reasoning)}"
+                    )
     lines += [f"matches: {calibration.matches}/{judge.TOTAL}", "pass" if calibration.passed else "fail"]
     return "\n".join(lines) + "\n"
 
