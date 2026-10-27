@@ -1,21 +1,30 @@
 """Judge: the questions each traced EARS requirement asks, the model that answers them, and its observations (D14)."""
 
+from __future__ import annotations
+
 import json
-from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from earnest import adapters, ears, git
 from earnest.index import Index, Item, Link, Override, Region, build_index, digest
 from earnest.reporter import RECORD, Finding, Record, canonical, location
 
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
+
+    import anthropic
+    from anthropic.types import OutputConfigParam
+
+
 # The questions, and the artifact types whose regions each asks about.
 KINDS = {"implemented": frozenset({"impl"}), "tested": frozenset({"utest", "itest", "stest"})}
 QUESTIONS = tuple(KINDS)
 PROMPT_HASH = digest(files(__package__).joinpath("prompt.txt").read_bytes())
+MAX_TOKENS = 16000  # room for the thinking Opus 5.5 always does, and the verdict after it
 _RESULTS = ("satisfied", "not-satisfied")
 PASS_MATCHES = 8  # SC4: the judge passes calibration when it matches the maintainer on eight of ten requirements
 TOTAL = 10
@@ -37,12 +46,16 @@ class Verdict:
 
 @dataclass(frozen=True)
 class Question:
-    """One question about one requirement: `implemented` or `tested`, its sentence, and the regions it asks about."""
+    """One question about one requirement: `implemented` or `tested`, its sentence, and the regions it asks about.
+
+    `tagged` holds the item's code and test regions by question, both of which the question text shows.
+    """
 
     item: Item
     kind: str
     sentence: ears.Sentence
     regions: tuple[Region, ...]
+    tagged: Mapping[str, tuple[Region, ...]]
 
     @property
     def subject(self) -> str:
@@ -142,22 +155,117 @@ def _cached(entry: object) -> Verdict | None:
         return None
 
 
-def load_model(value: str | None) -> Stub:
-    """Return the model `EARNEST_JUDGE` names: `stub:<path>`, its path absolute or relative to the working directory.
+def load_model(value: str | None, root: Path) -> Model:
+    """Return the model `EARNEST_JUDGE` names: `stub:<path>` or `anthropic:<model>`.
+
+    A stub's path is absolute or relative to the working directory, whatever root is. Root is the directory whose
+    files the questions' regions name, which a real model reads into each question.
 
     Raises:
-        JudgeError: the value is unset or names no known model, or the file cannot be read or is not the object of
-            canned verdicts.
+        JudgeError: the value is unset or names no known model, the file cannot be read or is not the object of
+            canned verdicts, or the SDK's client cannot start.
     """
     if not value:
         msg = "earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>"
         raise JudgeError(msg)
     kind, _, path = value.partition(":")
+    if kind == "anthropic" and path:
+        return _claude(value, root)
     if kind != "stub" or not path:
         msg = f"EARNEST_JUDGE names no model Earnest knows: {value!r}; use stub:<path>"
         raise JudgeError(msg)
     data, answers = _read_answers(Path(path), "the stub model's file")
     return Stub("stub:" + digest(data), answers)
+
+
+def _claude(value: str, root: Path) -> Claude:
+    """Return the `anthropic:` model; the SDK resolves its own credentials, and earnest reads no key.
+
+    Raises:
+        JudgeError: the SDK's client cannot start.
+    """
+    import anthropic  # noqa: PLC0415  # only an `anthropic:` value loads the SDK, so stub runs never import it
+
+    try:
+        client = anthropic.Anthropic()
+    except anthropic.AnthropicError as error:
+        msg = f"the model {value} cannot start: {error}"
+        raise JudgeError(msg) from error
+    return Claude(value, root, client)
+
+
+# The verdict object the model is asked for through structured outputs: the stub's canned-verdict answer.
+_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        "result": {"type": "string", "enum": list(_RESULTS)},
+        "reasoning": {"type": "string"},
+        "location": {
+            "type": "object",
+            "properties": {"file": {"type": "string"}, "line": {"type": "integer"}},
+            "required": ["file", "line"],
+            "additionalProperties": False,
+        },
+    },
+    "required": ["result", "reasoning", "location"],
+    "additionalProperties": False,
+}
+
+
+@dataclass(frozen=True)
+class Claude:
+    """A Claude model through the `anthropic` SDK; its id is the `EARNEST_JUDGE` value, verbatim."""
+
+    id: str
+    root: Path
+    client: anthropic.Anthropic
+
+    def ask(self, question: Question) -> Verdict:
+        """Send the question's text and return the model's structured verdict.
+
+        Raises:
+            JudgeError: the API fails, the model refuses or stops early, or its reply is not a verdict.
+        """
+        import anthropic  # noqa: PLC0415  # loaded already by load_model; named here for its error class
+
+        asked = f"`{question.subject}` {question.kind}"
+        # gating answer 3: effort is pinned in code, the verdict comes through structured outputs, and no sampling
+        # parameter is sent
+        config: OutputConfigParam = {"effort": "high", "format": {"type": "json_schema", "schema": _SCHEMA}}
+        try:
+            reply = self.client.messages.create(
+                model=self.id.partition(":")[2],
+                max_tokens=MAX_TOKENS,
+                messages=[{"role": "user", "content": question_text(self.root, question)}],
+                output_config=config,
+            )
+        except anthropic.AnthropicError as error:
+            msg = f"the model {self.id} cannot answer {asked}: {error}"
+            raise JudgeError(msg) from error
+        if reply.stop_reason != "end_turn":  # a refusal, or a reply cut off at max_tokens
+            msg = f"the model {self.id} stopped on {asked} with {reply.stop_reason}"
+            raise JudgeError(msg)
+        text = "".join(block.text for block in reply.content if block.type == "text")
+        try:
+            return _verdict(json.loads(text))
+        except (ValueError, TypeError, KeyError, RecursionError) as error:
+            msg = f"the model {self.id} gave a malformed answer to {asked}: {error}"
+            raise JudgeError(msg) from error
+
+
+def question_text(root: Path, question: Question) -> str:
+    """Return what one question sends: prompt.txt, then the question, the sentence and its clauses, the code and tests.
+
+    Each field is labelled, and each region is its `path:first-last` line followed by its lines from root's files.
+    """
+    lines = ["", f"Question: {question.kind}", f"Requirement: {question.sentence.text}", "Clauses:"]
+    lines += [f"{clause.kind}: {clause.text}" for clause in question.sentence.clauses]
+    for label, kind in (("Code regions:", "implemented"), ("Test regions:", "tested")):
+        lines.append(label)
+        for region in question.tagged[kind]:
+            text = (root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
+            lines += [f"{region.path}:{region.first}-{region.last}", b"\n".join(text).decode(errors="replace")]
+    return files(__package__).joinpath("prompt.txt").read_text(encoding="utf-8") + "\n".join(lines) + "\n"
 
 
 def _read_answers(path: Path, name: str) -> tuple[bytes, dict[str, dict[str, Verdict]]]:
@@ -217,13 +325,12 @@ def _verdict(answer: object) -> Verdict:
 
 def questions(index: Index, levels: Mapping[str, str]) -> list[Question]:
     """Return the two questions of each traced requirement whose body is one EARS sentence, in index order."""
-    # shortcut: a question carries its clause spans but no question text, as the stub reads no prompt; M6's real
-    # model builds the text from the spans and prompt.txt
     asked: list[Question] = []
     for item in index.defined.values():
         sentence = ears.parse(item.body) if levels.get(str(item.id)) == "traced" else None
         if sentence is not None:
-            asked.extend(Question(item, kind, sentence, regions(index, item, KINDS[kind])) for kind in QUESTIONS)
+            tagged = {kind: regions(index, item, KINDS[kind]) for kind in QUESTIONS}
+            asked.extend(Question(item, kind, sentence, tagged[kind], tagged) for kind in QUESTIONS)
     return asked
 
 

@@ -769,6 +769,21 @@ def test_a_failing_calibration_exits_1(fixture_repo, monkeypatch, capsys):
     assert out.splitlines()[-2:] == ["matches: 7/10", "fail"]
 
 
+def test_calibrate_asks_the_model_about_the_fixture_s_files(fixture_repo, monkeypatch, capsys):
+    roots = []
+    load = judge.load_model
+
+    def spy(value, root):
+        roots.append(root)
+        return load(value, root)
+
+    monkeypatch.setattr(judge, "load_model", spy)
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", str(repo))
+    assert (code, roots) == (0, [repo])
+
+
 def cannot_run(result):
     code, out, err = result
     assert (code, out) == (2, "")

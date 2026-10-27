@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -74,7 +75,7 @@ def ask(found, model, root, slot=None):
 def stub(tmp_path, data):
     path = tmp_path / "verdicts.json"
     path.write_text(json.dumps(data))
-    return judge.load_model(f"stub:{path}")
+    return judge.load_model(f"stub:{path}", tmp_path)
 
 
 def test_the_model_id_is_the_stub_and_the_files_sha256(tmp_path):
@@ -91,12 +92,12 @@ def test_the_prompt_hash_is_the_prompts_sha256():
 @pytest.mark.parametrize("value", [None, "", "foo:x", "stub:", "stub"])
 def test_an_unset_or_unknown_model_cannot_run(value):
     with pytest.raises(judge.JudgeError):
-        judge.load_model(value)
+        judge.load_model(value, Path())
 
 
 def test_a_missing_file_cannot_run(tmp_path):
     with pytest.raises(judge.JudgeError, match="cannot be read"):
-        judge.load_model(f"stub:{tmp_path / 'none.json'}")
+        judge.load_model(f"stub:{tmp_path / 'none.json'}", tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -115,7 +116,7 @@ def test_a_file_that_is_not_the_object_of_canned_verdicts_cannot_run(tmp_path, d
     path = tmp_path / "verdicts.json"
     path.write_text(data)
     with pytest.raises(judge.JudgeError, match="not an object of canned verdicts"):
-        judge.load_model(f"stub:{path}")
+        judge.load_model(f"stub:{path}", tmp_path)
 
 
 def test_a_question_the_file_does_not_answer_cannot_run(tmp_path):
@@ -365,7 +366,8 @@ def test_an_override_at_a_commit_git_does_not_hold_drifts(tmp_path):
 def test_a_relative_stub_path_reads_against_the_working_directory(tmp_path, monkeypatch):
     stub(tmp_path, {"req~greet~1": GREET})
     monkeypatch.chdir(tmp_path)
-    model = judge.load_model("stub:verdicts.json")
+    model = judge.load_model("stub:verdicts.json", tmp_path / "elsewhere")
+    assert isinstance(model, judge.Stub)
     assert model.id == first_model_id(tmp_path)
     assert model.answers["req~greet~1"]["tested"].path == "tests/a.py"
 
@@ -374,7 +376,7 @@ def test_a_file_nested_past_the_parser_s_depth_cannot_run(tmp_path):
     path = tmp_path / "deep.json"
     path.write_text("[" * 100_000 + "]" * 100_000)
     with pytest.raises(judge.JudgeError, match="not an object of canned verdicts"):
-        judge.load_model(f"stub:{path}")
+        judge.load_model(f"stub:{path}", tmp_path)
 
 
 def drifts_after(tmp_path, lines):

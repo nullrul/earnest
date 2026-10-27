@@ -298,7 +298,7 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
 
 def _calibrate(fixture: Path) -> _Result:
     """Run the judge over the fixture's ten requirements, print them beside the maintainer's, and record the result."""
-    model = judge.load_model(os.environ.get("EARNEST_JUDGE"))
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE"), fixture)  # its regions name fixture paths
     maintainer = judge.load_verdicts(fixture / "verdicts.json")
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
     calibration = judge.calibrate(index, structural.traced(index), model, maintainer)
@@ -332,7 +332,7 @@ def _sides(row: judge.Row) -> tuple[tuple[str, Mapping[str, judge.Verdict]], ...
 
 
 def _check(world: _World, args: argparse.Namespace) -> _Result:
-    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge or args.evidence else None
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE"), world.root) if args.judge or args.evidence else None
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
