@@ -3,7 +3,10 @@
 import json
 
 from tests.conftest import verdicts_file
-from tests.sarif import record, run_earnest
+from tests.sarif import record, results, run_earnest
+
+
+RULE = "earnest/judge-uncalibrated"
 
 
 def stub(monkeypatch, file):
@@ -41,3 +44,16 @@ def test_calibrate_indexes_the_fixture_and_records_in_the_working_directorys_rep
     assert "req~other~1" not in done.stdout
     assert record(other)["calibration"]["matches"] == 8
     assert not (fixture / ".earnest").exists()
+
+
+def test_a_calibration_under_the_same_model_silences_judge_uncalibrated(fixture_repo, monkeypatch):
+    repo = fixture_repo("calibration-dev")
+
+    def uncalibrated(file):
+        stub(monkeypatch, file)
+        return [each for each in results(run_earnest(repo, "check", "--judge")) if each["ruleId"] == RULE]
+
+    stub(monkeypatch, "stub-pass.json")
+    assert run_earnest(repo, "calibrate", ".").returncode == 0
+    assert uncalibrated("stub-pass.json") == []
+    assert len(uncalibrated("stub-fail.json")) == 1

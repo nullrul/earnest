@@ -162,6 +162,40 @@ def test_one_uncalibrated_finding_per_run_at_line_one_of_the_record(tmp_path):
     assert judge.PROMPT_HASH in found.message
 
 
+def passing(base, **over):
+    return {"model": base.id, "prompt": judge.PROMPT_HASH, "matches": 8, "total": 10, "pass": True, **over}
+
+
+def test_calibrated_needs_pass(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model), model) is True
+    assert judge.calibrated(passing(model, **{"pass": False}), model) is False
+
+
+def test_calibrated_needs_same_model_and_prompt(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model, model="stub:other"), model) is False
+    assert judge.calibrated(passing(model, prompt="0" * 64), model) is False
+
+
+def test_calibrated_none(tmp_path):
+    assert judge.calibrated(None, stub(tmp_path, {})) is False
+
+
+def test_calibrated_malformed_slot(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model, **{"pass": "false"}), model) is False
+    assert judge.calibrated({"model": model.id, "prompt": judge.PROMPT_HASH}, model) is False
+
+
+def test_a_record_calibrated_for_this_model_raises_no_uncalibrated_finding(tmp_path):
+    model = stub(tmp_path, {"req~greet~1": {"implemented": answer(), "tested": answer()}})
+    write_code(tmp_path)
+    record = Record(calibration=passing(model))
+    result = judge.judge(index(), LEVELS, model, tmp_path, record)
+    assert [each for each in result.findings if each.rule == "earnest/judge-uncalibrated"] == []
+
+
 def test_observations_are_sorted_by_subject_and_question(tmp_path):
     model = stub(tmp_path, {"req~greet~1": {"tested": answer(file="tests/a.py"), "implemented": answer()}})
     result = ask(index(), model, tmp_path)
