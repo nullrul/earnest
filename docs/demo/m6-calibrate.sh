@@ -60,7 +60,8 @@ show_slot
 judge_run "$PASS"
 
 echo "== 5. A calibration of another model"
-calibrate "$PASS" > /dev/null
+calibrate "$PASS" | tail -n 1
+judge_run "$PASS"
 judge_run "$FAIL"
 
 echo "== 6. Calibrate cannot run without a model"

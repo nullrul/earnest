@@ -239,7 +239,8 @@ class Claude:
                 messages=[{"role": "user", "content": question_text(self.root, question)}],
                 output_config=config,
             )
-        except (anthropic.AnthropicError, TypeError) as error:  # the SDK raises TypeError when it finds no credentials
+        # TypeError: no credentials; ValueError: max_tokens over the model's non-streaming limit
+        except (anthropic.AnthropicError, TypeError, ValueError) as error:
             msg = f"the model {self.id} cannot answer {asked}: {error}"
             raise JudgeError(msg) from error
         if reply.stop_reason != "end_turn":  # a refusal, or a reply cut off at max_tokens

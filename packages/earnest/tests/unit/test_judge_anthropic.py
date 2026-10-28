@@ -82,6 +82,8 @@ def test_the_request_sends_the_question_at_effort_high_with_a_verdict_schema_and
     model(tmp_path, messages).ask(asked)
     (request,) = messages.requests
     assert request["model"] == "claude-opus-5-5"
+    # Opus thinks first at effort high; a smaller budget ends every reply on max_tokens
+    assert request["max_tokens"] == judge.MAX_TOKENS == 16000
     assert request["messages"] == [{"role": "user", "content": judge.question_text(tmp_path, asked)}]
     content = request["messages"][0]["content"]
     assert content.startswith("You judge one requirement")
@@ -104,6 +106,12 @@ def test_a_structured_reply_becomes_a_verdict(tmp_path):
 
 def test_an_api_error_cannot_run(tmp_path):
     messages = Messages(error=anthropic.APIConnectionError(request=None))
+    with pytest.raises(judge.JudgeError, match="cannot answer `req~greet~1` implemented"):
+        model(tmp_path, messages).ask(question(tmp_path))
+
+
+def test_a_request_the_sdk_rejects_before_sending_cannot_run(tmp_path):
+    messages = Messages(error=ValueError("Streaming is required for operations that may take longer than 10 minutes"))
     with pytest.raises(judge.JudgeError, match="cannot answer `req~greet~1` implemented"):
         model(tmp_path, messages).ask(question(tmp_path))
 

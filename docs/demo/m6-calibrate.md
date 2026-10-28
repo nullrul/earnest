@@ -94,10 +94,13 @@ check --judge exit: 1
 
 ## 5. A calibration of another model
 
-After recalibrating the first model (it passes again), a judge run under the second model is uncalibrated. The finding names the second model's id: a pass for one model id never covers another. The record is also per repository, so this holds only in the repository whose record was written.
+Recalibrating the first model passes again (`calibrate exit: 0`), and a judge run under it is quiet: no `earnest/judge-uncalibrated` finding. A judge run under the second model is then uncalibrated. The finding names the second model's id: a pass for one model id never covers another. The record is also per repository, so this holds only in the repository whose record was written.
 
 ```text
 == 5. A calibration of another model
+calibrate exit: 0
+check --judge exit: 1
+no earnest/judge-uncalibrated finding
 check --judge exit: 1
 .earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc and the prompt sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb: run earnest calibrate before relying on the judge's verdicts
 ```
