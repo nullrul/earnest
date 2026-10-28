@@ -54,8 +54,12 @@ class Question:
     item: Item
     kind: str
     sentence: ears.Sentence
-    regions: tuple[Region, ...]
     tagged: Mapping[str, tuple[Region, ...]]
+
+    @property
+    def regions(self) -> tuple[Region, ...]:
+        """Return the regions this question asks about."""
+        return self.tagged[self.kind]
 
     @property
     def subject(self) -> str:
@@ -340,7 +344,7 @@ def questions(index: Index, levels: Mapping[str, str]) -> list[Question]:
         sentence = ears.parse(item.body) if levels.get(str(item.id)) == "traced" else None
         if sentence is not None:
             tagged = {kind: regions(index, item, KINDS[kind]) for kind in QUESTIONS}
-            asked.extend(Question(item, kind, sentence, tagged[kind], tagged) for kind in QUESTIONS)
+            asked.extend(Question(item, kind, sentence, tagged) for kind in QUESTIONS)
     return asked
 
 
