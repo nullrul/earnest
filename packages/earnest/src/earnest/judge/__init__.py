@@ -294,7 +294,7 @@ def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
     """Return the object of pairs; a key named twice raises, as json.loads would keep only the last."""
     keys = [key for key, _ in pairs]
     if twice := sorted({key for key in keys if keys.count(key) > 1}):
-        msg = f"it names {', '.join(twice)} more than once"
+        msg = f"it names {', '.join(map(escaped, twice))} more than once"
         raise ValueError(msg)
     return dict(pairs)
 

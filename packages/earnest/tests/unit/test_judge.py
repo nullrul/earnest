@@ -809,3 +809,12 @@ def test_a_requirement_named_twice_in_a_verdicts_file_cannot_run(tmp_path):
         judge.load_verdicts(path)
     with pytest.raises(judge.JudgeError, match=r"req~a~1"):
         judge.load_model(f"stub:{path}", tmp_path)
+
+
+def test_a_key_named_twice_reaches_the_message_escaped(tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text('{"\\u001b[31mX": {}, "\\u001b[31mX": {}}', encoding="utf-8")
+    with pytest.raises(judge.JudgeError) as caught:
+        judge.load_verdicts(path)
+    assert "\x1b" not in str(caught.value)
+    assert "\\x1b[31mX more than once" in str(caught.value)
