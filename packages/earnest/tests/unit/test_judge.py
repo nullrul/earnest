@@ -741,6 +741,26 @@ def test_ten_requirements_with_a_fault_are_not_called_the_wrong_number(found, le
     assert ", not 10" not in str(raised.value)
 
 
+def test_only_requirements_are_asked():
+    found = ten_index(extra="\n`dsn~d1~1`\n\nWhen 1 happens, the design shall hold.\n")
+    assert "dsn~d1~1" in {str(item.id) for item in found.defined.values()}
+    levels = ten_levels() | {"dsn~d1~1": "traced"}
+    assert any(question.subject == "dsn~d1~1" for question in judge.questions(found, levels))
+    asked = []
+    stub = model()
+
+    class Recording:
+        id = stub.id
+
+        def ask(self, question):
+            asked.append(question.subject)
+            return stub.ask(question)
+
+    result = judge.calibrate(found, levels, Recording(), maintainer())
+    assert sorted(asked) == sorted(TEN * 2)
+    assert [row.subject for row in result.rows] == sorted(TEN)
+
+
 def test_missing_maintainer_answer_raises():
     verdicts = maintainer()
     del verdicts["req~r3~1"]["tested"]
