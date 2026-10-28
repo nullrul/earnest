@@ -718,6 +718,29 @@ def test_a_requirement_defined_twice_exits():
         calibrate(found=found)
 
 
+def test_a_second_revision_of_a_requirement_exits():
+    found = ten_index(extra="\n`req~r1~2`\n\nWhen 1 happens, the system shall do nothing.\n")
+    assert len(found.items) > len(found.defined)
+    with pytest.raises(judge.JudgeError, match=r"defined more than once: req~r1"):
+        calibrate(found=found)
+
+
+@pytest.mark.parametrize(
+    ("found", "levels"),
+    [
+        (ten_index(untraced=(4,)), {"req~r4~1": "untraced"}),
+        (ten_index(plain=(4,)), {}),
+        (ten_index(extra="\n`req~r3~1`\n\nWhen 3 happens, the system shall do nothing.\n"), {}),
+    ],
+    ids=["untraced", "not-ears", "duplicate"],
+)
+def test_ten_requirements_with_a_fault_are_not_called_the_wrong_number(found, levels):
+    traced = {str(item.id): "traced" for item in found.defined.values()} | levels
+    with pytest.raises(judge.JudgeError, match="exactly ten traced EARS requirements") as raised:
+        judge.calibrate(found, traced, model(), maintainer())
+    assert ", not 10" not in str(raised.value)
+
+
 def test_missing_maintainer_answer_raises():
     verdicts = maintainer()
     del verdicts["req~r3~1"]["tested"]

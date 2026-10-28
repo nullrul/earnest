@@ -552,6 +552,18 @@ def canned_model(monkeypatch, tmp_path):
     monkeypatch.setenv("EARNEST_JUDGE", f"stub:{path}")
 
 
+def test_check_judge_from_a_subdirectory_shows_claude_the_repo_s_code(fixture_repo, monkeypatch, capsys):
+    messages = Messages(reply(json.dumps(VERDICT)))
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: SimpleNamespace(messages=messages))
+    monkeypatch.setenv("EARNEST_JUDGE", MODEL)
+    repo = fixture_repo("seeded-change")
+    code, _, err = run(repo / "src", monkeypatch, capsys, "check", "--judge")
+    assert code in (0, 1), err
+    asked = "".join(request["messages"][0]["content"] for request in messages.requests)
+    source = (repo / "src/checkout/auth.py").read_text(encoding="utf-8").splitlines()
+    assert any(line.strip() and line in asked for line in source if not line.lstrip().startswith("#"))
+
+
 def test_judge_names_its_model_and_prompt_in_the_invocation(fixture_repo, monkeypatch, capsys, tmp_path):
     canned_model(monkeypatch, tmp_path)
     code, out, _ = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--judge")
@@ -765,6 +777,21 @@ def test_a_differing_requirement_shows_both_answers_under_its_line(fixture_repo,
     assert " judge: " in lines[first + 1]
     assert " maintainer: " in lines[first + 2]
     assert lines[first + 1].startswith("    ")
+
+
+def test_only_a_differing_question_gets_detail_lines(fixture_repo, monkeypatch, capsys):
+    _, (_, out, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    lines = out.splitlines()
+    rows = [line for line in lines if line.startswith("req~")]
+    differing = sum(
+        judged != held
+        for row in rows
+        for judged, held in zip(row.split()[2].split("/"), row.split()[4].split("/"), strict=True)
+    )
+    assert differing > 0
+    assert len([line for line in lines if line.startswith("    ")]) == 2 * differing
+    matched = next(i for i, line in enumerate(lines) if line.endswith("  match"))
+    assert not lines[matched + 1].startswith("    ")
 
 
 def test_a_failing_calibration_exits_1(fixture_repo, monkeypatch, capsys):

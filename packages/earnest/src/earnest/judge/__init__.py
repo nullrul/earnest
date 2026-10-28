@@ -610,11 +610,14 @@ def calibrate(
     """
     reqs = [item for item in index.defined.values() if item.id.type == "req"]
     faulty = [str(item.id) for item in reqs if levels.get(str(item.id)) != "traced" or ears.parse(item.body) is None]
-    # index.defined keeps one item per id, so a second definition would swap the sentence the maintainer judged
-    every = [str(item.id) for item in index.items if item.id.type == "req"]
-    twice = sorted({key for key in every if every.count(key) > 1})
+    # index.defined keeps the first item per type and name, whatever its revision, and drops any later one unseen
+    twice = sorted(
+        {str(item.id) for item in index.items if item.id.type == "req" and index.defined[item.id.key] is not item}
+    )
     if len(reqs) != TOTAL or faulty or twice:
-        msg = f"calibration needs exactly ten traced EARS requirements, not {len(reqs)}"
+        msg = "calibration needs exactly ten traced EARS requirements" + (
+            f", not {len(reqs)}" if len(reqs) != TOTAL else ""
+        )
         msg += f"; untraced or not EARS: {', '.join(faulty)}" if faulty else ""
         raise JudgeError(msg + (f"; defined more than once: {', '.join(twice)}" if twice else ""))
     subjects = {str(item.id) for item in reqs}
