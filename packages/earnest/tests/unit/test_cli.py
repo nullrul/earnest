@@ -843,6 +843,18 @@ def test_calibrate_with_nine_requirements_exits_2(fixture_repo, monkeypatch, cap
     cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
 
 
+def test_calibrate_counts_only_req_items_among_the_fixture_s_items(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    path = repo / "requirements.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\n`feat~parking~1`\n\nThe parking feature.\n", encoding="utf-8")
+    code, out, err = run(repo, monkeypatch, capsys, "calibrate", ".")
+    rows = [line for line in out.splitlines() if line.startswith(("req~", "feat~"))]
+    assert (code, err) == (0, "")
+    assert len(rows) == 10
+    assert "feat~parking~1" not in out
+
+
 def test_calibrate_with_an_untraced_requirement_exits_2(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("calibration-dev")
     monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
