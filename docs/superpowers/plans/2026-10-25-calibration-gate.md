@@ -201,6 +201,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 ## Known limits
 
 - The record is per repository (L7). A calibration quiets `--judge` only in the repository whose record it was written to.
+- The record takes no lock. A `check` and a `calibrate` run at the same time on one repository are last-writer-wins: a calibration written between check's reread and its write is lost and must be run again.
 - The slot holds one result, the latest (answer 4). Calibrating a second candidate model replaces the pass of the model in use, and `check --judge` under that model is uncalibrated again until it is recalibrated.
 - Effort is pinned in code and is not part of the model id. A change to it is a code change, and a new calibration should follow.
 - The prompt hash covers `prompt.txt` alone. The rest of each question, its labels, clause list and region layout, is built in `question_text`; a change to that code changes what the model is asked but leaves the calibration pass and the cache keys standing, so a new calibration should follow it, as it does for effort.

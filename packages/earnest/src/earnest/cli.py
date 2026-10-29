@@ -304,8 +304,7 @@ def _calibrate(fixture: Path) -> _Result:
     model = judge.load_model(os.environ.get("EARNEST_JUDGE"), fixture)  # its regions name fixture paths
     maintainer = judge.load_verdicts(fixture / "verdicts.json")
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
-    held = record.judge.get("calibrate")
-    cache = judge.Cache(fixture, model, held if isinstance(held, dict) else {})
+    cache = judge.Cache(fixture, model, judge.held(record, "calibrate"))
     try:
         calibration = judge.calibrate(index, structural.traced(index), cache, fixture, maintainer)
     except BaseException:  # a failed question, or ^C, still keeps the answers already paid for
@@ -326,8 +325,7 @@ def _keep_calibration(root: Path, used: dict[str, object], calibration: judge.Ca
     earlier runs paid for.
     """
     record = reporter.read_record(root)
-    held = record.judge.get("calibrate")
-    kept = held if isinstance(held, dict) else {}
+    kept = judge.held(record, "calibrate")
     if calibration is not None:
         kept = {key: value for key, value in kept.items() if _model_of(value) != calibration.model}
         record.calibration = judge.slot(calibration)

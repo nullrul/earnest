@@ -157,6 +157,12 @@ def region_hash(root: Path, found: Sequence[Region]) -> str:
     return digest(b"".join(chunks))
 
 
+def held(record: Record, key: str) -> dict[str, object]:
+    """Return the record's judge slot under key, or an empty one when it is not an object."""
+    slot = record.judge.get(key)
+    return slot if isinstance(slot, dict) else {}
+
+
 def _region_bytes(root: Path, region: Region) -> bytes:
     """Return a region's lines from root's work tree; the cache key and the question text both slice them here."""
     return b"\n".join((root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last])
@@ -248,11 +254,12 @@ class Claude:
         # parameter is sent
         config: OutputConfigParam = {"effort": "high", "format": {"type": "json_schema", "schema": _SCHEMA}}
         name = self.id.partition(":")[2]
+        text = question_text(self.root, question)  # built outside the try: earnest's own errors are not the model's
         try:
             reply = self.client.messages.create(
                 model=name,
                 max_tokens=MAX_TOKENS,
-                messages=[{"role": "user", "content": question_text(self.root, question)}],
+                messages=[{"role": "user", "content": text}],
                 output_config=config,
             )
         except (anthropic.AnthropicError, TypeError, ValueError) as error:
@@ -411,8 +418,7 @@ def judge(index: Index, levels: Mapping[str, str], model: Model, root: Path, rec
         JudgeError: the model cannot answer a question.
         OSError: a tagged file cannot be read.
     """
-    held = record.judge.get("cache")
-    cache = Cache(root, model, held if isinstance(held, dict) else {})
+    cache = Cache(root, model, held(record, "cache"))
     standing, found = overrides(index)
     past = Past(root)
     if not calibrated(record.calibration, model):

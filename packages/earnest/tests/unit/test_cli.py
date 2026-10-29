@@ -1,6 +1,5 @@
 """Tests for earnest.cli: the required command, and the exit code when the check cannot run or loses its reader."""
 
-import functools
 import json
 import os
 import signal
@@ -919,21 +918,6 @@ def test_a_failing_calibration_exits_1(fixture_repo, monkeypatch, capsys):
     assert out.splitlines()[-2:] == ["matches: 7/10", "fail"]
 
 
-def test_calibrate_asks_the_model_about_the_fixture_s_files(fixture_repo, monkeypatch, capsys):
-    roots = []
-    load = judge.load_model
-
-    def spy(value, root):
-        roots.append(root)
-        return load(value, root)
-
-    monkeypatch.setattr(judge, "load_model", spy)
-    repo = fixture_repo("calibration-dev")
-    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
-    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", str(repo))
-    assert (code, roots) == (0, [repo])
-
-
 def test_calibrate_run_outside_the_fixture_shows_claude_the_fixture_s_code(
     fixture_repo, files_repo, monkeypatch, capsys
 ):
@@ -945,6 +929,8 @@ def test_calibrate_run_outside_the_fixture_shows_claude_the_fixture_s_code(
     elsewhere = files_repo({"docs/a.md": "# A\n"})  # the repo root found from cwd is not the fixture
     code, _, err = run(elsewhere, monkeypatch, capsys, "calibrate", str(fixture))
     assert code in (0, 1), err
+    assert len(messages.requests) == 20
+    assert len(messages.requests) == 20
     asked = "".join(request["messages"][0]["content"] for request in messages.requests)
     assert "def barrier_opens(card_approved: bool) -> bool:" in asked
 
@@ -1063,25 +1049,6 @@ def test_calibrate_outside_any_repository_exits_2_before_asking_the_model(fixtur
     outside.mkdir()
     never_asked(monkeypatch)
     cannot_run(run(outside, monkeypatch, capsys, "calibrate", str(repo)))
-
-
-def test_calibrate_from_another_directory_sends_the_real_model_the_fixture_s_files(fixture_repo, monkeypatch, capsys):
-    import anthropic  # noqa: PLC0415
-
-    from tests.unit.test_judge_anthropic import Messages, reply  # noqa: PLC0415
-
-    verdict = {"result": "satisfied", "reasoning": "r", "location": {"file": "src/meter.py", "line": 1}}
-    messages = Messages(reply(json.dumps(verdict)))
-    monkeypatch.setattr(anthropic, "Anthropic", functools.partial(SimpleNamespace, messages=messages))
-    repo = fixture_repo("calibration-dev")
-    monkeypatch.setenv("EARNEST_JUDGE", MODEL)
-    code, _, err = run(repo / "src", monkeypatch, capsys, "calibrate", str(repo))
-    assert code in {0, 1}, err
-    assert len(messages.requests) == 20
-    capped = next(
-        line for line in (repo / "src" / "meter.py").read_text(encoding="utf-8").splitlines() if "def capped" in line
-    )
-    assert any(capped in request["messages"][0]["content"] for request in messages.requests)
 
 
 def test_calibrate_prints_a_location_outside_the_work_tree_at_the_item(fixture_repo, monkeypatch, tmp_path, capsys):

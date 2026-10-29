@@ -129,6 +129,18 @@ def test_a_request_the_sdk_rejects_before_sending_cannot_run(tmp_path):
         model(tmp_path, messages).ask(question(tmp_path))
 
 
+def test_an_error_building_the_question_is_not_reported_as_the_model_s(tmp_path, monkeypatch):
+    def broken(*_):
+        raise TypeError
+
+    asked = question(tmp_path)
+    monkeypatch.setattr(judge, "question_text", broken)
+    messages = Messages(reply(json.dumps(VERDICT)))
+    with pytest.raises(TypeError):
+        model(tmp_path, messages).ask(asked)
+    assert messages.requests == []
+
+
 def test_a_reply_from_another_model_than_the_id_cannot_run(tmp_path):
     answered = reply(json.dumps(VERDICT), answered="claude-opus-5-5-20270101")
     with pytest.raises(
