@@ -651,7 +651,10 @@ def calibrate(
             an answer to one of their questions.
     """
     reqs = [item for item in index.defined.values() if item.id.type == "req"]
-    faulty = [str(item.id) for item in reqs if levels.get(str(item.id)) != "traced" or ears.parse(item.body) is None]
+    subjects = {str(item.id) for item in reqs}
+    asked = [question for question in questions(index, levels) if question.subject in subjects]
+    posed = {question.subject for question in asked}  # questions() poses only traced EARS requirements
+    faulty = [str(item.id) for item in reqs if str(item.id) not in posed]
     # index.defined keeps the first item per type and name, whatever its revision, and drops any later one unseen
     twice = sorted(
         {str(item.id) for item in index.items if item.id.type == "req" and index.defined[item.id.key] is not item}
@@ -662,8 +665,6 @@ def calibrate(
         )
         msg += f"; untraced or not EARS: {', '.join(faulty)}" if faulty else ""
         raise JudgeError(msg + (f"; defined more than once: {', '.join(twice)}" if twice else ""))
-    subjects = {str(item.id) for item in reqs}
-    asked = [question for question in questions(index, levels) if question.subject in subjects]
     for question in asked:
         if question.kind not in maintainer.get(question.subject, {}):
             msg = f"the maintainer's verdicts hold no answer to `{question.subject}` {question.kind}"
