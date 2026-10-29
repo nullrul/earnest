@@ -590,7 +590,7 @@ def uncalibrated(model: Model) -> Finding:
     """Return the run's `judge-uncalibrated` finding, at line 1 of the record; it reaches no stage."""
     message = (
         f"no passing calibration exists for the model {model.id} and the prompt {PROMPT_HASH}:"
-        " run earnest calibrate before relying on the judge's verdicts"
+        " run earnest calibrate <fixture> before relying on the judge's verdicts"
     )
     return Finding(RECORD, 1, "earnest/judge-uncalibrated", model.id, message)
 
