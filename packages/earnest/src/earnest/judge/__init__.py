@@ -265,10 +265,19 @@ class Claude:
             raise JudgeError(msg)
         text = "".join(block.text for block in reply.content if block.type == "text")
         try:
-            return _verdict(json.loads(text))
+            return _verdict(_from_line_one(json.loads(text)))
         except (ValueError, TypeError, KeyError, RecursionError) as error:
             msg = f"the model {self.id} gave a malformed answer to {asked}: {error}"
             raise JudgeError(msg) from error
+
+
+def _from_line_one(answer: object) -> object:
+    """Return the reply with a line below 1 read as line 1: structured outputs cannot hold the model to a minimum."""
+    if isinstance(answer, dict) and isinstance(where := answer.get("location"), dict):
+        line = where.get("line")
+        if isinstance(line, int) and not isinstance(line, bool) and line < 1:
+            return {**answer, "location": {**where, "line": 1}}
+    return answer
 
 
 def question_text(root: Path, question: Question) -> str:

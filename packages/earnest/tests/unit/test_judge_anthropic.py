@@ -136,12 +136,17 @@ def test_a_refusal_cannot_run(tmp_path):
         "[]",
         '{"result": "maybe", "reasoning": "x", "location": {"file": "a", "line": 1}}',
         '{"result": "satisfied", "reasoning": "x"}',
-        '{"result": "satisfied", "reasoning": "x", "location": {"file": "a", "line": 0}}',
+        '{"result": "satisfied", "reasoning": "x", "location": {"file": "a", "line": "1"}}',
     ],
 )
 def test_a_malformed_reply_cannot_run(tmp_path, text):
     with pytest.raises(judge.JudgeError, match="malformed"):
         model(tmp_path, Messages(reply(text))).ask(question(tmp_path))
+
+
+def test_a_reply_at_line_0_is_read_at_line_1(tmp_path):
+    text = '{"result": "satisfied", "reasoning": "x", "location": {"file": "a", "line": 0}}'
+    assert model(tmp_path, Messages(reply(text))).ask(question(tmp_path)).line == 1
 
 
 def test_an_anthropic_value_loads_a_model_whose_id_is_the_value(tmp_path, monkeypatch):

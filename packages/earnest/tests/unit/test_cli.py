@@ -819,6 +819,58 @@ def test_a_failed_calibration_keeps_the_answers_already_given(fixture_repo, monk
     assert len(record.judge["calibrate"]) > 0
 
 
+def test_a_record_that_cannot_be_kept_leaves_the_calibrate_failure_shown(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+
+    def breaking(index, levels, cache, maintainer):
+        cache.used["k"] = {"paid": True}
+        (repo / reporter.RECORD).parent.mkdir()
+        (repo / reporter.RECORD).write_text("not json", encoding="utf-8")
+        msg = "the model failed on question 7"
+        raise judge.JudgeError(msg)
+
+    monkeypatch.setattr(judge, "calibrate", breaking)
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    code, _, err = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, "question 7" in err) == (2, True), err
+
+
+def test_a_failing_calibration_keeps_earlier_answers(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": {"earlier": {"from": "another model"}}}))
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-fail.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert code == 1
+    assert reporter.read_record(repo).judge["calibrate"]["earlier"] == {"from": "another model"}
+
+
+def test_a_passing_calibration_drops_earlier_answers(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": {"earlier": {"from": "another model"}}}))
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert code == 0
+    assert "earlier" not in reporter.read_record(repo).judge["calibrate"]
+
+
+def test_a_judge_check_keeps_a_calibration_that_finished_while_it_ran(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    finished = reporter.read_record(repo)
+    reporter.write_record(repo, reporter.Record())
+    real = judge.judge
+
+    def racing(*args, **kwargs):
+        reporter.write_record(repo, finished)  # calibrate finishes while the check is asking
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(judge, "judge", racing)
+    run(repo, monkeypatch, capsys, "check", "--judge")
+    record = reporter.read_record(repo)
+    assert record.calibration == finished.calibration
+    assert record.judge["calibrate"] == finished.judge["calibrate"]
+
+
 def test_a_judge_check_keeps_calibrate_s_answers(fixture_repo, monkeypatch, capsys):
     repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
     assert code == 0

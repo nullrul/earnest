@@ -1,6 +1,7 @@
 """Command surface: `earnest check`, `earnest plan` and `earnest calibrate`, which wire the scanner, the index, the checks and the plan."""
 
 import argparse
+import contextlib
 import os
 import posixpath
 import signal
@@ -305,12 +306,15 @@ def _calibrate(fixture: Path) -> _Result:
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
     held = record.judge.get("calibrate")
     cache = judge.Cache(fixture, model, held if isinstance(held, dict) else {})
-    calibration: judge.Calibration | None = None
     try:
         calibration = judge.calibrate(index, structural.traced(index), cache, maintainer)
-    finally:  # a failed question, or ^C, still keeps the answers already paid for
-        if cache.used or calibration is not None:
-            _keep_calibration(root, cache.used, calibration)
+    except BaseException:  # a failed question, or ^C, still keeps the answers already paid for
+        if cache.used:
+            # the failure in flight is what the user must see, so a record that cannot be kept now stays as it was
+            with contextlib.suppress(reporter.RecordError, OSError):
+                _keep_calibration(root, cache.used, None)
+        raise
+    _keep_calibration(root, cache.used, calibration)
     return _Result(_comparison(calibration), "", 0 if calibration.passed else 1)
 
 
@@ -318,11 +322,11 @@ def _keep_calibration(root: Path, used: dict[str, object], calibration: judge.Ca
     """Keep calibrate's judge answers in the record, reread in case a check run wrote it meanwhile, and set its slot.
 
     They sit apart from check's `cache`, which a judge run prunes to its own answers; a pass replaces them, so stale
-    ones go, and a failed run merges, so a rerun reuses what the earlier runs paid for.
+    ones go, and a failed or broken-off run merges, so a rerun reuses what the earlier runs paid for.
     """
     record = reporter.read_record(root)
     held = record.judge.get("calibrate")
-    kept = held if calibration is None and isinstance(held, dict) else {}
+    kept = held if (calibration is None or not calibration.passed) and isinstance(held, dict) else {}
     record.judge = {**record.judge, "calibrate": {**kept, **used}}
     if calibration is not None:
         record.calibration = judge.slot(calibration)
@@ -362,7 +366,7 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
         findings, run = analysis.findings, analysis.run
         if analysis.cache is not None:
             world.record.judge, world.record.evidence = analysis.cache, analysis.entries
-            reporter.write_record(world.root, world.record)
+            _write_check(world)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
             reporter.summary(findings, analysis.levels, run),
@@ -372,6 +376,19 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
     return _stage(
         world, _task_change(world, _analyse(world, model, evidence=args.evidence), args.task), chosen, args.stage
     )
+
+
+def _write_check(world: _World) -> None:
+    """Write check's record with calibrate's slot and answers as the record now holds them.
+
+    Calibrate owns those two, so a calibrate run that finished while this check ran keeps what it paid for.
+    """
+    fresh = reporter.read_record(world.root)
+    world.record.calibration = fresh.calibration
+    judged = {key: value for key, value in world.record.judge.items() if key != "calibrate"}
+    held = fresh.judge.get("calibrate")
+    world.record.judge = judged if held is None else {**judged, "calibrate": held}
+    reporter.write_record(world.root, world.record)
 
 
 def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -> _Result:
@@ -397,12 +414,12 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
     if analysis.cache is not None:
         world.record.judge, world.record.evidence = analysis.cache, analysis.entries
-    reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
+    _write_check(world)  # first, so `.earnest/` exists with its `.gitignore`
     # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
     reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)
     if reason is None:
         world.record.coverage = {"commit": world.commit}
-        reporter.write_record(world.root, world.record)
+        _write_check(world)
     else:
         run = replace(run, notes=(*run.notes, f"coverage map: not taken, {reason}"))
     return _Result(
