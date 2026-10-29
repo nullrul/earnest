@@ -287,10 +287,10 @@ def test_an_unchanged_key_reuses_the_cached_verdict(tmp_path):
     ]
 
 
-KEY = ("item", "question", "regions", "tests", "model", "prompt")
+KEY = ("item", "question", "sentence", "regions", "tests", "model", "prompt")
 
 
-def test_the_cache_key_is_the_digest_of_its_six_parts_so_each_reruns_the_question(tmp_path):
+def test_the_cache_key_is_the_digest_of_its_seven_parts_so_each_reruns_the_question(tmp_path):
     first = ask(index(), stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
     for key, entry in first.cache["cache"].items():
         parts = {part: entry[part] for part in KEY}
@@ -309,6 +309,16 @@ def test_a_changed_region_reruns_both_questions(tmp_path):
     moved = (code("src/a.py", "impl->req~greet~1", 6), code("tests/a.py", "utest->req~greet~1", 4))
     found = build_index([Source(SPEC, MARKDOWN, split_lines(REQS)), *moved])
     ask(found, model, tmp_path, first.cache)
+    assert len(model.asked) == 2
+
+
+def test_an_edited_requirement_sentence_reruns_both_questions(tmp_path):
+    model = Counting(stub(tmp_path, {"req~greet~1": GREET}))
+    first = ask(index(), model, tmp_path)
+    model.asked.clear()
+    edited = REQS.replace("shall greet them", "shall greet them by name")
+    tags = (code("src/a.py", "impl->req~greet~1", 5), code("tests/a.py", "utest->req~greet~1", 4))
+    ask(build_index([Source(SPEC, MARKDOWN, split_lines(edited)), *tags]), model, tmp_path, first.cache)
     assert len(model.asked) == 2
 
 

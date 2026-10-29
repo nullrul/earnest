@@ -135,6 +135,7 @@ class Cache:
         parts = {
             "item": question.subject,
             "question": question.kind,
+            "sentence": digest(question.sentence.text.encode()),  # the model reads it; its clauses follow from it
             "regions": code,
             "tests": tests,
             "model": self.model.id,
@@ -285,16 +286,20 @@ def _from_line_one(answer: object) -> object:
 def question_text(root: Path, question: Question) -> str:
     """Return what one question sends: prompt.txt, then the question, the sentence and its clauses, the code and tests.
 
-    Each field is labelled, and each region is its `path:first-last` line followed by its lines from root's files.
+    Each field is labelled, and each region is its lines from root's files between a BEGIN line naming its
+    `path:first-last` and an END line; both carry a tag from the lines' digest, so the lines cannot forge the END.
     """
     lines = ["", f"Question: {question.kind}", f"Requirement: {question.sentence.text}", "Clauses:"]
     lines += [f"{clause.kind}: {clause.text}" for clause in question.sentence.clauses]
     for label, kind in (("Code regions:", "implemented"), ("Test regions:", "tested")):
         lines.append(label)
         for region in question.tagged[kind]:
+            data = _region_bytes(root, region)
+            tag = digest(data).removeprefix("sha256:")[:16]
             lines += [
-                f"{region.path}:{region.first}-{region.last}",
-                _region_bytes(root, region).decode(errors="replace"),
+                f"BEGIN {tag} {region.path}:{region.first}-{region.last}",
+                data.decode(errors="replace"),
+                f"END {tag}",
             ]
     return _PROMPT.decode("utf-8") + "\n".join(lines) + "\n"
 

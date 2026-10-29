@@ -1539,7 +1539,7 @@ Feature: Judge check
   line (near-miss), two overrides of one id and kind (`duplicate`), an
   override of kind `tested`, an `at` commit Git does not hold, every exit 2 of
   `--judge` (no `EARNEST_JUDGE`, an unknown value, an unreadable or malformed
-  file, a question with no answer), the judge cache key's six parts, and a
+  file, a question with no answer), the judge cache key's seven parts, and a
   stub file edit that reruns every question.
 - Regression guard:
   - M1, M2, M2b and M3 gain no row: they never pass `--judge` and every
