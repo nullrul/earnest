@@ -294,7 +294,7 @@ def question_text(root: Path, question: Question) -> str:
     """Return what one question sends: prompt.txt, then the question, the sentence and its clauses, the code and tests.
 
     Each field is labelled, and each region is its lines from root's files between a BEGIN line naming its
-    `path:first-last` and an END line; both carry a tag from the lines' digest, so the lines cannot forge the END.
+    `path:first-last` (escaped) and an END line; both carry a tag from the lines' digest, so the lines cannot forge the END.
     """
     lines = ["", f"Question: {question.kind}", f"Requirement: {question.sentence.text}", "Clauses:"]
     lines += [f"{clause.kind}: {clause.text}" for clause in question.sentence.clauses]
@@ -304,7 +304,7 @@ def question_text(root: Path, question: Question) -> str:
             data = _region_bytes(root, region)
             tag = digest(data).removeprefix("sha256:")[:16]
             lines += [
-                f"BEGIN {tag} {region.path}:{region.first}-{region.last}",
+                f"BEGIN {tag} {escaped(region.path)}:{region.first}-{region.last}",
                 data.decode(errors="replace"),
                 f"END {tag}",
             ]
