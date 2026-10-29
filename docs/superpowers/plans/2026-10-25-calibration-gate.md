@@ -497,7 +497,7 @@ Alternates if one drops out: custom-pieces "Keep is idempotent" (spec 295-297; `
   - the slot is written on both a pass and a fail, and the record's other slots are unchanged;
   - with the working directory in a different Git repository, only the fixture's ten ids appear.
 - [x] **Step 2:** Run them. Expected: they fail.
-- [x] **Step 3:** Implement. `_main`'s exit-2 handling already catches `GitError`, `OSError`, `RecordError`, `PlanError`, `JudgeError` and `EvidenceError`, so `calibrate` raises only exceptions `_main` already catches. `load_model`'s message for an unset `EARNEST_JUDGE` becomes `earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>`, which names no flag, so it reads right for `--judge`, `--evidence` (which implies `--judge`) and `calibrate`. No test pins the old text.
+- [x] **Step 3:** Implement. `_main`'s exit-2 handling already catches `GitError`, `OSError`, `RecordError`, `PlanError`, `JudgeError` and `EvidenceError`, so `calibrate` raises only exceptions `_main` already catches. `load_model`'s message for an unset `EARNEST_JUDGE` becomes `earnest needs a model: set EARNEST_JUDGE to anthropic:<model> or stub:<path of a canned-verdict file>`, which names no flag, so it reads right for `--judge`, `--evidence` (which implies `--judge`) and `calibrate`. No test pins the old text.
 - [x] **Step 4:** The four scenarios of Task 4 in the order table pass, and the regression run is green. Commit `feat: earnest calibrate`.
 
 ### Task 5: `judge-uncalibrated` from the record

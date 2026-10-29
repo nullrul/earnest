@@ -321,18 +321,17 @@ def _calibrate(fixture: Path) -> _Result:
 def _keep_calibration(root: Path, used: dict[str, object], calibration: judge.Calibration | None) -> None:
     """Keep calibrate's judge answers in the record, reread in case a check run wrote it meanwhile, and set its slot.
 
-    They sit apart from check's `cache`, which a judge run prunes to its own answers; a pass replaces this model's, so
-    its stale ones go while other models' stay, and a failed or broken-off run merges, so a rerun reuses what the
+    They sit apart from check's `cache`, which a judge run prunes to its own answers; a finished run replaces this
+    model's, so its stale ones go while other models' stay, and a broken-off run merges, so a rerun reuses what the
     earlier runs paid for.
     """
     record = reporter.read_record(root)
     held = record.judge.get("calibrate")
     kept = held if isinstance(held, dict) else {}
-    if calibration is not None and calibration.passed:
-        kept = {key: value for key, value in kept.items() if _model_of(value) != calibration.model}
-    record.judge = {**record.judge, "calibrate": {**kept, **used}}
     if calibration is not None:
+        kept = {key: value for key, value in kept.items() if _model_of(value) != calibration.model}
         record.calibration = judge.slot(calibration)
+    record.judge = {**record.judge, "calibrate": {**kept, **used}}
     reporter.write_record(root, record)
 
 

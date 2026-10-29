@@ -111,7 +111,7 @@ With no `EARNEST_JUDGE` set, `calibrate` cannot ask anything. It exits 2 with on
 
 ```text
 == 6. Calibrate cannot run without a model
-earnest: earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>
+earnest: earnest needs a model: set EARNEST_JUDGE to anthropic:<model> or stub:<path of a canned-verdict file>
 calibrate exit: 2
 ```
 

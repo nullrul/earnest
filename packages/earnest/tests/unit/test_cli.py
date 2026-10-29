@@ -844,6 +844,16 @@ def test_a_failing_calibration_keeps_earlier_answers(fixture_repo, monkeypatch, 
     assert reporter.read_record(repo).judge["calibrate"]["earlier"] == {"from": "another model"}
 
 
+def test_a_failing_calibration_drops_its_own_model_s_stale_answers(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-fail.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    model = next(iter(reporter.read_record(repo).judge["calibrate"].values()))["model"]
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": {"stale": {"model": model}}}))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, "stale" in reporter.read_record(repo).judge["calibrate"]) == (1, False)
+
+
 def test_a_passing_calibration_drops_only_its_own_model_s_earlier_answers(fixture_repo, monkeypatch, capsys):
     repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
     assert code == 0
