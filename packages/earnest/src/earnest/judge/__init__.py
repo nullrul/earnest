@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
@@ -207,9 +208,6 @@ def _claude(value: str, root: Path) -> Claude:
     return Claude(value, root, client)
 
 
-# The messages of the SDK's TypeError and ValueError for a request it will not send.
-_SDK_REJECTIONS = ("Could not resolve authentication method", "Streaming is required")
-
 # The verdict object the model is asked for through structured outputs: the stub's canned-verdict answer.
 _SCHEMA: dict[str, object] = {
     "type": "object",
@@ -258,11 +256,7 @@ class Claude:
             )
         except (anthropic.AnthropicError, TypeError, ValueError) as error:
             # the SDK rejects a request unsent with a TypeError (no credentials) or a ValueError (max_tokens over the
-            # non-streaming limit); any other TypeError or ValueError is a bug here, not the model's
-            if not isinstance(error, anthropic.AnthropicError) and not any(
-                text in str(error) for text in _SDK_REJECTIONS
-            ):
-                raise
+            # non-streaming limit); its wording is not a contract, so every one of them cannot run
             msg = f"the model {self.id} cannot answer {asked}: {error}"
             raise JudgeError(msg) from error
         if reply.model != name:  # an alias: bind the cache and calibration to the model that answers
@@ -324,8 +318,7 @@ def _read_answers(path: Path, name: str) -> tuple[bytes, dict[str, dict[str, Ver
 
 def _unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
     """Return the object of pairs; a key named twice raises, as json.loads would keep only the last."""
-    keys = [key for key, _ in pairs]
-    if twice := sorted({key for key in keys if keys.count(key) > 1}):
+    if twice := sorted(key for key, count in Counter(key for key, _ in pairs).items() if count > 1):
         msg = f"it names {', '.join(map(escaped, twice))} more than once"
         raise ValueError(msg)
     return dict(pairs)
@@ -660,11 +653,14 @@ def calibrate(
         {str(item.id) for item in index.items if item.id.type == "req" and index.defined[item.id.key] is not item}
     )
     if len(reqs) != TOTAL or faulty or twice:
-        msg = "calibration needs exactly ten traced EARS requirements" + (
-            f", not {len(reqs)}" if len(reqs) != TOTAL else ""
-        )
-        msg += f"; untraced or not EARS: {', '.join(faulty)}" if faulty else ""
-        raise JudgeError(msg + (f"; defined more than once: {', '.join(twice)}" if twice else ""))
+        parts = ["calibration needs exactly ten traced EARS requirements"]
+        if len(reqs) != TOTAL:
+            parts[0] += f", not {len(reqs)}"
+        if faulty:
+            parts.append(f"untraced or not EARS: {', '.join(faulty)}")
+        if twice:
+            parts.append(f"defined more than once: {', '.join(twice)}")
+        raise JudgeError("; ".join(parts))
     for question in asked:
         if question.kind not in maintainer.get(question.subject, {}):
             msg = f"the maintainer's verdicts hold no answer to `{question.subject}` {question.kind}"

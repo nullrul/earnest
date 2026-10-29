@@ -180,9 +180,9 @@ def test_an_sdk_type_error_on_a_request_cannot_run(tmp_path):
         model(tmp_path, messages).ask(question(tmp_path))
 
 
-def test_any_other_sdk_type_error_is_a_bug_not_a_model_failure(tmp_path):
-    messages = Messages(error=TypeError("create() got an unexpected keyword argument 'output_config'"))
-    with pytest.raises(TypeError, match="output_config"):
+def test_a_reworded_sdk_rejection_still_cannot_run(tmp_path):
+    messages = Messages(error=TypeError("no api key was found"))
+    with pytest.raises(judge.JudgeError, match="no api key was found"):
         model(tmp_path, messages).ask(question(tmp_path))
 
 
