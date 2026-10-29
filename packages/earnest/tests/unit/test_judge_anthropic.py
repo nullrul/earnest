@@ -31,9 +31,9 @@ class Messages:
         return self.reply
 
 
-def reply(text, stop_reason="end_turn"):
+def reply(text, stop_reason="end_turn", answered="claude-opus-5-5"):
     blocks = [SimpleNamespace(type="thinking", thinking=""), SimpleNamespace(type="text", text=text)]
-    return SimpleNamespace(stop_reason=stop_reason, content=blocks)
+    return SimpleNamespace(stop_reason=stop_reason, content=blocks, model=answered)
 
 
 VERDICT = {"result": "not-satisfied", "reasoning": "no greeting", "location": {"file": "src/a.py", "line": 3}}
@@ -116,6 +116,14 @@ def test_a_request_the_sdk_rejects_before_sending_cannot_run(tmp_path):
         model(tmp_path, messages).ask(question(tmp_path))
 
 
+def test_a_reply_from_another_model_than_the_id_cannot_run(tmp_path):
+    answered = reply(json.dumps(VERDICT), answered="claude-opus-5-5-20270101")
+    with pytest.raises(
+        judge.JudgeError, match="as claude-opus-5-5-20270101: set EARNEST_JUDGE=anthropic:claude-opus-5-5-20270101"
+    ):
+        model(tmp_path, Messages(answered)).ask(question(tmp_path))
+
+
 def test_a_refusal_cannot_run(tmp_path):
     with pytest.raises(judge.JudgeError, match="refusal"):
         model(tmp_path, Messages(reply("", "refusal"))).ask(question(tmp_path))
@@ -157,7 +165,7 @@ def test_a_client_that_cannot_start_cannot_run(tmp_path, monkeypatch):
 
 
 def test_an_anthropic_value_without_a_model_name_cannot_run(tmp_path):
-    with pytest.raises(judge.JudgeError, match="names no model"):
+    with pytest.raises(judge.JudgeError, match=r"names no model.*anthropic:<model> or stub:<path>"):
         judge.load_model("anthropic:", tmp_path)
 
 

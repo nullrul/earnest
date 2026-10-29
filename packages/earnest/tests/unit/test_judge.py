@@ -187,6 +187,13 @@ def test_calibrated_malformed_slot(tmp_path):
     model = stub(tmp_path, {})
     assert judge.calibrated(passing(model, **{"pass": "false"}), model) is False
     assert judge.calibrated({"model": model.id, "prompt": judge.PROMPT_HASH}, model) is False
+    assert judge.calibrated(passing(model, matches="8"), model) is False
+
+
+def test_calibrated_needs_today_s_bar(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model, matches=judge.PASS_MATCHES - 1), model) is False
+    assert judge.calibrated(passing(model, total=judge.TOTAL + 1), model) is False
 
 
 def test_a_record_calibrated_for_this_model_raises_no_uncalibrated_finding(tmp_path):

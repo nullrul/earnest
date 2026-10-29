@@ -303,10 +303,27 @@ def _calibrate(fixture: Path) -> _Result:
     model = judge.load_model(os.environ.get("EARNEST_JUDGE"), fixture)  # its regions name fixture paths
     maintainer = judge.load_verdicts(fixture / "verdicts.json")
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
-    calibration = judge.calibrate(index, structural.traced(index), model, maintainer)
-    record.calibration = judge.slot(calibration)
-    reporter.write_record(root, record)
+    held = record.judge.get("cache")
+    cache = judge.Cache(fixture, model, held if isinstance(held, dict) else {})
+    try:
+        calibration = judge.calibrate(index, structural.traced(index), cache, maintainer)
+    except BaseException:  # a failed question, or ^C, still keeps the answers already paid for
+        if cache.used:
+            _keep_calibration(root, cache.used, None)
+        raise
+    _keep_calibration(root, cache.used, calibration)
     return _Result(_comparison(calibration), "", 0 if calibration.passed else 1)
+
+
+def _keep_calibration(root: Path, used: dict[str, object], calibration: judge.Calibration | None) -> None:
+    """Merge calibrate's judge answers into the record, reread in case a check run wrote it meanwhile, and set its slot."""
+    record = reporter.read_record(root)
+    held = record.judge.get("cache")
+    # merged, not replaced: the cache also holds this repository's own check answers
+    record.judge = {**record.judge, "cache": {**(held if isinstance(held, dict) else {}), **used}}
+    if calibration is not None:
+        record.calibration = judge.slot(calibration)
+    reporter.write_record(root, record)
 
 
 def _comparison(calibration: judge.Calibration) -> str:

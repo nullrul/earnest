@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import anthropic
 import pytest
 
-from earnest import adapters, cli, git, impact, judge
+from earnest import adapters, cli, git, impact, judge, reporter
 from earnest.index import build_index
 from tests.conftest import model_id, prompt_hash, verdicts_file
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
@@ -794,6 +794,51 @@ def test_only_a_differing_question_gets_detail_lines(fixture_repo, monkeypatch, 
     assert not lines[matched + 1].startswith("    ")
 
 
+def test_a_calibration_rerun_asks_no_question_it_has_an_answer_to(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    assert len(reporter.read_record(repo).judge["cache"]) == 20
+    asked = []
+    monkeypatch.setattr(judge.Stub, "ask", lambda _self, question: asked.append(question))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, asked) == (0, [])
+
+
+def test_a_failed_calibration_keeps_the_answers_already_given(fixture_repo, monkeypatch, tmp_path, capsys):
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    last = sorted(answers)[-1]
+    del answers[last]["tested"]
+    stub = tmp_path / "short.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    code, _, err = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, f"`{last}` tested" in err) == (2, True)
+    record = reporter.read_record(repo)
+    assert record.calibration is None
+    assert len(record.judge["cache"]) > 0
+
+
+def test_calibrate_keeps_what_a_check_wrote_to_the_record_while_it_ran(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    real = judge.calibrate
+
+    def racing(*args):
+        record = reporter.read_record(repo)
+        record.bodies["req~other~1"] = "0" * 64
+        record.judge = {"cache": {"k": {"from": "check"}}}
+        reporter.write_record(repo, record)
+        return real(*args)
+
+    monkeypatch.setattr(judge, "calibrate", racing)
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    record = reporter.read_record(repo)
+    assert (code, record.bodies["req~other~1"], record.judge["cache"]["k"]) == (0, "0" * 64, {"from": "check"})
+    assert record.calibration is not None
+    assert len(record.judge["cache"]) == 21
+
+
 def test_a_failing_calibration_exits_1(fixture_repo, monkeypatch, capsys):
     _, (code, out, _) = calibrate(fixture_repo, monkeypatch, capsys, "stub-fail.json")
     assert code == 1
@@ -843,6 +888,7 @@ def test_calibrate_without_a_model_exits_2(fixture_repo, monkeypatch, capsys):
     result = run(repo, monkeypatch, capsys, "calibrate", ".")
     cannot_run(result)
     assert "earnest needs a model" in result[2]
+    assert "anthropic:<model>" in result[2]
 
 
 def test_calibrate_with_an_unknown_model_exits_2(fixture_repo, monkeypatch, capsys):
@@ -954,7 +1000,7 @@ def test_calibrate_from_another_directory_sends_the_real_model_the_fixture_s_fil
     messages = Messages(reply(json.dumps(verdict)))
     monkeypatch.setattr(anthropic, "Anthropic", functools.partial(SimpleNamespace, messages=messages))
     repo = fixture_repo("calibration-dev")
-    monkeypatch.setenv("EARNEST_JUDGE", "anthropic:claude-x")
+    monkeypatch.setenv("EARNEST_JUDGE", MODEL)
     code, _, err = run(repo / "src", monkeypatch, capsys, "calibrate", str(repo))
     assert code in {0, 1}, err
     assert len(messages.requests) == 20

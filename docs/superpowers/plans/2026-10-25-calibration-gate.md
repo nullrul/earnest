@@ -203,6 +203,8 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 - The record is per repository (L7). A calibration quiets `--judge` only in the repository whose record it was written to.
 - The slot holds one result, the latest (answer 4). Calibrating a second candidate model replaces the pass of the model in use, and `check --judge` under that model is uncalibrated again until it is recalibrated.
 - Effort is pinned in code and is not part of the model id. A change to it is a code change, and a new calibration should follow.
+- The prompt hash covers `prompt.txt` alone. The rest of each question, its labels, clause list and region layout, is built in `question_text`; a change to that code changes what the model is asked but leaves the calibration pass and the cache keys standing, so a new calibration should follow it, as it does for effort.
+- An `anthropic:` model id must be the id that answers: a reply whose `model` differs, as from an alias, exits 2 and names the id to set, so a pass binds the model that gave it.
 - The slot binds the model id and the prompt hash, as the Command surface of `01` says, and not the fixture's content. An edit to `verdicts.json` or `requirements.md` after a pass leaves the judge calibrated until `calibrate` runs again.
 - The match compares `result` alone. A judge that is right for the wrong reason still matches, and the printed reasoning is for the maintainer to read.
 - Until Task 1 lands, every M6 test and the demo run on the synthetic `calibration-dev` fixture, and a pass there is no SC4 evidence.

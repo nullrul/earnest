@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 # The questions, and the artifact types whose regions each asks about.
 KINDS = {"implemented": frozenset({"impl"}), "tested": frozenset({"utest", "itest", "stest"})}
 QUESTIONS = tuple(KINDS)
-PROMPT_HASH = digest(files(__package__).joinpath("prompt.txt").read_bytes())
+_PROMPT = files(__package__).joinpath("prompt.txt").read_bytes()  # the bytes PROMPT_HASH names are the text sent
+PROMPT_HASH = digest(_PROMPT)
 MAX_TOKENS = 16000  # room for the thinking Opus 5.5 always does, and the verdict after it
 _RESULTS = ("satisfied", "not-satisfied")
 PASS_MATCHES = 8  # SC4: the judge passes calibration when it matches the maintainer on eight of ten requirements
@@ -118,12 +119,16 @@ class Cache:
     used: dict[str, object] = field(default_factory=dict)
     hashes: dict[str, tuple[str, str]] = field(default_factory=dict)  # each item's code and test region hashes
 
-    def ask(self, question: Question, index: Index) -> Verdict:
+    @property
+    def id(self) -> str:
+        """Return the cached model's id."""
+        return self.model.id
+
+    def ask(self, question: Question) -> Verdict:
         """Return the cached verdict of a question whose key is unchanged, else ask the model and cache its answer."""
-        item = question.item
         if (hashes := self.hashes.get(question.subject)) is None:
-            code = region_hash(self.root, regions(index, item, KINDS["implemented"]))
-            tested = region_hash(self.root, regions(index, item, KINDS["tested"]))
+            code = region_hash(self.root, question.tagged["implemented"])
+            tested = region_hash(self.root, question.tagged["tested"])
             hashes = self.hashes[question.subject] = (code, tested)
         code, tests = hashes
         parts = {
@@ -145,10 +150,14 @@ def region_hash(root: Path, found: Sequence[Region]) -> str:
     """Return the digest of regions in root's work tree: each one's path, lines and text, in path and line order."""
     chunks: list[bytes] = []
     for region in sorted(found, key=lambda each: (each.path, each.first, each.last)):
-        text = (root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
         chunks.append(f"{region.path}:{region.first}-{region.last}\n".encode("utf-8", "surrogateescape"))
-        chunks.append(b"\n".join(text) + b"\n")
+        chunks.append(_region_bytes(root, region) + b"\n")
     return digest(b"".join(chunks))
+
+
+def _region_bytes(root: Path, region: Region) -> bytes:
+    """Return a region's lines from root's work tree; the cache key and the question text both slice them here."""
+    return b"\n".join((root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last])
 
 
 def _cached(entry: object) -> Verdict | None:
@@ -170,13 +179,13 @@ def load_model(value: str | None, root: Path) -> Model:
             canned verdicts, or the SDK's client cannot start.
     """
     if not value:
-        msg = "earnest needs a model: set EARNEST_JUDGE to stub:<path of a canned-verdict file>"
+        msg = "earnest needs a model: set EARNEST_JUDGE to anthropic:<model> or stub:<path of a canned-verdict file>"
         raise JudgeError(msg)
     kind, _, path = value.partition(":")
     if kind == "anthropic" and path:
         return _claude(value, root)
     if kind != "stub" or not path:
-        msg = f"EARNEST_JUDGE names no model Earnest knows: {value!r}; use stub:<path>"
+        msg = f"EARNEST_JUDGE names no model Earnest knows: {value!r}; use anthropic:<model> or stub:<path>"
         raise JudgeError(msg)
     data, answers = _read_answers(Path(path), "the stub model's file")
     return Stub("stub:" + digest(data), answers)
@@ -247,6 +256,11 @@ class Claude:
         except (anthropic.AnthropicError, TypeError, ValueError) as error:
             msg = f"the model {self.id} cannot answer {asked}: {error}"
             raise JudgeError(msg) from error
+        if (
+            reply.model != self.id.partition(":")[2]
+        ):  # an alias: bind the cache and calibration to the model that answers
+            msg = f"the model {self.id} answered {asked} as {reply.model}: set EARNEST_JUDGE=anthropic:{reply.model}"
+            raise JudgeError(msg)
         if reply.stop_reason != "end_turn":  # a refusal, or a reply cut off at max_tokens
             msg = f"the model {self.id} stopped on {asked} with {reply.stop_reason}"
             raise JudgeError(msg)
@@ -268,9 +282,11 @@ def question_text(root: Path, question: Question) -> str:
     for label, kind in (("Code regions:", "implemented"), ("Test regions:", "tested")):
         lines.append(label)
         for region in question.tagged[kind]:
-            text = (root / region.path).read_bytes().split(b"\n")[region.first - 1 : region.last]
-            lines += [f"{region.path}:{region.first}-{region.last}", b"\n".join(text).decode(errors="replace")]
-    return files(__package__).joinpath("prompt.txt").read_text(encoding="utf-8") + "\n".join(lines) + "\n"
+            lines += [
+                f"{region.path}:{region.first}-{region.last}",
+                _region_bytes(root, region).decode(errors="replace"),
+            ]
+    return _PROMPT.decode("utf-8") + "\n".join(lines) + "\n"
 
 
 def _read_answers(path: Path, name: str) -> tuple[bytes, dict[str, dict[str, Verdict]]]:
@@ -396,10 +412,10 @@ def judge(index: Index, levels: Mapping[str, str], model: Model, root: Path, rec
                 question, "maintainer", Verdict("satisfied", override.reason, override.path, override.line)
             )
             if (why := drifted(past, index, override, question.regions)) is not None:
-                rerun = observation(question, "judge", located(root, question, cache.ask(question, index)))
+                rerun = observation(question, "judge", located(root, question, cache.ask(question)))
                 found.append(drift(override, why, observed, rerun))
         else:
-            verdict = located(root, question, cache.ask(question, index))
+            verdict = located(root, question, cache.ask(question))
             observed = observation(question, "judge", verdict)
             if verdict.result != "satisfied":
                 found.append(not_satisfied(question, verdict, observed))
@@ -607,7 +623,7 @@ def calibrate(
 ) -> Calibration:
     """Ask the model both questions of the ten requirements and set its verdicts beside the maintainer's.
 
-    Overrides are ignored: every question is asked of the model.
+    Overrides are ignored: every question is asked of the model, or of a Cache that holds its earlier answer.
 
     Raises:
         JudgeError: the index does not hold exactly ten traced EARS requirements, each defined once, or the maintainer's verdicts lack
@@ -659,6 +675,9 @@ def calibrated(held: Mapping[str, object] | None, model: Model) -> bool:
     return (
         held is not None
         and held.get("pass") is True
+        and isinstance(matches := held.get("matches"), int)
+        and matches >= PASS_MATCHES  # today's bar, not the one the slot was written under
+        and held.get("total") == TOTAL
         and held.get("model") == model.id
         and held.get("prompt") == PROMPT_HASH
     )

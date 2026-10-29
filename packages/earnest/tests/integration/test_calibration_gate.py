@@ -27,7 +27,7 @@ def test_the_slot_is_written_on_a_pass_and_replaced_by_a_fail_and_other_slots_st
     assert done.returncode == 1, done.stderr
     after = record(repo)
     assert (after["calibration"]["matches"], after["calibration"]["pass"]) == (7, False)
-    assert after["judge"] == held["judge"]
+    assert after["judge"]["cache"]["k"] == held["judge"]["cache"]["k"]  # merged with calibrate's answers, kept
     assert after["evidence"] == held["evidence"]
 
 
