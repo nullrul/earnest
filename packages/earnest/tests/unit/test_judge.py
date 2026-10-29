@@ -365,7 +365,7 @@ def test_an_override_whose_region_changed_drifts_and_carries_both_observations(t
 
 def test_an_override_whose_region_held_still_does_not_drift(tmp_path):
     at = commit_code(tmp_path)
-    (tmp_path / "src/b.py").write_text("other\n")
+    (tmp_path / "src/cited.py").write_text("other\n")
     model = Counting(stub(tmp_path, {"req~greet~1": {"tested": GREET["tested"]}}))
     result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
     assert "earnest/override-drift" not in rules(result)
@@ -554,6 +554,27 @@ def test_a_verdict_line_past_the_end_of_its_file_falls_back_to_the_id_line(tmp_p
     commit_code(tmp_path)
     past = answer("not-satisfied", file="src/a.py", line=9999)
     result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": past, "tested": GREET["tested"]}}), tmp_path)
+    found = one(result, "earnest/judge-not-satisfied")
+    assert (found.path, found.line) == (SPEC, 3)
+
+
+@pytest.mark.parametrize("kind", ["symlink", "unreadable"])
+def test_a_verdict_location_at_a_symlink_or_unreadable_file_falls_back_to_the_id_line(tmp_path, kind):
+    commit_code(tmp_path)
+    cited = tmp_path / "src/cited.py"
+    if kind == "symlink":
+        cited.symlink_to(tmp_path / "src/a.py")
+    else:
+        cited.write_text("x = 1\n" * 5)
+        cited.chmod(0)
+    try:
+        stray = answer("not-satisfied", file="src/cited.py", line=3)
+        result = ask(
+            index(), stub(tmp_path, {"req~greet~1": {"implemented": stray, "tested": GREET["tested"]}}), tmp_path
+        )
+    finally:
+        if kind == "unreadable":
+            cited.chmod(0o644)
     found = one(result, "earnest/judge-not-satisfied")
     assert (found.path, found.line) == (SPEC, 3)
 

@@ -450,14 +450,20 @@ def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
     """Return the verdict, at the item's id line when its location is no line of a file in root's work tree."""
     path = PurePosixPath(verdict.path)  # drops `.` parts and doubled slashes, keeps `..`
     parts = path.parts
-    if (
-        not parts
-        or path.is_absolute()
-        or ".." in parts
-        or ".git" in parts
-        or not (root / path).is_file()
-        or verdict.line > git._line_count((root / path).read_bytes())  # git's count of lines, not splitlines'
-    ):
+    file = root / path
+    try:  # a symlink may point out of the tree, and an unreadable file is no location either
+        inside = (
+            bool(parts)
+            and not path.is_absolute()
+            and ".." not in parts
+            and ".git" not in parts
+            and file.is_file()
+            and not file.is_symlink()
+            and verdict.line <= git.line_count(file.read_bytes())  # git's count of lines, not splitlines'
+        )
+    except OSError:
+        inside = False
+    if not inside:
         return replace(verdict, path=question.item.path, line=question.item.line)
     return replace(verdict, path=path.as_posix())
 
