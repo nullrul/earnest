@@ -207,6 +207,9 @@ def _claude(value: str, root: Path) -> Claude:
     return Claude(value, root, client)
 
 
+# The messages of the SDK's TypeError and ValueError for a request it will not send.
+_SDK_REJECTIONS = ("Could not resolve authentication method", "Streaming is required")
+
 # The verdict object the model is asked for through structured outputs: the stub's canned-verdict answer.
 _SCHEMA: dict[str, object] = {
     "type": "object",
@@ -253,8 +256,13 @@ class Claude:
                 messages=[{"role": "user", "content": question_text(self.root, question)}],
                 output_config=config,
             )
-        # TypeError: no credentials; ValueError: max_tokens over the model's non-streaming limit
         except (anthropic.AnthropicError, TypeError, ValueError) as error:
+            # the SDK rejects a request unsent with a TypeError (no credentials) or a ValueError (max_tokens over the
+            # non-streaming limit); any other TypeError or ValueError is a bug here, not the model's
+            if not isinstance(error, anthropic.AnthropicError) and not any(
+                text in str(error) for text in _SDK_REJECTIONS
+            ):
+                raise
             msg = f"the model {self.id} cannot answer {asked}: {error}"
             raise JudgeError(msg) from error
         if reply.model != name:  # an alias: bind the cache and calibration to the model that answers
@@ -431,8 +439,7 @@ def judge(index: Index, levels: Mapping[str, str], model: Model, root: Path, rec
         satisfied[question.subject] = satisfied.get(question.subject, 0) + (observed["result"] == "satisfied")
     levels = {req: "judged" if satisfied.get(req) == len(QUESTIONS) else level for req, level in levels.items()}
     observations.sort(key=lambda each: (str(each["subject"]), str(each["question"])))
-    # the slot's other keys, such as calibrate's answers, stay; only this run's own cache is pruned to what it used
-    return Judgement(found, observations, levels, {**record.judge, "cache": cache.used})
+    return Judgement(found, observations, levels, {"cache": cache.used})  # cli's _write_check keeps calibrate's answers
 
 
 def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
@@ -628,11 +635,16 @@ class Calibration:
 
 
 def calibrate(
-    index: Index, levels: Mapping[str, str], model: Model, maintainer: Mapping[str, Mapping[str, Verdict]]
+    index: Index,
+    levels: Mapping[str, str],
+    model: Model,
+    root: Path,
+    maintainer: Mapping[str, Mapping[str, Verdict]],
 ) -> Calibration:
     """Ask the model both questions of the ten requirements and set its verdicts beside the maintainer's.
 
-    Overrides are ignored: every question is asked of the model, or of a Cache that holds its earlier answer.
+    Overrides are ignored: every question is asked of the model, or of a Cache that holds its earlier answer. Each
+    verdict's location is held to root's work tree, as check's are.
 
     Raises:
         JudgeError: the index does not hold exactly ten traced EARS requirements, each defined once, or the maintainer's verdicts lack
@@ -656,7 +668,7 @@ def calibrate(
         if question.kind not in maintainer.get(question.subject, {}):
             msg = f"the maintainer's verdicts hold no answer to `{question.subject}` {question.kind}"
             raise JudgeError(msg)
-    judged = {(question.subject, question.kind): model.ask(question) for question in asked}
+    judged = {(question.subject, question.kind): located(root, question, model.ask(question)) for question in asked}
     rows = tuple(
         Row(
             subject,

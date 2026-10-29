@@ -674,7 +674,7 @@ def model(wrong=(), one=()):
 
 
 def calibrate(stub_model=None, verdicts=None, found=None):
-    return judge.calibrate(found or ten_index(), ten_levels(), stub_model or model(), verdicts or maintainer())
+    return judge.calibrate(found or ten_index(), ten_levels(), stub_model or model(), Path(), verdicts or maintainer())
 
 
 def test_eight_matches_pass():
@@ -715,7 +715,7 @@ def test_overrides_ignored():
 def test_not_ten_judgeable_exits(found):
     levels = {str(item.id): "untraced" if "r11" in str(item.id) else "traced" for item in found.defined.values()}
     with pytest.raises(judge.JudgeError, match="exactly ten"):
-        judge.calibrate(found, levels, model(), maintainer())
+        judge.calibrate(found, levels, model(), Path(), maintainer())
 
 
 def test_a_requirement_defined_twice_exits():
@@ -744,7 +744,7 @@ def test_a_second_revision_of_a_requirement_exits():
 def test_ten_requirements_with_a_fault_are_not_called_the_wrong_number(found, levels):
     traced = {str(item.id): "traced" for item in found.defined.values()} | levels
     with pytest.raises(judge.JudgeError, match="exactly ten traced EARS requirements") as raised:
-        judge.calibrate(found, traced, model(), maintainer())
+        judge.calibrate(found, traced, model(), Path(), maintainer())
     assert ", not 10" not in str(raised.value)
 
 
@@ -763,7 +763,7 @@ def test_only_requirements_are_asked():
             asked.append(question.subject)
             return stub.ask(question)
 
-    result = judge.calibrate(found, levels, Recording(), maintainer())
+    result = judge.calibrate(found, levels, Recording(), Path(), maintainer())
     assert sorted(asked) == sorted(TEN * 2)
     assert [row.subject for row in result.rows] == sorted(TEN)
 
@@ -825,3 +825,14 @@ def test_a_key_named_twice_reaches_the_message_escaped(tmp_path):
         judge.load_verdicts(path)
     assert "\x1b" not in str(caught.value)
     assert "\\x1b[31mX more than once" in str(caught.value)
+
+
+def test_calibrate_holds_a_location_outside_the_work_tree_to_the_item(tmp_path):
+    found = ten_index()
+    result = judge.calibrate(found, ten_levels(), model(), tmp_path, maintainer())  # src/r1.py is not in tmp_path
+    items = {str(item.id): item for item in found.defined.values()}
+    assert all(
+        (row.judge[kind].path, row.judge[kind].line) == (items[row.subject].path, items[row.subject].line)
+        for row in result.rows
+        for kind in judge.QUESTIONS
+    )

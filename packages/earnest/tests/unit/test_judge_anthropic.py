@@ -180,6 +180,12 @@ def test_an_sdk_type_error_on_a_request_cannot_run(tmp_path):
         model(tmp_path, messages).ask(question(tmp_path))
 
 
+def test_any_other_sdk_type_error_is_a_bug_not_a_model_failure(tmp_path):
+    messages = Messages(error=TypeError("create() got an unexpected keyword argument 'output_config'"))
+    with pytest.raises(TypeError, match="output_config"):
+        model(tmp_path, messages).ask(question(tmp_path))
+
+
 def test_the_real_client_with_no_credentials_cannot_run(tmp_path, monkeypatch):
     for name in [name for name in os.environ if name.startswith("ANTHROPIC_")]:
         monkeypatch.delenv(name)

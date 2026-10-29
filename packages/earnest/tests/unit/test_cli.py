@@ -822,7 +822,7 @@ def test_a_failed_calibration_keeps_the_answers_already_given(fixture_repo, monk
 def test_a_record_that_cannot_be_kept_leaves_the_calibrate_failure_shown(fixture_repo, monkeypatch, capsys):
     repo = fixture_repo("calibration-dev")
 
-    def breaking(index, levels, cache, maintainer):
+    def breaking(index, levels, cache, root, maintainer):
         cache.used["k"] = {"paid": True}
         (repo / reporter.RECORD).parent.mkdir()
         (repo / reporter.RECORD).write_text("not json", encoding="utf-8")
@@ -1072,7 +1072,7 @@ def test_calibrate_from_another_directory_sends_the_real_model_the_fixture_s_fil
     assert any(capped in request["messages"][0]["content"] for request in messages.requests)
 
 
-def test_calibrate_escapes_the_model_s_location_file(fixture_repo, monkeypatch, tmp_path, capsys):
+def test_calibrate_prints_a_location_outside_the_work_tree_at_the_item(fixture_repo, monkeypatch, tmp_path, capsys):
     answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
     answers["req~daily-cap~1"]["implemented"]["location"]["file"] = "src/meter.py\x1b[2J\nmatches: 10/10\npass"
     stub = tmp_path / "forged.json"
@@ -1082,7 +1082,7 @@ def test_calibrate_escapes_the_model_s_location_file(fixture_repo, monkeypatch, 
     _, out, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
     assert "\x1b" not in out
     assert [line for line in out.splitlines() if line.startswith("matches:")] == ["matches: 8/10"]
-    assert "src/meter.py\\x1b[2J\\nmatches: 10/10\\npass:17" in out
+    assert "meter.py\\x1b" not in out  # no such file, so the verdict sits at the item, as check's do
 
 
 def test_calibrate_escapes_the_model_s_reasoning(fixture_repo, monkeypatch, tmp_path, capsys):

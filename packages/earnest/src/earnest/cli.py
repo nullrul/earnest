@@ -307,7 +307,7 @@ def _calibrate(fixture: Path) -> _Result:
     held = record.judge.get("calibrate")
     cache = judge.Cache(fixture, model, held if isinstance(held, dict) else {})
     try:
-        calibration = judge.calibrate(index, structural.traced(index), cache, maintainer)
+        calibration = judge.calibrate(index, structural.traced(index), cache, fixture, maintainer)
     except BaseException:  # a failed question, or ^C, still keeps the answers already paid for
         if cache.used:
             # the failure in flight is what the user must see, so a record that cannot be kept now stays as it was
@@ -381,7 +381,8 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
 def _write_check(world: _World) -> None:
     """Write check's record with calibrate's slot and answers as the record now holds them.
 
-    Calibrate owns those two, so a calibrate run that finished while this check ran keeps what it paid for.
+    Calibrate owns those two, so a calibrate run that finished while this check ran keeps what it paid for, unless it
+    wrote between this reread and the write: the record takes no lock, so that narrow window is last-writer-wins.
     """
     fresh = reporter.read_record(world.root)
     world.record.calibration = fresh.calibration
