@@ -797,7 +797,7 @@ def test_only_a_differing_question_gets_detail_lines(fixture_repo, monkeypatch, 
 def test_a_calibration_rerun_asks_no_question_it_has_an_answer_to(fixture_repo, monkeypatch, capsys):
     repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
     assert code == 0
-    assert len(reporter.read_record(repo).judge["cache"]) == 20
+    assert len(reporter.read_record(repo).judge["calibrate"]) == 20
     asked = []
     monkeypatch.setattr(judge.Stub, "ask", lambda _self, question: asked.append(question))
     code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
@@ -816,7 +816,17 @@ def test_a_failed_calibration_keeps_the_answers_already_given(fixture_repo, monk
     assert (code, f"`{last}` tested" in err) == (2, True)
     record = reporter.read_record(repo)
     assert record.calibration is None
-    assert len(record.judge["cache"]) > 0
+    assert len(record.judge["calibrate"]) > 0
+
+
+def test_a_judge_check_keeps_calibrate_s_answers(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    run(repo, monkeypatch, capsys, "check", "--judge")
+    asked = []
+    monkeypatch.setattr(judge.Stub, "ask", lambda _self, question: asked.append(question))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, asked) == (0, [])
 
 
 def test_calibrate_keeps_what_a_check_wrote_to_the_record_while_it_ran(fixture_repo, monkeypatch, capsys):
@@ -836,7 +846,7 @@ def test_calibrate_keeps_what_a_check_wrote_to_the_record_while_it_ran(fixture_r
     record = reporter.read_record(repo)
     assert (code, record.bodies["req~other~1"], record.judge["cache"]["k"]) == (0, "0" * 64, {"from": "check"})
     assert record.calibration is not None
-    assert len(record.judge["cache"]) == 21
+    assert len(record.judge["calibrate"]) == 20
 
 
 def test_a_failing_calibration_exits_1(fixture_repo, monkeypatch, capsys):

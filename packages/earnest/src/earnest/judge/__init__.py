@@ -245,9 +245,10 @@ class Claude:
         # gating answer 3: effort is pinned in code, the verdict comes through structured outputs, and no sampling
         # parameter is sent
         config: OutputConfigParam = {"effort": "high", "format": {"type": "json_schema", "schema": _SCHEMA}}
+        name = self.id.partition(":")[2]
         try:
             reply = self.client.messages.create(
-                model=self.id.partition(":")[2],
+                model=name,
                 max_tokens=MAX_TOKENS,
                 messages=[{"role": "user", "content": question_text(self.root, question)}],
                 output_config=config,
@@ -256,9 +257,7 @@ class Claude:
         except (anthropic.AnthropicError, TypeError, ValueError) as error:
             msg = f"the model {self.id} cannot answer {asked}: {error}"
             raise JudgeError(msg) from error
-        if (
-            reply.model != self.id.partition(":")[2]
-        ):  # an alias: bind the cache and calibration to the model that answers
+        if reply.model != name:  # an alias: bind the cache and calibration to the model that answers
             msg = f"the model {self.id} answered {asked} as {reply.model}: set EARNEST_JUDGE=anthropic:{reply.model}"
             raise JudgeError(msg)
         if reply.stop_reason != "end_turn":  # a refusal, or a reply cut off at max_tokens
@@ -423,7 +422,8 @@ def judge(index: Index, levels: Mapping[str, str], model: Model, root: Path, rec
         satisfied[question.subject] = satisfied.get(question.subject, 0) + (observed["result"] == "satisfied")
     levels = {req: "judged" if satisfied.get(req) == len(QUESTIONS) else level for req, level in levels.items()}
     observations.sort(key=lambda each: (str(each["subject"]), str(each["question"])))
-    return Judgement(found, observations, levels, {"cache": cache.used})
+    # the slot's other keys, such as calibrate's answers, stay; only this run's own cache is pruned to what it used
+    return Judgement(found, observations, levels, {**record.judge, "cache": cache.used})
 
 
 def located(root: Path, question: Question, verdict: Verdict) -> Verdict:

@@ -303,24 +303,27 @@ def _calibrate(fixture: Path) -> _Result:
     model = judge.load_model(os.environ.get("EARNEST_JUDGE"), fixture)  # its regions name fixture paths
     maintainer = judge.load_verdicts(fixture / "verdicts.json")
     index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
-    held = record.judge.get("cache")
+    held = record.judge.get("calibrate")
     cache = judge.Cache(fixture, model, held if isinstance(held, dict) else {})
+    calibration: judge.Calibration | None = None
     try:
         calibration = judge.calibrate(index, structural.traced(index), cache, maintainer)
-    except BaseException:  # a failed question, or ^C, still keeps the answers already paid for
-        if cache.used:
-            _keep_calibration(root, cache.used, None)
-        raise
-    _keep_calibration(root, cache.used, calibration)
+    finally:  # a failed question, or ^C, still keeps the answers already paid for
+        if cache.used or calibration is not None:
+            _keep_calibration(root, cache.used, calibration)
     return _Result(_comparison(calibration), "", 0 if calibration.passed else 1)
 
 
 def _keep_calibration(root: Path, used: dict[str, object], calibration: judge.Calibration | None) -> None:
-    """Merge calibrate's judge answers into the record, reread in case a check run wrote it meanwhile, and set its slot."""
+    """Keep calibrate's judge answers in the record, reread in case a check run wrote it meanwhile, and set its slot.
+
+    They sit apart from check's `cache`, which a judge run prunes to its own answers; a pass replaces them, so stale
+    ones go, and a failed run merges, so a rerun reuses what the earlier runs paid for.
+    """
     record = reporter.read_record(root)
-    held = record.judge.get("cache")
-    # merged, not replaced: the cache also holds this repository's own check answers
-    record.judge = {**record.judge, "cache": {**(held if isinstance(held, dict) else {}), **used}}
+    held = record.judge.get("calibrate")
+    kept = held if calibration is None and isinstance(held, dict) else {}
+    record.judge = {**record.judge, "calibrate": {**kept, **used}}
     if calibration is not None:
         record.calibration = judge.slot(calibration)
     reporter.write_record(root, record)
