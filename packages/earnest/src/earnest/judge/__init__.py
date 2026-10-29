@@ -456,7 +456,7 @@ def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
         or ".." in parts
         or ".git" in parts
         or not (root / path).is_file()
-        or verdict.line > len((root / path).read_bytes().splitlines())
+        or verdict.line > git._line_count((root / path).read_bytes())  # git's count of lines, not splitlines'
     ):
         return replace(verdict, path=question.item.path, line=question.item.line)
     return replace(verdict, path=path.as_posix())
@@ -659,7 +659,7 @@ def calibrate(
 
     Raises:
         JudgeError: the index does not hold exactly ten traced EARS requirements, each defined once, or the maintainer's verdicts lack
-            an answer to one of their questions.
+            an answer to one of their questions or answer a requirement it does not define.
     """
     reqs = [item for item in index.defined.values() if item.id.type == "req"]
     subjects = {str(item.id) for item in reqs}
@@ -679,6 +679,9 @@ def calibrate(
         if twice:
             parts.append(f"defined more than once: {', '.join(twice)}")
         raise JudgeError("; ".join(parts))
+    if stale := sorted(set(maintainer) - subjects):
+        msg = f"the maintainer's verdicts answer no requirement here: {', '.join(map(escaped, stale))}"
+        raise JudgeError(msg)
     for question in asked:
         if question.kind not in maintainer.get(question.subject, {}):
             msg = f"the maintainer's verdicts hold no answer to `{question.subject}` {question.kind}"

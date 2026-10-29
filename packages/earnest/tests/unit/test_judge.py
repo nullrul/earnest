@@ -796,6 +796,25 @@ def test_missing_maintainer_answer_raises():
         calibrate(verdicts=verdicts)
 
 
+def test_maintainer_answer_for_an_undefined_requirement_raises():
+    verdicts = {**maintainer(), "req~r1~0": maintainer()["req~r1~1"]}
+    with pytest.raises(judge.JudgeError, match=r"answer no requirement here: req~r1~0"):
+        calibrate(verdicts=verdicts)
+
+
+def test_calibrate_counts_lines_as_git_does(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/r1.py").write_bytes(b"a\rb\rc")  # one line to git, three to splitlines()
+    found = ten_index()
+    result = judge.calibrate(found, ten_levels(), model(), tmp_path, maintainer())  # every verdict names line 2
+    items = {str(item.id): item for item in found.defined.values()}
+    assert all(
+        (row.judge[kind].path, row.judge[kind].line) == (items[row.subject].path, items[row.subject].line)
+        for row in result.rows
+        for kind in judge.QUESTIONS
+    )
+
+
 def test_slot_shape():
     assert judge.slot(calibrate()) == {
         "model": "stub:t",
