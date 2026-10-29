@@ -550,6 +550,14 @@ def test_a_verdict_location_outside_the_work_tree_falls_back_to_the_id_line(tmp_
     assert implemented["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}
 
 
+def test_a_verdict_line_past_the_end_of_its_file_falls_back_to_the_id_line(tmp_path):
+    commit_code(tmp_path)
+    past = answer("not-satisfied", file="src/a.py", line=9999)
+    result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": past, "tested": GREET["tested"]}}), tmp_path)
+    found = one(result, "earnest/judge-not-satisfied")
+    assert (found.path, found.line) == (SPEC, 3)
+
+
 def test_a_verdict_location_with_a_dot_component_normalises_to_its_work_tree_file(tmp_path):
     commit_code(tmp_path)  # a `.git/` to reject beside the work tree's files
     dotted = answer("not-satisfied", file="./src//a.py", line=3)

@@ -447,10 +447,17 @@ def judge(index: Index, levels: Mapping[str, str], model: Model, root: Path, rec
 
 
 def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
-    """Return the verdict, at the item's id line when its location is no relative path to a file in root's work tree."""
+    """Return the verdict, at the item's id line when its location is no line of a file in root's work tree."""
     path = PurePosixPath(verdict.path)  # drops `.` parts and doubled slashes, keeps `..`
     parts = path.parts
-    if not parts or path.is_absolute() or ".." in parts or ".git" in parts or not (root / path).is_file():
+    if (
+        not parts
+        or path.is_absolute()
+        or ".." in parts
+        or ".git" in parts
+        or not (root / path).is_file()
+        or verdict.line > len((root / path).read_bytes().splitlines())
+    ):
         return replace(verdict, path=question.item.path, line=question.item.line)
     return replace(verdict, path=path.as_posix())
 
