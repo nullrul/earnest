@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -893,4 +894,13 @@ def test_calibrate_holds_a_location_outside_the_work_tree_to_the_item(tmp_path):
         (row.judge[kind].path, row.judge[kind].line) == (items[row.subject].path, items[row.subject].line)
         for row in result.rows
         for kind in judge.QUESTIONS
+    )
+
+
+def test_the_m6_demo_transcript_names_the_current_prompt_hash() -> None:
+    # The demo doc is a captured run; editing prompt.txt without rerunning docs/demo/m6-calibrate.sh leaves it stale.
+    demo = (Path(__file__).parents[4] / "docs" / "demo" / "m6-calibrate.md").read_text()
+    hashes = set(re.findall(r"prompt\W+(sha256:[0-9a-f]{64})", demo))
+    assert hashes == {judge.PROMPT_HASH}, (
+        "rerun docs/demo/m6-calibrate.sh and paste its output into docs/demo/m6-calibrate.md"
     )

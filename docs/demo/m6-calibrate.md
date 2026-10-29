@@ -21,7 +21,7 @@ No calibration exists yet, so `earnest check --judge` raises the `earnest/judge-
 ```text
 == 1. A judge run before any calibration
 check --judge exit: 1
-.earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3 and the prompt sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb: run earnest calibrate <fixture> before relying on the judge's verdicts
+.earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3 and the prompt sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6: run earnest calibrate <fixture> before relying on the judge's verdicts
 ```
 
 ## 2. Calibrating the stub model
@@ -30,7 +30,7 @@ check --judge exit: 1
 
 ```text
 == 2. Calibrate the stub model
-calibration of stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3 with the prompt sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb
+calibration of stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3 with the prompt sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6
 req~card-refusal~1   judge satisfied/satisfied  maintainer satisfied/satisfied  match
 req~daily-cap~1      judge satisfied/satisfied  maintainer not-satisfied/satisfied  differs
     implemented judge: satisfied at src/meter.py:17: capped takes the smaller of the fare and the daily cap.
@@ -48,7 +48,7 @@ req~receipt-total~1  judge satisfied/satisfied  maintainer satisfied/satisfied  
 matches: 8/10
 pass
 calibrate exit: 0
-calibration slot: {"matches": 8, "model": "stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3", "pass": true, "prompt": "sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb", "total": 10}
+calibration slot: {"matches": 8, "model": "stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3", "pass": true, "prompt": "sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6", "total": 10}
 ```
 
 ## 3. The judge run after a passing calibration
@@ -67,7 +67,7 @@ A second stub model disagrees with the maintainer on a third requirement, giving
 
 ```text
 == 4. A failing calibration at seven matches
-calibration of stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc with the prompt sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb
+calibration of stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc with the prompt sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6
 req~card-refusal~1   judge satisfied/satisfied  maintainer satisfied/satisfied  match
 req~daily-cap~1      judge satisfied/satisfied  maintainer not-satisfied/satisfied  differs
     implemented judge: satisfied at src/meter.py:17: capped takes the smaller of the fare and the daily cap.
@@ -87,9 +87,9 @@ req~receipt-total~1  judge satisfied/satisfied  maintainer satisfied/satisfied  
 matches: 7/10
 fail
 calibrate exit: 1
-calibration slot: {"matches": 7, "model": "stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc", "pass": false, "prompt": "sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb", "total": 10}
+calibration slot: {"matches": 7, "model": "stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc", "pass": false, "prompt": "sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6", "total": 10}
 check --judge exit: 1
-.earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3 and the prompt sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb: run earnest calibrate <fixture> before relying on the judge's verdicts
+.earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:ab2a143ad3a33f00c283f730a9c21e58ca33b8de0c03305fa02d0c6379e07ca3 and the prompt sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6: run earnest calibrate <fixture> before relying on the judge's verdicts
 ```
 
 ## 5. A calibration of another model
@@ -102,7 +102,7 @@ calibrate exit: 0
 check --judge exit: 1
 no earnest/judge-uncalibrated finding
 check --judge exit: 1
-.earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc and the prompt sha256:22901574d53bdfcc716f8ba0742fddbfbbb379bde4aa9393028d49f2ce99bcfb: run earnest calibrate <fixture> before relying on the judge's verdicts
+.earnest/assessment.json:1: warning earnest/judge-uncalibrated: in scope: no passing calibration exists for the model stub:sha256:e6164875282e3711950287ba47ef0061e79e643f066abd23a68b0728cd9076cc and the prompt sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6: run earnest calibrate <fixture> before relying on the judge's verdicts
 ```
 
 ## 6. Calibrate cannot run without a model
