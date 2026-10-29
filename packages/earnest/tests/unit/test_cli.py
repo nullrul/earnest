@@ -844,13 +844,15 @@ def test_a_failing_calibration_keeps_earlier_answers(fixture_repo, monkeypatch, 
     assert reporter.read_record(repo).judge["calibrate"]["earlier"] == {"from": "another model"}
 
 
-def test_a_passing_calibration_drops_earlier_answers(fixture_repo, monkeypatch, capsys):
-    repo = fixture_repo("calibration-dev")
-    reporter.write_record(repo, reporter.Record(judge={"calibrate": {"earlier": {"from": "another model"}}}))
-    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
-    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+def test_a_passing_calibration_drops_only_its_own_model_s_earlier_answers(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
     assert code == 0
-    assert "earlier" not in reporter.read_record(repo).judge["calibrate"]
+    model = next(iter(reporter.read_record(repo).judge["calibrate"].values()))["model"]
+    held = {"stale": {"model": model}, "other": {"model": "another model"}}
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": held}))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    kept = reporter.read_record(repo).judge["calibrate"]
+    assert (code, "stale" in kept, kept["other"], len(kept)) == (0, False, {"model": "another model"}, 21)
 
 
 def test_a_judge_check_keeps_a_calibration_that_finished_while_it_ran(fixture_repo, monkeypatch, capsys):
