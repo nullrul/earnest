@@ -451,14 +451,14 @@ def located(root: Path, question: Question, verdict: Verdict) -> Verdict:
     path = PurePosixPath(verdict.path)  # drops `.` parts and doubled slashes, keeps `..`
     parts = path.parts
     file = root / path
-    try:  # a symlink may point out of the tree, and an unreadable file is no location either
+    try:  # a symlink anywhere on the path may point out of the tree, and an unreadable file is no location either
         inside = (
             bool(parts)
             and not path.is_absolute()
             and ".." not in parts
             and ".git" not in parts
             and file.is_file()
-            and not file.is_symlink()
+            and file.resolve() == root.resolve() / path
             and verdict.line <= git.line_count(file.read_bytes())  # git's count of lines, not splitlines'
         )
     except OSError:

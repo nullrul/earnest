@@ -559,17 +559,23 @@ def test_a_verdict_line_past_the_end_of_its_file_falls_back_to_the_id_line(tmp_p
     assert (found.path, found.line) == (SPEC, 3)
 
 
-@pytest.mark.parametrize("kind", ["symlink", "unreadable"])
+@pytest.mark.parametrize("kind", ["symlink", "symlinked directory", "unreadable"])
 def test_a_verdict_location_at_a_symlink_or_unreadable_file_falls_back_to_the_id_line(tmp_path, kind):
     commit_code(tmp_path)
     cited = tmp_path / "src/cited.py"
     if kind == "symlink":
         cited.symlink_to(tmp_path / "src/a.py")
+    elif kind == "symlinked directory":  # src/vendor -> a directory outside the tree
+        outside = tmp_path.parent / f"{tmp_path.name}-outside"
+        outside.mkdir()
+        (outside / "cited.py").write_text("x = 1\n" * 5)
+        (tmp_path / "src/vendor").symlink_to(outside)
+        cited = tmp_path / "src/vendor/cited.py"
     else:
         cited.write_text("x = 1\n" * 5)
         cited.chmod(0)
     try:
-        stray = answer("not-satisfied", file="src/cited.py", line=3)
+        stray = answer("not-satisfied", file=cited.relative_to(tmp_path).as_posix(), line=3)
         result = ask(
             index(), stub(tmp_path, {"req~greet~1": {"implemented": stray, "tested": GREET["tested"]}}), tmp_path
         )
@@ -578,6 +584,7 @@ def test_a_verdict_location_at_a_symlink_or_unreadable_file_falls_back_to_the_id
             cited.chmod(0o644)
     found = one(result, "earnest/judge-not-satisfied")
     assert (found.path, found.line) == (SPEC, 3)
+    assert result.observations[0]["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}
 
 
 def test_a_verdict_location_with_a_dot_component_normalises_to_its_work_tree_file(tmp_path):
