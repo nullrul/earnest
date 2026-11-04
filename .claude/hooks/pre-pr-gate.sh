@@ -2,8 +2,8 @@
 # PreToolUse(Bash) pre-PR review gate. Blocks `gh pr create|new|ready` and POSTs to
 # `gh api .../pulls` unless <git-dir>/pre-pr-review holds HEAD in every checkout the
 # command may run in. No shell parsing: the candidates are the hook cwd plus the target
-# of every `cd`/`pushd <word>` anywhere in the text. A target that is not an existing
-# git checkout (`cd "$WT"`, `cd -`, `cd ~user`) blocks: use a literal path. Fail closed;
+# of every `cd`/`pushd <word>` anywhere in the text. A relative target, or one that is not
+# an existing git checkout (`cd "$WT"`, `cd -`), blocks: use a literal absolute path. Fail closed;
 # a speed bump, not a boundary. Not covered: `--head <branch>` / `-R <repo>`, `eval`,
 # `git -C`, and commands built at run time.
 input=$(cat)
@@ -18,7 +18,7 @@ c=${r//$'\n'/ }
 c=${c//[\"\']/} # and quotes: `"gh" pr create`, `c''d`
 gh='(^|[^A-Za-z0-9_-])gh[[:space:]]([^;&|]*[[:space:]])?'
 pr='pr[[:space:]]+(create|new|ready)([^A-Za-z0-9_-]|$)'
-pulls='pulls([^A-Za-z0-9_/-]|$)'
+pulls='pulls/?([^A-Za-z0-9_/-]|$)'
 post='(-X|--method)[[:space:]=]*[Pp][Oo][Ss][Tt]|[[:space:]](-[fF]|--field|--raw-field|--input)'
 [[ $c =~ ${gh}${pr} ]] || [[ $c =~ ${gh}api[[:space:]] && $c =~ $pulls && $c =~ $post ]] || exit 0
 
@@ -30,8 +30,9 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 cwd=${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}
 dirs=("$cwd")
 [[ $c == *CDPATH* ]] && block "command sets CDPATH"
-# Directory changes without cd: `env -C`, `uv run --directory`, `GIT_DIR=`.
-[[ $c =~ (^|[[:space:]])(-C|--chdir|--directory)([[:space:]=]|$)|GIT_(DIR|WORK_TREE)= ]] &&
+# Directory changes without cd: `env -C<dir>`, `env --chd=` (getopt abbreviation),
+# `uv run --directory`, `GIT_DIR=`. Any token starting with these blocks.
+[[ $c =~ (^|[[:space:]])(-C|--c|--dir)|GIT_(DIR|WORK_TREE)= ]] &&
   block "command changes directory without cd; cd to a literal path"
 nl=$'\n'
 # cd/pushd (keyword optionally quoted), then a target word or none (cd to $HOME).
@@ -52,14 +53,8 @@ while [[ $s =~ $cd_re ]]; do
   fi
   # shellcheck disable=SC2088 # literal tilde match, expanded by hand
   [ -n "${m[7]}" ] && case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac
-  case $p in
-    /*) ;;
-    *)
-      [ ${#dirs[@]} -gt 1 ] && block "relative cd after another cd; use a literal path"
-      [ -n "${CDPATH-}" ] && block "relative cd with CDPATH set; use a literal path"
-      p=$cwd/$p
-      ;;
-  esac
+  # A relative cd may run any number of times (loop, function): only absolute targets are fixed.
+  [[ $p == /* ]] || block "relative cd; use a literal absolute path"
   dirs+=("$p")
 done
 # A cd keyword the scan missed (spliced with quotes, `c''d`) blocks.
