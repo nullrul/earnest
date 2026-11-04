@@ -61,8 +61,9 @@ Non-obvious rules:
   dispatch the next pending task after a subagent finishes.
 - PreToolUse on Bash, pre-PR review gate: blocks `gh pr create`/`new`/`ready`
   (any path to `gh`, global flags such as `-R`, env prefixes, `bash -c`,
-  subshells) and POSTs to `gh api .../pulls`, unless `$(git rev-parse --git-dir)/pre-pr-review` holds the current HEAD sha
-  (works in worktrees). Run the `/pre-pr-review` skill, then retry. It is a
+  subshells) and POSTs to `gh api .../pulls`, unless `pre-pr-review` in the git-dir of the
+  checkout the command runs in (hook `cwd`, or a leading `cd <path> &&`) holds that HEAD sha
+  (works in worktrees; logic in `.claude/hooks/pre-pr-gate.sh`). Run the `/pre-pr-review` skill, then retry. It is a
   best-effort speed bump (GraphQL `createPullRequest` or `eval` tricks get past
   it); real enforcement would be a branch-protection required check.
 - Stop: prints `git status --short` and `git diff --stat`.
