@@ -12,13 +12,13 @@ r=$(printf '%s' "$input" | jq -r '.tool_input.command // empty') || {
   echo "pre-PR gate: jq missing or input not JSON" >&2
   exit 2
 }
-r=${r//$'\\\n'/ } # join line continuations
+r=${r//$'\\\n'/} # the shell deletes a line continuation: `c\<newline>d` runs cd
 r=${r//\\/}        # the shell drops a backslash inside a word: `g\h` runs gh
 c=${r//$'\n'/ }
 c=${c//[\"\']/} # and quotes: `"gh" pr create`, `c''d`
 gh='(^|[^A-Za-z0-9_-])gh[[:space:]]([^;&|]*[[:space:]])?'
 pr='pr[[:space:]]+(create|new|ready)([^A-Za-z0-9_-]|$)'
-pulls="pulls([[:space:]\"'?]|\$)"
+pulls='pulls([^A-Za-z0-9_/-]|$)'
 post='(-X|--method)[[:space:]=]*[Pp][Oo][Ss][Tt]|[[:space:]](-[fF]|--field|--raw-field|--input)'
 [[ $c =~ ${gh}${pr} ]] || [[ $c =~ ${gh}api[[:space:]] && $c =~ $pulls && $c =~ $post ]] || exit 0
 
@@ -30,6 +30,9 @@ cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 cwd=${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}
 dirs=("$cwd")
 [[ $c == *CDPATH* ]] && block "command sets CDPATH"
+# Directory changes without cd: `env -C`, `uv run --directory`, `GIT_DIR=`.
+[[ $c =~ (^|[[:space:]])(-C|--chdir|--directory)([[:space:]=]|$)|GIT_(DIR|WORK_TREE)= ]] &&
+  block "command changes directory without cd; cd to a literal path"
 nl=$'\n'
 # cd/pushd (keyword optionally quoted), then a target word or none (cd to $HOME).
 cd_re='(^|[^A-Za-z0-9_.-])(cd|pushd|chdir)["'"'"']?([[:blank:]]+("([^"]*)"|'"'([^']*)'"'|([^[:space:];&|()<>]+))|[[:blank:]]*([;&|()<>'"$nl"']|$))'
@@ -61,11 +64,18 @@ while [[ $s =~ $cd_re ]]; do
 done
 # A cd keyword the scan missed (spliced with quotes, `c''d`) blocks.
 kw_re='(^|[^A-Za-z0-9_.-])(cd|pushd|chdir)([^A-Za-z0-9_.-]|$)'
-while [[ $c =~ $kw_re ]]; do
-  c=${c#*"${BASH_REMATCH[0]}"}
-  k=$((k - 1))
-done
-[ $k -ge 0 ] || block "cd spelled with quotes; write it plainly"
+kw() {
+  local s=$1 n=0
+  while [[ $s =~ $kw_re ]]; do
+    s=${s#*"${BASH_REMATCH[0]}"}
+    n=$((n + 1))
+  done
+  echo "$n"
+}
+[ $k -ge "$(kw "$c")" ] || block "cd spelled with quotes; write it plainly"
+# A quote touching a cd keyword (`x"cd"`, `c''d`) blocks, so a miss cannot cancel a false hit.
+q=${r//$'\n'/ }
+[ "$(kw "${q//[\"\']/x}")" = "$(kw "$c")" ] || block "cd keyword touches a quote; write it plainly"
 for d in "${dirs[@]}"; do
   gd=$(git -C "$d" rev-parse --absolute-git-dir 2>/dev/null) ||
     block "$d is not a git checkout; cd to a literal path"
