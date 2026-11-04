@@ -61,12 +61,13 @@ Non-obvious rules:
   dispatch the next pending task after a subagent finishes.
 - PreToolUse on Bash, pre-PR review gate: blocks `gh pr create`/`new`/`ready`
   (any path to `gh`, global flags such as `-R`, env prefixes, `bash -c`,
-  subshells) and POSTs to `gh api .../pulls`, unless `pre-pr-review` in the git-dir of the
-  checkout the command runs in (hook `cwd`, moved by each `cd`/`pushd` before the gh call;
-  an unresolvable cd target blocks) holds that HEAD sha
-  (works in worktrees; logic in `.claude/hooks/pre-pr-gate.sh`, tests in
-  `.claude/hooks/test-pre-pr-gate.sh`, run by `make test` and the CI `lint-docs` job). Run the `/pre-pr-review` skill, then retry. It is a
-  best-effort speed bump (GraphQL `createPullRequest`, `eval` tricks, or
+  subshells) and POSTs to `gh api .../pulls`, unless every checkout the command may run in
+  (hook `cwd` plus the target of every `cd`/`pushd` anywhere in the text) holds its HEAD sha
+  in `<git-dir>/pre-pr-review`. A cd target that is not a git checkout (`cd "$WT"`, `cd -`)
+  blocks; use a literal path. Logic in `.claude/hooks/pre-pr-gate.sh`, tests in
+  `.claude/hooks/test-pre-pr-gate.sh`, run by `make test` and the CI `lint-docs` job. Run the
+  `/pre-pr-review` skill, then retry. It is a best-effort speed bump (GraphQL
+  `createPullRequest`, `eval`, `git -C`, commands built at run time, or
   `gh pr create --head <other-branch>` / `-R <other-repo>` get past
   it); real enforcement would be a branch-protection required check.
 - Stop: prints `git status --short` and `git diff --stat`.
