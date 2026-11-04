@@ -61,9 +61,14 @@ Non-obvious rules:
   dispatch the next pending task after a subagent finishes.
 - PreToolUse on Bash, pre-PR review gate: blocks `gh pr create`/`new`/`ready`
   (any path to `gh`, global flags such as `-R`, env prefixes, `bash -c`,
-  subshells) and POSTs to `gh api .../pulls`, unless `$(git rev-parse --git-dir)/pre-pr-review` holds the current HEAD sha
-  (works in worktrees). Run the `/pre-pr-review` skill, then retry. It is a
-  best-effort speed bump (GraphQL `createPullRequest` or `eval` tricks get past
+  subshells) and POSTs to `gh api .../pulls`, unless every checkout the command may run in
+  (hook `cwd` plus the target of every `cd`/`pushd` anywhere in the text) holds its HEAD sha
+  in `<git-dir>/pre-pr-review`. A cd target that is not a git checkout (`cd "$WT"`, `cd -`)
+  blocks; use a literal absolute path (relative cd targets also block). Logic in `.claude/hooks/pre-pr-gate.sh`, tests in
+  `.claude/hooks/test-pre-pr-gate.sh`, run by `make test` and the CI `lint-docs` job. Run the
+  `/pre-pr-review` skill, then retry. It is a best-effort speed bump (GraphQL
+  `createPullRequest`, `eval`, `git -C`, commands built at run time, or
+  `gh pr create --head <other-branch>` / `-R <other-repo>` get past
   it); real enforcement would be a branch-protection required check.
 - Stop: prints `git status --short` and `git diff --stat`.
 
@@ -82,7 +87,7 @@ Markdown is linted with `markdownlint-cli2` (MD013 off, config
 ## CI/CD
 
 GitHub Actions pipeline (`.github/workflows/ci.yml`) jobs: `lint-python` → `test-python` →
-`build-earnest`. `lint-docs` runs `markdownlint-cli2` and `yamllint` over the whole
-repo as a backstop for `git commit --no-verify`. Nothing is published,
+`build-earnest`. `lint-docs` runs `markdownlint-cli2` and `yamllint` over the whole repo as a backstop
+for `git commit --no-verify`, then `make test-pre-pr-gate`. Nothing is published,
 uploaded or deployed yet — add a `publish` stage once there is a package
 worth releasing.

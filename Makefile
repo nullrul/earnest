@@ -1,6 +1,6 @@
 SUBPROJECTS := packages/earnest
 
-.PHONY: all build install lint test package clean lint-file
+.PHONY: all build install lint test package clean lint-file test-pre-pr-gate
 
 all: install build lint test
 
@@ -10,6 +10,11 @@ build install lint test:
 		echo "=== $$dir: $@ ==="; \
 		$(MAKE) -C $$dir $@; \
 	done
+
+# The pre-PR gate hook's own tests run with the root test target.
+test: test-pre-pr-gate
+test-pre-pr-gate:
+	bash .claude/hooks/test-pre-pr-gate.sh
 
 # Package distributable artifacts
 package:

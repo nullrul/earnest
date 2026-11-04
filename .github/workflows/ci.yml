@@ -29,6 +29,7 @@ jobs:
       - run: pip install yamllint
       - run: pnpm dlx markdownlint-cli2 "**/*.md" --ignore node_modules --ignore dist
       - run: yamllint -c .yamllint.yml .
+      - run: make test-pre-pr-gate
 
   test-python:
     needs: lint-python

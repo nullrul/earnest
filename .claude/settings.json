@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "input=$(cat); printf '%s' \"$input\" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null 2>&1 || exit 0; c=$(printf '%s' \"$input\" | jq -r '.tool_input.command // empty' | tr '\\n\\\\' '  '); gh='(^|[^A-Za-z0-9_-])gh[[:space:]]([^;&|]*[[:space:]])?'; if printf '%s' \"$c\" | grep -Eq \"${gh}pr[[:space:]]+(create|new|ready)([^A-Za-z0-9_-]|\\$)\"; then :; elif printf '%s' \"$c\" | grep -Eq \"${gh}api[[:space:]]\" && printf '%s' \"$c\" | grep -Eq \"pulls([[:space:]\\\"'?]|\\$)\" && printf '%s' \"$c\" | grep -Eiq \"(-X|--method)[[:space:]=]*POST|[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]=]|\\$)\"; then :; else exit 0; fi; cd \"$CLAUDE_PROJECT_DIR\" || exit 0; sha=$(git rev-parse --verify -q HEAD); f=\"$(git rev-parse --git-dir)/pre-pr-review\"; saved=$(cat \"$f\" 2>/dev/null); [ -n \"$sha\" ] && [ \"$saved\" = \"$sha\" ] && exit 0; echo 'Pre-PR review required for HEAD '\"${sha:-<no commits>}\"': run the /pre-pr-review skill (code-review, ponytail:ponytail-review, simplify, security-review on the branch diff), fix or answer findings, commit, then retry.' >&2; exit 2",
+            "command": "f=\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-pr-gate.sh; [ -f \"$f\" ] && { bash \"$f\" || exit 2; exit 0; }; grep -q gh || exit 0; echo \"pre-PR gate script missing: $f\" >&2; exit 2",
             "timeout": 10
           }
         ]
