@@ -64,7 +64,7 @@ Non-obvious rules:
   subshells) and POSTs to `gh api .../pulls`, unless every checkout the command may run in
   (hook `cwd` plus the target of every `cd`/`pushd` anywhere in the text) holds its HEAD sha
   in `<git-dir>/pre-pr-review`. A cd target that is not a git checkout (`cd "$WT"`, `cd -`)
-  blocks; use a literal path. Logic in `.claude/hooks/pre-pr-gate.sh`, tests in
+  blocks; use a literal absolute path (relative cd targets also block). Logic in `.claude/hooks/pre-pr-gate.sh`, tests in
   `.claude/hooks/test-pre-pr-gate.sh`, run by `make test` and the CI `lint-docs` job. Run the
   `/pre-pr-review` skill, then retry. It is a best-effort speed bump (GraphQL
   `createPullRequest`, `eval`, `git -C`, commands built at run time, or
