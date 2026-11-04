@@ -2,11 +2,14 @@
 
 import hashlib
 import json
+import re
+from pathlib import Path
 
 import pytest
 
 from earnest import judge
 from earnest.index import COMMENT, MARKDOWN, Line, Source, build_index, split_lines
+from earnest.reporter import Record
 from tests.conftest import _git as commit_as_fixture
 from tests.sarif import git_output
 
@@ -67,13 +70,13 @@ def one(result, rule):
 def ask(found, model, root, slot=None):
     if not (root / "src").exists():
         write_code(root)
-    return judge.judge(found, LEVELS, model, root, slot or {"cache": {}})
+    return judge.judge(found, LEVELS, model, root, Record(judge=slot or {"cache": {}}))
 
 
 def stub(tmp_path, data):
     path = tmp_path / "verdicts.json"
     path.write_text(json.dumps(data))
-    return judge.load_model(f"stub:{path}")
+    return judge.load_model(f"stub:{path}", tmp_path)
 
 
 def test_the_model_id_is_the_stub_and_the_files_sha256(tmp_path):
@@ -90,12 +93,12 @@ def test_the_prompt_hash_is_the_prompts_sha256():
 @pytest.mark.parametrize("value", [None, "", "foo:x", "stub:", "stub"])
 def test_an_unset_or_unknown_model_cannot_run(value):
     with pytest.raises(judge.JudgeError):
-        judge.load_model(value)
+        judge.load_model(value, Path())
 
 
 def test_a_missing_file_cannot_run(tmp_path):
     with pytest.raises(judge.JudgeError, match="cannot be read"):
-        judge.load_model(f"stub:{tmp_path / 'none.json'}")
+        judge.load_model(f"stub:{tmp_path / 'none.json'}", tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -114,7 +117,7 @@ def test_a_file_that_is_not_the_object_of_canned_verdicts_cannot_run(tmp_path, d
     path = tmp_path / "verdicts.json"
     path.write_text(data)
     with pytest.raises(judge.JudgeError, match="not an object of canned verdicts"):
-        judge.load_model(f"stub:{path}")
+        judge.load_model(f"stub:{path}", tmp_path)
 
 
 def test_a_question_the_file_does_not_answer_cannot_run(tmp_path):
@@ -159,6 +162,47 @@ def test_one_uncalibrated_finding_per_run_at_line_one_of_the_record(tmp_path):
     assert (found.path, found.line) == (".earnest/assessment.json", 1)
     assert model.id in found.message
     assert judge.PROMPT_HASH in found.message
+
+
+def passing(base, **over):
+    return {"model": base.id, "prompt": judge.PROMPT_HASH, "matches": 8, "total": 10, "pass": True, **over}
+
+
+def test_calibrated_needs_pass(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model), model) is True
+    assert judge.calibrated(passing(model, **{"pass": False}), model) is False
+
+
+def test_calibrated_needs_same_model_and_prompt(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model, model="stub:other"), model) is False
+    assert judge.calibrated(passing(model, prompt="0" * 64), model) is False
+
+
+def test_calibrated_none(tmp_path):
+    assert judge.calibrated(None, stub(tmp_path, {})) is False
+
+
+def test_calibrated_malformed_slot(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model, **{"pass": "false"}), model) is False
+    assert judge.calibrated({"model": model.id, "prompt": judge.PROMPT_HASH}, model) is False
+    assert judge.calibrated(passing(model, matches="8"), model) is False
+
+
+def test_calibrated_needs_today_s_bar(tmp_path):
+    model = stub(tmp_path, {})
+    assert judge.calibrated(passing(model, matches=judge.PASS_MATCHES - 1), model) is False
+    assert judge.calibrated(passing(model, total=judge.TOTAL + 1), model) is False
+
+
+def test_a_record_calibrated_for_this_model_raises_no_uncalibrated_finding(tmp_path):
+    model = stub(tmp_path, {"req~greet~1": {"implemented": answer(), "tested": answer()}})
+    write_code(tmp_path)
+    record = Record(calibration=passing(model))
+    result = judge.judge(index(), LEVELS, model, tmp_path, record)
+    assert [each for each in result.findings if each.rule == "earnest/judge-uncalibrated"] == []
 
 
 def test_observations_are_sorted_by_subject_and_question(tmp_path):
@@ -244,10 +288,10 @@ def test_an_unchanged_key_reuses_the_cached_verdict(tmp_path):
     ]
 
 
-KEY = ("item", "question", "regions", "tests", "model", "prompt")
+KEY = ("item", "question", "sentence", "regions", "tests", "model", "prompt")
 
 
-def test_the_cache_key_is_the_digest_of_its_six_parts_so_each_reruns_the_question(tmp_path):
+def test_the_cache_key_is_the_digest_of_its_seven_parts_so_each_reruns_the_question(tmp_path):
     first = ask(index(), stub(tmp_path, {"req~greet~1": GREET}), tmp_path)
     for key, entry in first.cache["cache"].items():
         parts = {part: entry[part] for part in KEY}
@@ -266,6 +310,16 @@ def test_a_changed_region_reruns_both_questions(tmp_path):
     moved = (code("src/a.py", "impl->req~greet~1", 6), code("tests/a.py", "utest->req~greet~1", 4))
     found = build_index([Source(SPEC, MARKDOWN, split_lines(REQS)), *moved])
     ask(found, model, tmp_path, first.cache)
+    assert len(model.asked) == 2
+
+
+def test_an_edited_requirement_sentence_reruns_both_questions(tmp_path):
+    model = Counting(stub(tmp_path, {"req~greet~1": GREET}))
+    first = ask(index(), model, tmp_path)
+    model.asked.clear()
+    edited = REQS.replace("shall greet them", "shall greet them by name")
+    tags = (code("src/a.py", "impl->req~greet~1", 5), code("tests/a.py", "utest->req~greet~1", 4))
+    ask(build_index([Source(SPEC, MARKDOWN, split_lines(edited)), *tags]), model, tmp_path, first.cache)
     assert len(model.asked) == 2
 
 
@@ -312,7 +366,7 @@ def test_an_override_whose_region_changed_drifts_and_carries_both_observations(t
 
 def test_an_override_whose_region_held_still_does_not_drift(tmp_path):
     at = commit_code(tmp_path)
-    (tmp_path / "src/b.py").write_text("other\n")
+    (tmp_path / "src/cited.py").write_text("other\n")
     model = Counting(stub(tmp_path, {"req~greet~1": {"tested": GREET["tested"]}}))
     result = ask(overridden(f"Override: req~greet~1 implemented at {at}, why"), model, tmp_path)
     assert "earnest/override-drift" not in rules(result)
@@ -330,7 +384,8 @@ def test_an_override_at_a_commit_git_does_not_hold_drifts(tmp_path):
 def test_a_relative_stub_path_reads_against_the_working_directory(tmp_path, monkeypatch):
     stub(tmp_path, {"req~greet~1": GREET})
     monkeypatch.chdir(tmp_path)
-    model = judge.load_model("stub:verdicts.json")
+    model = judge.load_model("stub:verdicts.json", tmp_path / "elsewhere")
+    assert isinstance(model, judge.Stub)
     assert model.id == first_model_id(tmp_path)
     assert model.answers["req~greet~1"]["tested"].path == "tests/a.py"
 
@@ -339,7 +394,7 @@ def test_a_file_nested_past_the_parser_s_depth_cannot_run(tmp_path):
     path = tmp_path / "deep.json"
     path.write_text("[" * 100_000 + "]" * 100_000)
     with pytest.raises(judge.JudgeError, match="not an object of canned verdicts"):
-        judge.load_model(f"stub:{path}")
+        judge.load_model(f"stub:{path}", tmp_path)
 
 
 def drifts_after(tmp_path, lines):
@@ -496,6 +551,42 @@ def test_a_verdict_location_outside_the_work_tree_falls_back_to_the_id_line(tmp_
     assert implemented["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}
 
 
+def test_a_verdict_line_past_the_end_of_its_file_falls_back_to_the_id_line(tmp_path):
+    commit_code(tmp_path)
+    past = answer("not-satisfied", file="src/a.py", line=9999)
+    result = ask(index(), stub(tmp_path, {"req~greet~1": {"implemented": past, "tested": GREET["tested"]}}), tmp_path)
+    found = one(result, "earnest/judge-not-satisfied")
+    assert (found.path, found.line) == (SPEC, 3)
+
+
+@pytest.mark.parametrize("kind", ["symlink", "symlinked directory", "unreadable"])
+def test_a_verdict_location_at_a_symlink_or_unreadable_file_falls_back_to_the_id_line(tmp_path, kind):
+    commit_code(tmp_path)
+    cited = tmp_path / "src/cited.py"
+    if kind == "symlink":
+        cited.symlink_to(tmp_path / "src/a.py")
+    elif kind == "symlinked directory":  # src/vendor -> a directory outside the tree
+        outside = tmp_path.parent / f"{tmp_path.name}-outside"
+        outside.mkdir()
+        (outside / "cited.py").write_text("x = 1\n" * 5)
+        (tmp_path / "src/vendor").symlink_to(outside)
+        cited = tmp_path / "src/vendor/cited.py"
+    else:
+        cited.write_text("x = 1\n" * 5)
+        cited.chmod(0)
+    try:
+        stray = answer("not-satisfied", file=cited.relative_to(tmp_path).as_posix(), line=3)
+        result = ask(
+            index(), stub(tmp_path, {"req~greet~1": {"implemented": stray, "tested": GREET["tested"]}}), tmp_path
+        )
+    finally:
+        if kind == "unreadable":
+            cited.chmod(0o644)
+    found = one(result, "earnest/judge-not-satisfied")
+    assert (found.path, found.line) == (SPEC, 3)
+    assert result.observations[0]["location"] == {"artifactLocation": {"uri": SPEC}, "region": {"startLine": 3}}
+
+
 def test_a_verdict_location_with_a_dot_component_normalises_to_its_work_tree_file(tmp_path):
     commit_code(tmp_path)  # a `.git/` to reject beside the work tree's files
     dotted = answer("not-satisfied", file="./src//a.py", line=3)
@@ -562,3 +653,261 @@ def test_the_region_hash_is_the_one_the_cache_key_holds(tmp_path):
     assert entry["regions"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["implemented"]))
     assert entry["tests"] == judge.region_hash(tmp_path, judge.regions(found, item, judge.KINDS["tested"]))
     assert entry["regions"] != entry["tests"]
+
+
+# Calibration (M6): ten traced EARS requirements, judged against the maintainer's verdicts.
+TEN = tuple(f"req~r{number}~1" for number in range(1, 11))
+
+
+def ten_index(count=10, plain=(), untraced=(), extra=""):
+    """Return the index of `count` requirements, each tagged by an impl and a utest unless untraced."""
+    body = "# Requirements\n\n" + "".join(
+        f"`req~r{n}~1`\n\n"
+        + ("Members get greeted.\n\n" if n in plain else f"When {n} happens, the system shall act.\n\n")
+        for n in range(1, count + 1)
+    )
+    tags = [
+        code(f"{kind}/r{n}.py", f"{tag}->req~r{n}~1", 3)
+        for n in range(1, count + 1)
+        if n not in untraced
+        for kind, tag in (("src", "impl"), ("tests", "utest"))
+    ]
+    return build_index(
+        [
+            Source(
+                SPEC,
+                MARKDOWN,
+                split_lines(
+                    body.replace(
+                        "When 1 happens, the system shall act.\n", "When 1 happens, the system shall act.\n" + extra, 1
+                    )
+                ),
+            ),
+            *tags,
+        ]
+    )
+
+
+def ten_levels(count=10, untraced=()):
+    return {f"req~r{n}~1": "untraced" if n in untraced else "traced" for n in range(1, count + 1)}
+
+
+def verdict(result="satisfied"):
+    return judge.Verdict(result, "because", "src/r1.py", 2)
+
+
+def maintainer(no=()):
+    """Return the maintainer's verdicts: satisfied except for both questions of each requirement number in no."""
+    return {
+        subject: dict.fromkeys(judge.QUESTIONS, verdict("not-satisfied" if int(subject[5:-2]) in no else "satisfied"))
+        for subject in TEN
+    }
+
+
+def model(wrong=(), one=()):
+    """Return a stub that agrees with maintainer() except on both questions of `wrong` and `implemented` of `one`."""
+    answers = {
+        subject: {
+            kind: verdict(
+                "not-satisfied"
+                if int(subject[5:-2]) in wrong or (kind == "implemented" and int(subject[5:-2]) in one)
+                else "satisfied"
+            )
+            for kind in judge.QUESTIONS
+        }
+        for subject in TEN
+    }
+    return judge.Stub("stub:t", answers)
+
+
+def calibrate(stub_model=None, verdicts=None, found=None):
+    return judge.calibrate(found or ten_index(), ten_levels(), stub_model or model(), Path(), verdicts or maintainer())
+
+
+def test_eight_matches_pass():
+    result = calibrate(model(wrong=(9, 10)))
+    assert (result.matches, result.passed) == (8, True)
+    assert [row.subject for row in result.rows] == sorted(TEN)
+    assert result.model == "stub:t"
+
+
+def test_seven_matches_fail():
+    result = calibrate(model(wrong=(8, 9, 10)))
+    assert (result.matches, result.passed) == (7, False)
+
+
+def test_match_needs_both_questions():
+    result = calibrate(model(one=(1,)))
+    assert result.matches == 9
+    assert [row.subject for row in result.rows if not row.matched] == ["req~r1~1"]
+
+
+def test_constant_judge_fails():
+    result = calibrate(model(), maintainer(no=(1, 2, 3)))
+    assert (result.matches, result.passed) == (7, False)
+
+
+def test_overrides_ignored():
+    override = f"Override: req~r1~1 implemented at {'a' * 40}, the gateway greets\n"
+    found = ten_index(extra=override)
+    assert any(item.overrides for item in found.defined.values())
+    assert calibrate(found=found).matches == 10
+
+
+@pytest.mark.parametrize(
+    "found",
+    [ten_index(9), ten_index(11, untraced=(11,)), ten_index(plain=(4,))],
+    ids=["nine", "eleven-one-untraced", "one-not-ears"],
+)
+def test_not_ten_judgeable_exits(found):
+    levels = {str(item.id): "untraced" if "r11" in str(item.id) else "traced" for item in found.defined.values()}
+    with pytest.raises(judge.JudgeError, match="exactly ten"):
+        judge.calibrate(found, levels, model(), Path(), maintainer())
+
+
+def test_a_requirement_defined_twice_exits():
+    found = ten_index(extra="\n`req~r3~1`\n\nWhen 3 happens, the system shall do nothing.\n")
+    assert len(found.items) > len(found.defined)
+    with pytest.raises(judge.JudgeError, match=r"exactly ten.*defined more than once: req~r3~1"):
+        calibrate(found=found)
+
+
+def test_a_second_revision_of_a_requirement_exits():
+    found = ten_index(extra="\n`req~r1~2`\n\nWhen 1 happens, the system shall do nothing.\n")
+    assert len(found.items) > len(found.defined)
+    with pytest.raises(judge.JudgeError, match=r"defined more than once: req~r1"):
+        calibrate(found=found)
+
+
+@pytest.mark.parametrize(
+    ("found", "levels"),
+    [
+        (ten_index(untraced=(4,)), {"req~r4~1": "untraced"}),
+        (ten_index(plain=(4,)), {}),
+        (ten_index(extra="\n`req~r3~1`\n\nWhen 3 happens, the system shall do nothing.\n"), {}),
+    ],
+    ids=["untraced", "not-ears", "duplicate"],
+)
+def test_ten_requirements_with_a_fault_are_not_called_the_wrong_number(found, levels):
+    traced = {str(item.id): "traced" for item in found.defined.values()} | levels
+    with pytest.raises(judge.JudgeError, match="exactly ten traced EARS requirements") as raised:
+        judge.calibrate(found, traced, model(), Path(), maintainer())
+    assert ", not 10" not in str(raised.value)
+
+
+def test_only_requirements_are_asked():
+    found = ten_index(extra="\n`dsn~d1~1`\n\nWhen 1 happens, the design shall hold.\n")
+    assert "dsn~d1~1" in {str(item.id) for item in found.defined.values()}
+    levels = ten_levels() | {"dsn~d1~1": "traced"}
+    assert any(question.subject == "dsn~d1~1" for question in judge.questions(found, levels))
+    asked = []
+    stub = model()
+
+    class Recording:
+        id = stub.id
+
+        def ask(self, question):
+            asked.append(question.subject)
+            return stub.ask(question)
+
+    result = judge.calibrate(found, levels, Recording(), Path(), maintainer())
+    assert sorted(asked) == sorted(TEN * 2)
+    assert [row.subject for row in result.rows] == sorted(TEN)
+
+
+def test_missing_maintainer_answer_raises():
+    verdicts = maintainer()
+    del verdicts["req~r3~1"]["tested"]
+    with pytest.raises(
+        judge.JudgeError,
+        match=r"the maintainer's verdicts.*req~r3~1.*tested|req~r3~1.*tested.*the maintainer's verdicts",
+    ):
+        calibrate(verdicts=verdicts)
+
+
+def test_maintainer_answer_for_an_undefined_requirement_raises():
+    verdicts = {**maintainer(), "req~r1~0": maintainer()["req~r1~1"]}
+    with pytest.raises(judge.JudgeError, match=r"answer no requirement here: req~r1~0"):
+        calibrate(verdicts=verdicts)
+
+
+def test_calibrate_counts_lines_as_git_does(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/r1.py").write_bytes(b"a\rb\rc")  # one line to git, three to splitlines()
+    found = ten_index()
+    result = judge.calibrate(found, ten_levels(), model(), tmp_path, maintainer())  # every verdict names line 2
+    items = {str(item.id): item for item in found.defined.values()}
+    assert all(
+        (row.judge[kind].path, row.judge[kind].line) == (items[row.subject].path, items[row.subject].line)
+        for row in result.rows
+        for kind in judge.QUESTIONS
+    )
+
+
+def test_slot_shape():
+    assert judge.slot(calibrate()) == {
+        "model": "stub:t",
+        "prompt": judge.PROMPT_HASH,
+        "matches": 10,
+        "total": 10,
+        "pass": True,
+    }
+
+
+def test_load_verdicts_missing_file_names_it(tmp_path):
+    with pytest.raises(judge.JudgeError, match=r"the maintainer's verdicts cannot be read.*verdicts\.json"):
+        judge.load_verdicts(tmp_path / "verdicts.json")
+
+
+def test_load_verdicts_malformed_raises(tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text("[]")
+    with pytest.raises(
+        judge.JudgeError, match=r"the maintainer's verdicts .*verdicts\.json is not an object of canned"
+    ):
+        judge.load_verdicts(path)
+
+
+def test_load_verdicts_reads_the_answers(tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text(json.dumps({"req~r1~1": {"tested": answer()}}))
+    assert judge.load_verdicts(path) == {"req~r1~1": {"tested": judge.Verdict("satisfied", "it does", "src/a.py", 3)}}
+
+
+def test_a_requirement_named_twice_in_a_verdicts_file_cannot_run(tmp_path):
+    entry = '{"implemented": {"result": "satisfied", "reasoning": "r", "location": {"file": "a", "line": 1}}}'
+    path = tmp_path / "verdicts.json"
+    path.write_text(f'{{"req~a~1": {entry}, "req~a~1": {entry}}}', encoding="utf-8")
+    with pytest.raises(judge.JudgeError, match=r"req~a~1"):
+        judge.load_verdicts(path)
+    with pytest.raises(judge.JudgeError, match=r"req~a~1"):
+        judge.load_model(f"stub:{path}", tmp_path)
+
+
+def test_a_key_named_twice_reaches_the_message_escaped(tmp_path):
+    path = tmp_path / "verdicts.json"
+    path.write_text('{"\\u001b[31mX": {}, "\\u001b[31mX": {}}', encoding="utf-8")
+    with pytest.raises(judge.JudgeError) as caught:
+        judge.load_verdicts(path)
+    assert "\x1b" not in str(caught.value)
+    assert "\\x1b[31mX more than once" in str(caught.value)
+
+
+def test_calibrate_holds_a_location_outside_the_work_tree_to_the_item(tmp_path):
+    found = ten_index()
+    result = judge.calibrate(found, ten_levels(), model(), tmp_path, maintainer())  # src/r1.py is not in tmp_path
+    items = {str(item.id): item for item in found.defined.values()}
+    assert all(
+        (row.judge[kind].path, row.judge[kind].line) == (items[row.subject].path, items[row.subject].line)
+        for row in result.rows
+        for kind in judge.QUESTIONS
+    )
+
+
+def test_the_m6_demo_transcript_names_the_current_prompt_hash() -> None:
+    # The demo doc is a captured run; editing prompt.txt without rerunning docs/demo/m6-calibrate.sh leaves it stale.
+    demo = (Path(__file__).parents[4] / "docs" / "demo" / "m6-calibrate.md").read_text()
+    hashes = set(re.findall(r"prompt\W+(sha256:[0-9a-f]{64})", demo))
+    assert hashes == {judge.PROMPT_HASH}, (
+        "rerun docs/demo/m6-calibrate.sh and paste its output into docs/demo/m6-calibrate.md"
+    )

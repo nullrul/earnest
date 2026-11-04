@@ -1,6 +1,7 @@
-"""Command surface: `earnest check` and `earnest plan`, which wire the scanner, the index, the checks and the plan."""
+"""Command surface: `earnest check`, `earnest plan` and `earnest calibrate`, which wire the scanner, the index, the checks and the plan."""
 
 import argparse
+import contextlib
 import os
 import posixpath
 import signal
@@ -59,6 +60,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     The exit code is 0 when no error-level finding sits at position behind or current, 1 when one does, and 2 when
     the command cannot run: Git cannot answer, a file or the record cannot be read or written, the record is corrupt
     or newer, an intent or stage cannot be chosen, the judge's model or mutmut cannot run, or the reader of the log or the summary goes away.
+    `earnest calibrate <fixture>` exits 0 when the judge passes calibration, 1 when it fails and 2 when it cannot run.
     An interrupt (Ctrl-C, SIGTERM or SIGHUP) also exits 2, after the run's cleanup.
     """
     if sys.stdout is None or sys.stderr is None:  # Python leaves a closed fd 1 or 2 as None, with nowhere to write
@@ -116,10 +118,17 @@ def _main(argv: Sequence[str] | None) -> int:
         "--evidence", action="store_true", help="run the tests and mutmut on the tagged code; implies --judge"
     )
     commands.add_parser("plan", help="print the route, each stage's status and approval, and the frontier")
+    calibrate = commands.add_parser("calibrate", help="compare the judge's verdicts on a fixture with the maintainer's")
+    calibrate.add_argument(
+        "fixture", type=Path, help="a directory in a Git work tree: ten requirements and verdicts.json"
+    )
     args = parser.parse_args(argv)
     try:
-        world = _read()
-        result = _plan(world) if args.command == "plan" else _check(world, args)
+        if args.command == "calibrate":  # before _read(): the fixture, not the working directory, is what it indexes
+            result = _calibrate(args.fixture)
+        else:
+            world = _read()
+            result = _plan(world) if args.command == "plan" else _check(world, args)
     except (
         git.GitError,
         OSError,
@@ -154,7 +163,7 @@ def _read() -> _World:
     return _World(root, commit, sources, git.changes(root), record, (root / reporter.RECORD).exists(), intents)
 
 
-def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool = False) -> _Analysis:
+def _analyse(world: _World, model: judge.Model | None = None, *, evidence: bool = False) -> _Analysis:
     index = build_index(world.sources)
     produces = plan.produces(world.intents)
     levels = structural.traced(index, produces)
@@ -162,7 +171,7 @@ def _analyse(world: _World, model: judge.Stub | None = None, *, evidence: bool =
     cache: dict[str, object] | None = None
     observations: tuple[Mapping[str, object], ...] | None = None
     if model is not None:
-        judged = judge.judge(index, levels, model, world.root, world.record.judge)
+        judged = judge.judge(index, levels, model, world.root, world.record)
         levels, asked, cache, observations = judged.levels, judged.findings, judged.cache, tuple(judged.observations)
     proof = impact.evidence(world.root, index, levels) if evidence else None  # after the judge, before placement
     failed = impact.evidence_failed(world.root, index, proof) if proof is not None else []
@@ -288,8 +297,72 @@ def _without_task_change(analysis: _Analysis, reason: str) -> _Analysis:
     return replace(analysis, run=replace(analysis.run, notes=(*analysis.run.notes, note)))
 
 
+def _calibrate(fixture: Path) -> _Result:
+    """Run the judge over the fixture's ten requirements, print them beside the maintainer's, and record the result."""
+    root = git.repo_root(Path.cwd())  # the record is read before any paid question, so a bad one costs nothing
+    record = reporter.read_record(root)
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE"), fixture)  # its regions name fixture paths
+    maintainer = judge.load_verdicts(fixture / "verdicts.json")
+    index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
+    cache = judge.Cache(fixture, model, judge.held(record, "calibrate"))
+    try:
+        calibration = judge.calibrate(index, structural.traced(index), cache, fixture, maintainer)
+    except BaseException:  # a failed question, or ^C, still keeps the answers already paid for
+        if cache.used:
+            # the failure in flight is what the user must see, so a record that cannot be kept now stays as it was
+            with contextlib.suppress(reporter.RecordError, OSError):
+                _keep_calibration(root, cache.used, None)
+        raise
+    _keep_calibration(root, cache.used, calibration)
+    return _Result(_comparison(calibration), "", 0 if calibration.passed else 1)
+
+
+def _keep_calibration(root: Path, used: dict[str, object], calibration: judge.Calibration | None) -> None:
+    """Keep calibrate's judge answers in the record, reread in case a check run wrote it meanwhile, and set its slot.
+
+    They sit apart from check's `cache`, which a judge run prunes to its own answers; a finished run replaces this
+    model's, so its stale ones go while other models' stay, and a broken-off run merges, so a rerun reuses what the
+    earlier runs paid for.
+    """
+    record = reporter.read_record(root)
+    kept = judge.held(record, "calibrate")
+    if calibration is not None:
+        kept = {key: value for key, value in kept.items() if _model_of(value) != calibration.model}
+        record.calibration = judge.slot(calibration)
+    record.judge = {**record.judge, "calibrate": {**kept, **used}}
+    reporter.write_record(root, record)
+
+
+def _model_of(entry: object) -> object:
+    return entry.get("model") if isinstance(entry, dict) else None
+
+
+def _comparison(calibration: judge.Calibration) -> str:
+    """Return calibrate's stdout: a header, a line per requirement with both answers under a differing one, the verdict."""
+    width = max(len(row.subject) for row in calibration.rows)
+    lines = [f"calibration of {calibration.model} with the prompt {judge.PROMPT_HASH}"]
+    for row in calibration.rows:
+        results = [
+            f"{who} {'/'.join(verdicts[kind].result for kind in judge.QUESTIONS)}" for who, verdicts in _sides(row)
+        ]
+        lines.append(f"{row.subject:<{width}}  {'  '.join(results)}  {'match' if row.matched else 'differs'}")
+        for kind in judge.QUESTIONS:
+            if row.judge[kind].result != row.maintainer[kind].result:
+                for who, verdicts in _sides(row):
+                    v = verdicts[kind]
+                    lines.append(
+                        f"    {kind} {who}: {v.result} at {judge.escaped(v.path)}:{v.line}: {judge.escaped(v.reasoning)}"
+                    )
+    lines += [f"matches: {calibration.matches}/{judge.TOTAL}", "pass" if calibration.passed else "fail"]
+    return "\n".join(lines) + "\n"
+
+
+def _sides(row: judge.Row) -> tuple[tuple[str, Mapping[str, judge.Verdict]], ...]:
+    return (("judge", row.judge), ("maintainer", row.maintainer))
+
+
 def _check(world: _World, args: argparse.Namespace) -> _Result:
-    model = judge.load_model(os.environ.get("EARNEST_JUDGE")) if args.judge or args.evidence else None
+    model = judge.load_model(os.environ.get("EARNEST_JUDGE"), world.root) if args.judge or args.evidence else None
     if args.stage is None:
         if args.intent is not None:
             plan.find_intent(world.intents, _option(world, args.intent))
@@ -297,7 +370,7 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
         findings, run = analysis.findings, analysis.run
         if analysis.cache is not None:
             world.record.judge, world.record.evidence = analysis.cache, analysis.entries
-            reporter.write_record(world.root, world.record)
+            _write_check(world)
         return _Result(
             reporter.sarif(findings, analysis.levels, run),
             reporter.summary(findings, analysis.levels, run),
@@ -307,6 +380,20 @@ def _check(world: _World, args: argparse.Namespace) -> _Result:
     return _stage(
         world, _task_change(world, _analyse(world, model, evidence=args.evidence), args.task), chosen, args.stage
     )
+
+
+def _write_check(world: _World) -> None:
+    """Write check's record with calibrate's slot and answers as the record now holds them.
+
+    Calibrate owns those two, so a calibrate run that finished while this check ran keeps what it paid for, unless it
+    wrote between this reread and the write: the record takes no lock, so that narrow window is last-writer-wins.
+    """
+    fresh = reporter.read_record(world.root)
+    world.record.calibration = fresh.calibration
+    judged = {key: value for key, value in world.record.judge.items() if key != "calibrate"}
+    held = fresh.judge.get("calibrate")
+    world.record.judge = judged if held is None else {**judged, "calibrate": held}
+    reporter.write_record(world.root, world.record)
 
 
 def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -> _Result:
@@ -332,12 +419,12 @@ def _stage(world: _World, analysis: _Analysis, chosen: plan.Intent, text: str) -
     world.record.runs[key] = plan.header(current, stage, state, run, digest)
     if analysis.cache is not None:
         world.record.judge, world.record.evidence = analysis.cache, analysis.entries
-    reporter.write_record(world.root, world.record)  # first, so `.earnest/` exists with its `.gitignore`
+    _write_check(world)  # first, so `.earnest/` exists with its `.gitignore`
     # the map is taken at commit A, so a tree that is not A's bytes gives none; an earlier map stays as it was
     reason = "the work tree is dirty" if run.dirty else impact.take_map(world.root, world.commit)
     if reason is None:
         world.record.coverage = {"commit": world.commit}
-        reporter.write_record(world.root, world.record)
+        _write_check(world)
     else:
         run = replace(run, notes=(*run.notes, f"coverage map: not taken, {reason}"))
     return _Result(

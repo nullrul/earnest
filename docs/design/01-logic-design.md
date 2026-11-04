@@ -741,7 +741,7 @@ six things:
    tool it ran under.
 
 The judge cache key is the item's id and revision, the question, the hash of
-the covered regions, the hash of the covering tests, the model id and the
+the requirement sentence, the hash of the covered regions, the hash of the covering tests, the model id and the
 prompt hash. A hit reuses the observation; any change in the key reruns the
 question.
 

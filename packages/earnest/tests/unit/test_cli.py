@@ -6,12 +6,16 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
+import anthropic
 import pytest
 
-from earnest import adapters, cli, git, impact, judge
+from earnest import adapters, cli, git, impact, judge, reporter
 from earnest.index import build_index
+from tests.conftest import model_id, prompt_hash, verdicts_file
 from tests.sarif import PLAN_FILE, RECORD, located, record_baseline, sarif_run, write
+from tests.unit.test_judge_anthropic import MODEL, Messages, reply
 
 
 CHECK = [sys.executable, "-c", "import sys; from earnest.cli import main; sys.exit(main(['check']))"]
@@ -547,6 +551,18 @@ def canned_model(monkeypatch, tmp_path):
     monkeypatch.setenv("EARNEST_JUDGE", f"stub:{path}")
 
 
+def test_check_judge_from_a_subdirectory_shows_claude_the_repo_s_code(fixture_repo, monkeypatch, capsys):
+    messages = Messages(reply(json.dumps(VERDICT)))
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: SimpleNamespace(messages=messages))
+    monkeypatch.setenv("EARNEST_JUDGE", MODEL)
+    repo = fixture_repo("seeded-change")
+    code, _, err = run(repo / "src", monkeypatch, capsys, "check", "--judge")
+    assert code in (0, 1), err
+    asked = "".join(request["messages"][0]["content"] for request in messages.requests)
+    source = (repo / "src/checkout/auth.py").read_text(encoding="utf-8").splitlines()
+    assert any(line.strip() and line in asked for line in source if not line.lstrip().startswith("#"))
+
+
 def test_judge_names_its_model_and_prompt_in_the_invocation(fixture_repo, monkeypatch, capsys, tmp_path):
     canned_model(monkeypatch, tmp_path)
     code, out, _ = run(fixture_repo("seeded-change"), monkeypatch, capsys, "check", "--judge")
@@ -732,3 +748,330 @@ def test_a_check_without_evidence_reads_the_slot_and_leaves_it_as_it_was(fixture
     levels = sarif_run(out)["properties"]["traceLevels"]
     assert (levels["req~rate-limit~1"], levels["req~audit-log~1"]) == ("evidenced", "judged")
     assert held_evidence(repo) == {"req~rate-limit~1": entry}
+
+
+# earnest calibrate
+
+
+def calibrate(fixture_repo, monkeypatch, capsys, stub="stub-pass.json", fixture=None):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', stub)}")
+    return repo, run(repo, monkeypatch, capsys, "calibrate", fixture or ".")
+
+
+def test_a_passing_calibration_prints_a_line_per_requirement_and_exits_0(fixture_repo, monkeypatch, capsys):
+    _, (code, out, err) = calibrate(fixture_repo, monkeypatch, capsys)
+    lines = out.splitlines()
+    assert (code, err) == (0, "")
+    assert lines[0] == f"calibration of {model_id('calibration-dev', 'stub-pass.json')} with the prompt {prompt_hash()}"
+    assert len([line for line in lines if line.startswith("req~")]) == 10
+    assert lines[-2:] == ["matches: 8/10", "pass"]
+    assert out.endswith("\n")
+
+
+def test_a_differing_requirement_shows_both_answers_under_its_line(fixture_repo, monkeypatch, capsys):
+    _, (_, out, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    lines = out.splitlines()
+    (first,) = [i for i, line in enumerate(lines) if line.endswith("differs")][:1]
+    assert " judge: " in lines[first + 1]
+    assert " maintainer: " in lines[first + 2]
+    assert lines[first + 1].startswith("    ")
+
+
+def test_only_a_differing_question_gets_detail_lines(fixture_repo, monkeypatch, capsys):
+    _, (_, out, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    lines = out.splitlines()
+    rows = [line for line in lines if line.startswith("req~")]
+    differing = sum(
+        judged != held
+        for row in rows
+        for judged, held in zip(row.split()[2].split("/"), row.split()[4].split("/"), strict=True)
+    )
+    assert differing > 0
+    assert len([line for line in lines if line.startswith("    ")]) == 2 * differing
+    matched = next(i for i, line in enumerate(lines) if line.endswith("  match"))
+    assert not lines[matched + 1].startswith("    ")
+
+
+def test_a_calibration_rerun_asks_no_question_it_has_an_answer_to(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    assert len(reporter.read_record(repo).judge["calibrate"]) == 20
+    asked = []
+    monkeypatch.setattr(judge.Stub, "ask", lambda _self, question: asked.append(question))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, asked) == (0, [])
+
+
+def test_a_failed_calibration_keeps_the_answers_already_given(fixture_repo, monkeypatch, tmp_path, capsys):
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    last = sorted(answers)[-1]
+    del answers[last]["tested"]
+    stub = tmp_path / "short.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    code, _, err = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, f"`{last}` tested" in err) == (2, True)
+    record = reporter.read_record(repo)
+    assert record.calibration is None
+    assert len(record.judge["calibrate"]) > 0
+
+
+def test_a_record_that_cannot_be_kept_leaves_the_calibrate_failure_shown(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+
+    def breaking(index, levels, cache, root, maintainer):
+        cache.used["k"] = {"paid": True}
+        (repo / reporter.RECORD).parent.mkdir()
+        (repo / reporter.RECORD).write_text("not json", encoding="utf-8")
+        msg = "the model failed on question 7"
+        raise judge.JudgeError(msg)
+
+    monkeypatch.setattr(judge, "calibrate", breaking)
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    code, _, err = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, "question 7" in err) == (2, True), err
+
+
+def test_a_failing_calibration_keeps_earlier_answers(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": {"earlier": {"from": "another model"}}}))
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-fail.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert code == 1
+    assert reporter.read_record(repo).judge["calibrate"]["earlier"] == {"from": "another model"}
+
+
+def test_a_failing_calibration_drops_its_own_model_s_stale_answers(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-fail.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    model = next(iter(reporter.read_record(repo).judge["calibrate"].values()))["model"]
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": {"stale": {"model": model}}}))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, "stale" in reporter.read_record(repo).judge["calibrate"]) == (1, False)
+
+
+def test_a_passing_calibration_drops_only_its_own_model_s_earlier_answers(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    model = next(iter(reporter.read_record(repo).judge["calibrate"].values()))["model"]
+    held = {"stale": {"model": model}, "other": {"model": "another model"}}
+    reporter.write_record(repo, reporter.Record(judge={"calibrate": held}))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    kept = reporter.read_record(repo).judge["calibrate"]
+    assert (code, "stale" in kept, kept["other"], len(kept)) == (0, False, {"model": "another model"}, 21)
+
+
+def test_a_judge_check_keeps_a_calibration_that_finished_while_it_ran(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    finished = reporter.read_record(repo)
+    reporter.write_record(repo, reporter.Record())
+    real = judge.judge
+
+    def racing(*args, **kwargs):
+        reporter.write_record(repo, finished)  # calibrate finishes while the check is asking
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(judge, "judge", racing)
+    run(repo, monkeypatch, capsys, "check", "--judge")
+    record = reporter.read_record(repo)
+    assert record.calibration == finished.calibration
+    assert record.judge["calibrate"] == finished.judge["calibrate"]
+
+
+def test_a_judge_check_keeps_calibrate_s_answers(fixture_repo, monkeypatch, capsys):
+    repo, (code, _, _) = calibrate(fixture_repo, monkeypatch, capsys)
+    assert code == 0
+    run(repo, monkeypatch, capsys, "check", "--judge")
+    asked = []
+    monkeypatch.setattr(judge.Stub, "ask", lambda _self, question: asked.append(question))
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert (code, asked) == (0, [])
+
+
+def test_calibrate_keeps_what_a_check_wrote_to_the_record_while_it_ran(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    real = judge.calibrate
+
+    def racing(*args):
+        record = reporter.read_record(repo)
+        record.bodies["req~other~1"] = "0" * 64
+        record.judge = {"cache": {"k": {"from": "check"}}}
+        reporter.write_record(repo, record)
+        return real(*args)
+
+    monkeypatch.setattr(judge, "calibrate", racing)
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    code, _, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    record = reporter.read_record(repo)
+    assert (code, record.bodies["req~other~1"], record.judge["cache"]["k"]) == (0, "0" * 64, {"from": "check"})
+    assert record.calibration is not None
+    assert len(record.judge["calibrate"]) == 20
+
+
+def test_a_failing_calibration_exits_1(fixture_repo, monkeypatch, capsys):
+    _, (code, out, _) = calibrate(fixture_repo, monkeypatch, capsys, "stub-fail.json")
+    assert code == 1
+    assert out.splitlines()[-2:] == ["matches: 7/10", "fail"]
+
+
+def test_calibrate_run_outside_the_fixture_shows_claude_the_fixture_s_code(
+    fixture_repo, files_repo, monkeypatch, capsys
+):
+    verdict = {"result": "satisfied", "reasoning": "ok", "location": {"file": "src/meter.py", "line": 1}}
+    messages = Messages(reply(json.dumps(verdict)))
+    monkeypatch.setattr(anthropic, "Anthropic", lambda: SimpleNamespace(messages=messages))
+    monkeypatch.setenv("EARNEST_JUDGE", MODEL)
+    fixture = fixture_repo("calibration-dev")
+    elsewhere = files_repo({"docs/a.md": "# A\n"})  # the repo root found from cwd is not the fixture
+    code, _, err = run(elsewhere, monkeypatch, capsys, "calibrate", str(fixture))
+    assert code in (0, 1), err
+    assert len(messages.requests) == 20
+    assert len(messages.requests) == 20
+    asked = "".join(request["messages"][0]["content"] for request in messages.requests)
+    assert "def barrier_opens(card_approved: bool) -> bool:" in asked
+
+
+def cannot_run(result):
+    code, out, err = result
+    assert (code, out) == (2, "")
+    assert err.startswith("earnest: ")
+    assert len(err.splitlines()) == 1
+
+
+def test_calibrate_without_a_model_exits_2(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.delenv("EARNEST_JUDGE", raising=False)
+    result = run(repo, monkeypatch, capsys, "calibrate", ".")
+    cannot_run(result)
+    assert "earnest needs a model" in result[2]
+    assert "anthropic:<model>" in result[2]
+
+
+def test_calibrate_with_an_unknown_model_exits_2(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", "gpt:x")
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
+
+
+@pytest.mark.parametrize("text", [None, "{not json"])
+def test_calibrate_with_a_missing_or_malformed_verdicts_file_exits_2(fixture_repo, monkeypatch, capsys, text):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    if text is None:
+        (repo / "verdicts.json").unlink()
+    else:
+        (repo / "verdicts.json").write_text(text, encoding="utf-8")
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
+
+
+def test_calibrate_with_nine_requirements_exits_2(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    text = (repo / "requirements.md").read_text(encoding="utf-8")
+    (repo / "requirements.md").write_text(text[: text.find("`req~receipt-total~1`")], encoding="utf-8")
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
+
+
+def test_calibrate_counts_only_req_items_among_the_fixture_s_items(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    path = repo / "requirements.md"
+    path.write_text(path.read_text(encoding="utf-8") + "\n`feat~parking~1`\n\nThe parking feature.\n", encoding="utf-8")
+    code, out, err = run(repo, monkeypatch, capsys, "calibrate", ".")
+    rows = [line for line in out.splitlines() if line.startswith(("req~", "feat~"))]
+    assert (code, err) == (0, "")
+    assert len(rows) == 10
+    assert "feat~parking~1" not in out
+
+
+def test_calibrate_with_an_untraced_requirement_exits_2(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    path = repo / "src" / "meter.py"
+    path.write_text(path.read_text(encoding="utf-8").replace("# [impl->req~card-refusal~1]\n", ""), encoding="utf-8")
+    result = run(repo, monkeypatch, capsys, "calibrate", ".")
+    cannot_run(result)
+    assert "req~card-refusal~1" in result[2]
+
+
+def test_calibrate_with_a_model_lacking_an_answer_exits_2(fixture_repo, monkeypatch, tmp_path, capsys):
+    repo = fixture_repo("calibration-dev")
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    del answers["req~daily-cap~1"]["tested"]
+    stub = tmp_path / "short.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
+
+
+def test_calibrate_of_a_fixture_outside_a_work_tree_exits_2(fixture_repo, monkeypatch, tmp_path, capsys):
+    repo = fixture_repo("calibration-dev")
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", str(plain)))
+
+
+def test_calibrate_from_a_directory_outside_any_repository_exits_2(fixture_repo, monkeypatch, tmp_path, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    cannot_run(run(outside, monkeypatch, capsys, "calibrate", str(repo)))
+
+
+def never_asked(monkeypatch):
+    def ask(*_):
+        pytest.fail("calibrate asked the model before it knew it could keep the result")
+
+    monkeypatch.setattr(judge, "calibrate", ask)
+
+
+def test_calibrate_with_a_corrupt_record_exits_2_before_asking_the_model(fixture_repo, monkeypatch, capsys):
+    repo = fixture_repo("calibration-dev")
+    (repo / ".earnest").mkdir()
+    (repo / ".earnest" / "assessment.json").write_text("{bad", encoding="utf-8")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    never_asked(monkeypatch)
+    cannot_run(run(repo, monkeypatch, capsys, "calibrate", "."))
+
+
+def test_calibrate_outside_any_repository_exits_2_before_asking_the_model(fixture_repo, monkeypatch, tmp_path, capsys):
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file('calibration-dev', 'stub-pass.json')}")
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    never_asked(monkeypatch)
+    cannot_run(run(outside, monkeypatch, capsys, "calibrate", str(repo)))
+
+
+def test_calibrate_prints_a_location_outside_the_work_tree_at_the_item(fixture_repo, monkeypatch, tmp_path, capsys):
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    answers["req~daily-cap~1"]["implemented"]["location"]["file"] = "src/meter.py\x1b[2J\nmatches: 10/10\npass"
+    stub = tmp_path / "forged.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    _, out, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert "\x1b" not in out
+    assert [line for line in out.splitlines() if line.startswith("matches:")] == ["matches: 8/10"]
+    assert "meter.py\\x1b" not in out  # no such file, so the verdict sits at the item, as check's do
+
+
+def test_calibrate_escapes_the_model_s_reasoning(fixture_repo, monkeypatch, tmp_path, capsys):
+    answers = json.loads(verdicts_file("calibration-dev", "stub-pass.json").read_text(encoding="utf-8"))
+    answers["req~daily-cap~1"]["implemented"]["reasoning"] = "ok\x1b[2J\nmatches: 10/10\npass"
+    stub = tmp_path / "forged.json"
+    stub.write_text(json.dumps(answers), encoding="utf-8")
+    repo = fixture_repo("calibration-dev")
+    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{stub}")
+    _, out, _ = run(repo, monkeypatch, capsys, "calibrate", ".")
+    assert "\x1b" not in out
+    assert [line for line in out.splitlines() if line.startswith("matches:")] == ["matches: 8/10"]
+    assert "ok\\x1b[2J\\nmatches: 10/10\\npass" in out

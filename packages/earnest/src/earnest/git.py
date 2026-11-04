@@ -122,7 +122,7 @@ def changed_lines(
             found[path] = hunks
     for path in sorted({name for name in untracked.split("\0") if name} & wanted):
         file = root / path
-        count = _line_count(file.read_bytes()) if file.is_file() and not file.is_symlink() else 0
+        count = line_count(file.read_bytes()) if file.is_file() and not file.is_symlink() else 0
         if count:
             found[path] = (Hunk(0, 0, 1, count),)
     return dict(sorted(found.items()))
@@ -186,7 +186,7 @@ def _hunks(patch: str) -> tuple[Hunk, ...]:
     return tuple(found)
 
 
-def _line_count(data: bytes) -> int:
+def line_count(data: bytes) -> int:
     """Return the lines Git counts in data: one per newline, and one more for a last line without one."""
     return data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
 

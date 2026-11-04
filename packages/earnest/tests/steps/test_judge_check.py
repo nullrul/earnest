@@ -1,27 +1,12 @@
 """Steps for tests/features/judge_check.feature: the EARS parse, the stub judge, overrides and the judge cache."""
 
-import hashlib
-from importlib.resources import files
-
 from pytest_bdd import given, parsers, scenarios, then, when
 
-from tests.conftest import FIXTURES, commit_on_main, location_cell
+from tests.conftest import commit_on_main, location_cell, model_id, prompt_hash
 from tests.sarif import SHARD, read, record, results, rows, run_earnest, sarif_run
 
 
 scenarios("judge_check.feature")
-
-
-def verdicts_file(name):
-    return FIXTURES / name / "judge-verdicts.json"
-
-
-def model_id(name):
-    return "stub:sha256:" + hashlib.sha256(verdicts_file(name).read_bytes()).hexdigest()
-
-
-def prompt_hash():
-    return "sha256:" + hashlib.sha256(files("earnest.judge").joinpath("prompt.txt").read_bytes()).hexdigest()
 
 
 def finding(run, rule):
@@ -68,11 +53,6 @@ def overrides_committed(repo):
 @given("the repo maintainer's change under the overrides is committed")
 def change_under_overrides_committed(repo):
     commit_on_main(repo, "seeded-change", "override-change")
-
-
-@given(parsers.parse('the judge is the stub model with the canned verdicts of "{name}"'))
-def stub_judge(monkeypatch, name):
-    monkeypatch.setenv("EARNEST_JUDGE", f"stub:{verdicts_file(name)}")
 
 
 @when("the coding agent runs earnest check --judge", target_fixture="run")
