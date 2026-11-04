@@ -11,10 +11,11 @@ input=$(cat)
 r=$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)
 r=${r//$'\\\n'/ } # join line continuations
 c=${r//$'\n'/ }
+c=${c//\\/ } # a backslash inside a word is dropped by the shell: `g\h` runs gh
 gh='(^|[^A-Za-z0-9_-])gh[[:space:]]([^;&|]*[[:space:]])?'
 pr='pr[[:space:]]+(create|new|ready)([^A-Za-z0-9_-]|$)'
 pulls="pulls([[:space:]\"'?]|\$)"
-post='(-X|--method)[[:space:]=]*[Pp][Oo][Ss][Tt]|[[:space:]](-f|-F|--field|--raw-field|--input)([[:space:]=]|$)'
+post='(-X|--method)[[:space:]=]*[Pp][Oo][Ss][Tt]|[[:space:]](-[fF]|--field|--raw-field|--input)'
 [[ $c =~ ${gh}${pr} ]] || [[ $c =~ ${gh}api[[:space:]] && $c =~ $pulls && $c =~ $post ]] || exit 0
 
 block() {
@@ -24,14 +25,31 @@ block() {
 cwd=$(printf '%s' "$input" | jq -r '.cwd // empty')
 cwd=${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}
 dirs=("$cwd")
-cd_re='(^|[^A-Za-z0-9_.-])(cd|pushd)[[:space:]]+("([^"]*)"|'"'([^']*)'"'|([^[:space:];&|()<>]+))'
+[[ $c == *CDPATH* || -n ${CDPATH-} ]] && block "CDPATH is set"
+nl=$'\n'
+# cd/pushd (keyword optionally quoted), then a target word or none (cd to $HOME).
+cd_re='(^|[^A-Za-z0-9_.-])(cd|pushd)["'"'"']?([[:blank:]]+("([^"]*)"|'"'([^']*)'"'|([^[:space:];&|()<>]+))|[[:blank:]]*([;&|()<>'"$nl"']|$))'
+end_re="^[[:blank:]]*([;&|()<>$nl]|\$)"
 s=$r
 while [[ $s =~ $cd_re ]]; do
-  s=${s#*"${BASH_REMATCH[0]}"}
-  p=${BASH_REMATCH[4]}${BASH_REMATCH[5]}${BASH_REMATCH[6]}
+  m=("${BASH_REMATCH[@]}")
+  s=${s#*"${m[0]}"}
+  p=${m[5]}${m[6]}${m[7]}
+  if [ -n "${m[4]}" ]; then
+    # Anything else before the next separator (zsh `cd OLD NEW`, `cd "a"b`) is unresolvable.
+    [[ $s =~ $end_re ]] || block "cd target followed by more text"
+  else
+    p=$HOME
+  fi
   # shellcheck disable=SC2088 # literal tilde match, expanded by hand
   case $p in "~") p=$HOME ;; "~/"*) p=$HOME/${p#"~/"} ;; esac
-  case $p in /*) ;; *) p=$cwd/$p ;; esac
+  case $p in
+    /*) ;;
+    *)
+      [ ${#dirs[@]} -gt 1 ] && block "relative cd after another cd; use a literal path"
+      p=$cwd/$p
+      ;;
+  esac
   dirs+=("$p")
 done
 for d in "${dirs[@]}"; do
