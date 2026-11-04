@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-pr-gate.sh; [ -f \"$f\" ] || exit 0; bash \"$f\" || exit 2",
+            "command": "f=\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre-pr-gate.sh; [ -f \"$f\" ] || { echo \"pre-PR gate script missing: $f\" >&2; exit 2; }; bash \"$f\" || exit 2",
             "timeout": 10
           }
         ]

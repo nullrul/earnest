@@ -22,7 +22,9 @@ check() {
 j() { jq -n --arg c "$1" --arg d "${2:-}" '{tool_input:{command:$c}} + (if $d=="" then {} else {cwd:$d} end)'; }
 
 check "ungated command"               0 "$(j 'git status' "$main")"
-check "non-JSON input"                0 'not json'
+check "non-JSON input blocks"         2 'not json'
+PATH=/nonexistent "$BASH" "$gate" <<<"$(j 'git status' "$main")" 2>/dev/null
+[ $? = 2 ] && echo "ok   no jq blocks" || { echo "FAIL no jq blocks"; fail=1; }
 fresh "$main"; stale "$wt"
 check "cwd fresh"                     0 "$(j 'gh pr create' "$main")"
 check "cwd stale"                     2 "$(j 'gh pr create' "$wt")"
@@ -44,10 +46,22 @@ check "backslash in gh word"          2 "$(j 'gh \pr create' "$wt")"
 check "backslash in pr word"          2 "$(j 'gh pr \create' "$wt")"
 check "quoted cd keyword"             2 "$(j "\"cd\" $wt && gh pr create" "$main")"
 check "single-quoted cd keyword"      2 "$(j "'cd' $wt && gh pr create" "$main")"
+check "backslash mid gh word"         2 "$(j 'g\h pr create' "$wt")"
+check "backslash mid create word"     2 "$(j 'gh pr cr\eate' "$wt")"
+check "backslash mid cd word"         2 "$(j "c\\d $wt && gh pr create" "$main")"
+check "quoted gh word"                2 "$(j '"gh" pr create' "$wt")"
+check "quoted pr word"                2 "$(j "gh 'pr' create" "$wt")"
+check "quoted create word"            2 "$(j 'gh pr "create"' "$wt")"
+check "cd spliced with ''"            2 "$(j "c''d $wt && gh pr create" "$main")"
+check "cd spliced with \"\""            2 "$(j "\"c\"d $wt && gh pr create" "$main")"
+check "zsh chdir"                     2 "$(j "chdir $wt && gh pr create" "$main")"
+CDPATH=$main/sub check "env CDPATH, relative cd" 2 "$(j "cd b && gh pr create" "$main")"
 fresh "$wt"
 check "cd WT fresh, cwd fresh"        0 "$(j "cd $wt && gh pr create" "$main")"
 check "quoted body cd fresh"          0 "$(j "gh pr create --body 'see: cd $wt; then retry'" "$main")"
 HOME=$t check "cd ~/wt expands"       0 "$(j "cd ~/wt; gh pr create" "$main")"
+HOME=$t check "quoted ~ not expanded" 2 "$(j "cd \"~/wt\"; gh pr create" "$main")"
+CDPATH=$main/sub check "env CDPATH, no cd"  0 "$(j 'gh pr create' "$main")"
 stale "$main"
 out=$(bash "$gate" <<<"$(j 'gh pr create' "$main")" 2>&1)
 sha=$(git -C "$main" rev-parse HEAD)
