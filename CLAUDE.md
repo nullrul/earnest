@@ -62,9 +62,11 @@ Non-obvious rules:
 - PreToolUse on Bash, pre-PR review gate: blocks `gh pr create`/`new`/`ready`
   (any path to `gh`, global flags such as `-R`, env prefixes, `bash -c`,
   subshells) and POSTs to `gh api .../pulls`, unless `pre-pr-review` in the git-dir of the
-  checkout the command runs in (hook `cwd`, or a leading `cd <path> &&`) holds that HEAD sha
-  (works in worktrees; logic in `.claude/hooks/pre-pr-gate.sh`). Run the `/pre-pr-review` skill, then retry. It is a
-  best-effort speed bump (GraphQL `createPullRequest` or `eval` tricks get past
+  checkout the command runs in (hook `cwd`, or the last `cd <path> &&`) holds that HEAD sha
+  (works in worktrees; logic in `.claude/hooks/pre-pr-gate.sh`, tests in
+  `.claude/hooks/test-pre-pr-gate.sh`, run by `make test` and CI). Run the `/pre-pr-review` skill, then retry. It is a
+  best-effort speed bump (GraphQL `createPullRequest`, `eval` tricks, or
+  `gh pr create --head <other-branch>` / `-R <other-repo>` get past
   it); real enforcement would be a branch-protection required check.
 - Stop: prints `git status --short` and `git diff --stat`.
 

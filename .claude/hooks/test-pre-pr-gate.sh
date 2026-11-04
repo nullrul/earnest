@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Tests for pre-pr-gate.sh. Run: bash .claude/hooks/test-pre-pr-gate.sh
 set -u
+# Isolate fixtures from the user's git config (gpgsign, hooksPath, ...).
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 gate="$(cd "$(dirname "$0")" && pwd)/pre-pr-gate.sh"
 t=$(mktemp -d "${TMPDIR:-/tmp}/prgate.XXXXXX"); trap 'rm -rf "$t"' EXIT
 g() { git -c user.name=t -c user.email=t@t "$@"; }
@@ -33,6 +35,10 @@ echo stale > "$wtgit/pre-pr-review"
 check "cd wt, marker stale"       2 "$(j "cd $wt && gh pr create" "$main")"
 check "cwd=wt, marker stale"      2 "$(j 'gh pr create' "$wt")"
 git -C "$main" rev-parse HEAD > "$maingit/pre-pr-review"
-check "cd non-repo falls back to project" 0 "$(j "cd $plain && gh pr create" "$wt")"
+check "later cd after other cmd"  2 "$(j "git fetch && cd $wt && gh pr create" "$main")"
+check "cd in subshell"            2 "$(j "(cd $wt && gh pr create)" "$main")"
+check "last of two cds wins"      2 "$(j "cd $main && cd $wt && gh pr create" "$main")"
+check "cd non-repo falls back to cwd" 2 "$(j "cd \$WT && gh pr create" "$wt")"
+check "cd non-repo, cwd=main"     0 "$(j "cd $plain && gh pr create" "$main")"
 check "cwd non-repo falls back to project" 0 "$(j 'gh pr create' "$plain")"
 exit $fail
