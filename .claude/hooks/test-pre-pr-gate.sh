@@ -48,6 +48,13 @@ check "cd after gh ignored"       2 "$(j "cd $wt && gh pr create && cd $main && 
 check "cd in quoted body ignored" 2 "$(j "cd $wt && gh pr create --body 'x; cd $main && y'" "$main")"
 check "cd ||"                     2 "$(j "cd $wt || true; gh pr create" "$main")"
 check "pushd"                     2 "$(j "pushd $wt && gh pr create" "$main")"
+check "gh api read, then cd"      2 "$(j "gh api user --jq .login; cd $wt && gh pr create" "$main")"
+check "cd wt, gh api POST pulls"  2 "$(j "cd $wt && gh api repos/o/r/pulls -X POST" "$main")"
+check "pushd main && popd"        2 "$(j "pushd $main && popd && gh pr create" "$wt")"
+check "cd in pipeline"            2 "$(j "cd $main | true; gh pr create" "$wt")"
+check "gh api GET ungated"        0 "$(j "cd $wt && gh api repos/o/r/pulls" "$main")"
 check "cd main, marker fresh"     0 "$(j "cd $main && gh pr create" "$wt")"
 check "cwd non-repo falls back to project" 0 "$(j 'gh pr create' "$plain")"
+out=$(CLAUDE_PROJECT_DIR=$main bash "$gate" <<<"$(j 'cd && gh pr create' "$main")" 2>&1)
+case $out in *"no commits"*) echo "FAIL early block says no commits"; fail=1 ;; *) echo "ok   early block omits HEAD" ;; esac
 exit $fail

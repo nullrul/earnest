@@ -86,7 +86,7 @@ Markdown is linted with `markdownlint-cli2` (MD013 off, config
 ## CI/CD
 
 GitHub Actions pipeline (`.github/workflows/ci.yml`) jobs: `lint-python` → `test-python` →
-`build-earnest`. `lint-docs` runs `markdownlint-cli2` and `yamllint` over the whole
-repo as a backstop for `git commit --no-verify`. Nothing is published,
+`build-earnest`. `lint-docs` runs `markdownlint-cli2` and `yamllint` over the whole repo as a backstop
+for `git commit --no-verify`, then `make test-pre-pr-gate`. Nothing is published,
 uploaded or deployed yet — add a `publish` stage once there is a package
 worth releasing.
