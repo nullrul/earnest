@@ -68,7 +68,7 @@ Exit codes: `0` clean; `1` an error-level finding at plan position behind or cur
 
 ## Evidence
 
-A proof is: the real CLI path (`earnest ...` inside a committed fixture repo, not a Python call or a test-only hook), the exact command (`.cmd`), the exit code captured directly with `$?` by the helper (never through `rtk`, which can mask exit codes; if you run earnest by hand, use `rtk proxy` and `echo $?`), the SARIF on stdout, the summary on stderr, and the record file `.earnest/assessment.json` as a side effect (read it: a run's header is keyed `<record dir>/<stage>` with `hash` and `items`; `judge.cache` holds judge answers). Assert on ruleIds and levels in `runs[0].results`, not on prose. Where a feature says the run must leave no record, verify the absence in the repo.
+A proof is: the real CLI path (`earnest ...` inside a committed fixture repo, not a Python call or a test-only hook), the exact command (`.cmd`), the exit code captured directly with `$?` by the helper (never through `rtk`, which can mask exit codes; if you run earnest by hand, use `rtk proxy` and `echo $?`), the SARIF on stdout, the summary on stderr, and the record file `.earnest/assessment.json` as a side effect (read it: a `check --stage` run writes a header under `runs`, keyed `<record dir>/<stage>` with `hash` and `items`, while other runs leave `runs` empty; `judge.cache` holds judge answers). Assert on ruleIds and levels in `runs[0].results`, not on prose. Where a feature says the run must leave no record, verify the absence in the repo.
 
 Evidence goes to `${TMPDIR:-/tmp}/verify-earnest/evidence/<timestamp>/`. Cleanup never touches it.
 
