@@ -295,7 +295,7 @@ This is what the gate calls. `<fork>` is `$EARNEST_AIDLC_FORK`. Every call runs 
 - the environment holds only:
   - `HOME`, set to an empty directory in pytest's temporary space, so no per-user configuration under `~` reaches the fork;
   - `PATH`, set to `<venv bin>:<bun dir>:/usr/bin:/bin`;
-  - the `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, `XDG_CONFIG_HOME` and `GIT_ATTR_NOSYSTEM` values that `_isolated_git` in `tests/conftest.py` sets;
+  - `ISOLATED_GIT` from `tests/sarif.py`: the `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, `XDG_CONFIG_HOME` and `GIT_ATTR_NOSYSTEM` values, which `_isolated_git` in `tests/conftest.py` also sets from it;
   - `AIDLC_PROJECT_DIR=<repo>` and `AIDLC_RUNTIME_PROJECT_DIR=<repo>`. Without the second, a write the fork marks mutable falls back to `<fork>/core` when the fork runs from source (`core/tools/aidlc-runtime-paths.ts:352-360`, `:515-523`, `:697-705`);
   - `AIDLC_STAGE_GRAPH=<graph>`.
 
@@ -392,7 +392,8 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 | `packages/earnest/tests/unit/test_plan.py`, `tests/integration/test_task_change.py`, `tests/steps/test_unit_status.py`, `tests/features/unit_status.feature` | gate rows name the unit's directory | 2 |
 | `packages/earnest/tests/fixtures/seeded-change/fork/` | the solo gate overlay: the intent's `aidlc-state.md`, with `code-generation` at `[-]`, `build-and-test` at `[ ]` and `- **Review Override**: none`, plus `aidlc/.aidlc-clone-id` | 3 |
 | `packages/earnest/tests/fixtures/seeded-change/fork-units/` | the units gate overlay: the units variant's `aidlc-state.md` without `Unit Ownership: team`, with `- **Review Override**: none` and the `functional-design` row reopened for `u2-notice`, plus `aidlc/.aidlc-clone-id` | 3 |
-| `packages/earnest/tests/conftest.py` | `fork` and `fork-units` added to `_OVERLAYS`; `define_twice` moved here from `test_unit_status.py` | 3 |
+| `packages/earnest/tests/sarif.py` | `ISOLATED_GIT`, the Git isolation values shared by `_isolated_git` and the fork's environment | 1 |
+| `packages/earnest/tests/conftest.py` | `_isolated_git` sets `ISOLATED_GIT` (Task 1); `fork` and `fork-units` added to `_OVERLAYS`; `define_twice` moved here from `test_unit_status.py` (Task 3) | 1, 3 |
 | `packages/earnest/tests/features/aidlc_fork.feature` | M7's 5 scenarios, copied verbatim from `04` | 3 |
 | `packages/earnest/tests/steps/test_aidlc_fork.py` | the steps; the exit command | 3 |
 | `packages/earnest/pyproject.toml` | `--ignore` of the fork module in pytest's `addopts` | 3 |
@@ -492,7 +493,7 @@ Feature: AI-DLC fork
 
 ### Task 1: The fork helper
 
-**Files:** Create `packages/earnest/tests/fork.py`. Test `packages/earnest/tests/unit/test_fork.py`.
+**Files:** Create `packages/earnest/tests/fork.py`. Modify `packages/earnest/tests/sarif.py` and `packages/earnest/tests/conftest.py`. Test `packages/earnest/tests/unit/test_fork.py`.
 
 **Interfaces:**
 
@@ -522,7 +523,7 @@ from pathlib import Path
 import pytest
 
 from tests.fork import ENTRY, FORK_ENV, Fork, fork_checkout, fork_env, run_fork
-from tests.sarif import EARNEST
+from tests.sarif import EARNEST, ISOLATED_GIT
 
 
 def _checkout(tmp_path: Path) -> Path:
@@ -576,10 +577,7 @@ def test_the_gate_never_skips():
 def test_environment_is_scrubbed(monkeypatch):
     monkeypatch.setenv("CLAUDE_SESSION_ID", "leak")
     env = fork_env(Path("/opt/bun/bin/bun"), Path("/tmp/home"), AIDLC_PROJECT_DIR="/repo")
-    assert set(env) == {
-        "HOME", "PATH", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME", "GIT_ATTR_NOSYSTEM",
-        "AIDLC_PROJECT_DIR",
-    }
+    assert set(env) == {"HOME", "PATH", "AIDLC_PROJECT_DIR", *ISOLATED_GIT}
     assert env["PATH"].split(":")[:2] == [str(EARNEST.parent), "/opt/bun/bin"]
     assert env["HOME"] == "/tmp/home"
 
@@ -599,7 +597,18 @@ def test_run_fork_scrubs_and_names_the_repo(monkeypatch, tmp_path):
   `test_the_gate_never_skips` looks for skip calls, skip and xfail marks, and `@skip` tags, not the word, because the helper's docstrings say "never skip".
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_fork.py; echo $?`. Expected: a non-zero code; collection fails with `ModuleNotFoundError: tests.fork`.
-- [ ] **Step 4:** Write `tests/fork.py`:
+- [ ] **Step 4:** Share the Git isolation values. Add to `tests/sarif.py`:
+
+```python
+ISOLATED_GIT = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "XDG_CONFIG_HOME": os.devnull,  # keeps the default core.excludesFile and core.attributesFile out
+    "GIT_ATTR_NOSYSTEM": "1",
+}
+```
+
+  In `tests/conftest.py`, import it and replace the four `monkeypatch.setenv` lines of `_isolated_git` (lines 80-83) with `for name, value in ISOLATED_GIT.items(): monkeypatch.setenv(name, value)`, on two lines. Then write `tests/fork.py`:
 
 ```python
 """Find the AI-DLC fork checkout and run its tools against a built fixture, for the aidlc_fork gate."""
@@ -614,17 +623,11 @@ from pathlib import Path
 import pytest
 
 from earnest.plan import Event, parse_audit
-from tests.sarif import EARNEST, RECORD
+from tests.sarif import EARNEST, ISOLATED_GIT, RECORD, block
 
 FORK_ENV = "EARNEST_AIDLC_FORK"
 ENTRY = "core/tools/aidlc.ts"
 CLONE_ID = "fixturecloneid01"  # the overlays pin aidlc/.aidlc-clone-id, so the fork's shard name ends in it
-_GIT = {
-    "GIT_CONFIG_GLOBAL": "/dev/null",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "XDG_CONFIG_HOME": "/dev/null",
-    "GIT_ATTR_NOSYSTEM": "1",
-}
 _COMPILE = """\
 import { writeFileSync } from "node:fs";
 const [fork, out] = process.argv.slice(2);
@@ -660,7 +663,7 @@ def fork_checkout() -> tuple[Path, Path]:
 def fork_env(bun: Path, home: Path, **extra: str) -> dict[str, str]:
     """Return the only environment a fork call sees: no session, host setting or Git configuration leaks in."""
     path = os.pathsep.join([str(EARNEST.parent), str(bun.parent), "/usr/bin", "/bin"])
-    return {"HOME": str(home), "PATH": path, **_GIT, **extra}
+    return {"HOME": str(home), "PATH": path, **ISOLATED_GIT, **extra}
 
 
 def compile_graph(root: Path, bun: Path, out: Path) -> Fork:
@@ -703,7 +706,7 @@ def human_turn(repo: Path) -> None:
     """Append the human's answer at the open gate: a HUMAN_TURN row after gate-start's rows."""
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     with fork_shard(repo).open("a") as shard:
-        shard.write(f"\n## Human Turn\n**Timestamp**: {stamp}\n**Event**: HUMAN_TURN\n\n---\n")
+        shard.write("\n" + block("HUMAN_TURN", stamp))
 
 
 def gate_approvals(repo: Path) -> list[Event]:
@@ -732,14 +735,14 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 - every file under `packages/earnest/tests/fixtures/seeded-change/evidence-units/` that writes a `Unit` row;
 - `packages/earnest/tests/features/unit_status.feature`: lines 166, 195 and 202, and SC8's Examples (lines 181-189), so they read as `04` does after Task 0 Step 3. Line 100's `unit "u1"` is a unit-table id and stays;
 - `packages/earnest/tests/steps/test_unit_status.py`: the guard at line 49 becomes the exact field `"**Unit**: u1-limiter\n"`, so a substring cannot pass it. The steps write `Unit` as the Gherkin gives it, so they stay;
-- `packages/earnest/tests/unit/test_plan.py`: every gate row whose `Unit` names a unit takes that unit's directory from the test's unit table, for example `Unit="a"` becomes `Unit="a-dir"` against `| A | a-dir |` (line 602);
+- `packages/earnest/tests/unit/test_plan.py`: every gate row that `units_plan` (line 1632) joins through a unit table takes that unit's directory from the table, for example `Unit="a"` becomes `Unit="a-dir"` against `| A | a-dir |` (line 602). The direct `_gate_keys` tests through `keys()` (line 1860) pass their own `LANES` and stay;
 - `packages/earnest/tests/integration/test_task_change.py` (line 121): `("Unit", "u1")` becomes `("Unit", "u1-limiter")`, since the test runs on `units_repo()`;
 - `packages/earnest/tests/integration/test_seeded_change.py`, including `UNITS_SHA = "4cdc2f5"` at line 287. That constant pins the units variant's commit, which moves when the overlay's audit shard changes.
 
 **Interfaces:**
 
 - Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647).
-- Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`.
+- Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`. Their parameters and docstrings now say unit directory.
 
 - [ ] **Step 1:** From `packages/earnest/`, run `grep -rn 'Unit' src/earnest/plan.py tests/ --include='*.py' --include='*.md' --include='*.feature'`. List in this task every hit that reads or writes a gate row's `Unit`; skip `Unit Progress`, `Unit Ownership` and unit-table ids. Correct the Files list if it misses one.
 - [ ] **Step 2:** Write the failing tests in `test_plan.py`:
@@ -748,7 +751,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
   - `test_attempt_generation_counts_by_directory`: a row with `Unit: u1-limiter` and `Attempt Generation: 2` voids a generation-1 approval of `u1-limiter`.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
-- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`. Nothing else in `src/` changes.
+- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`. In `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named`, rename the key's parameter and local from `name` to `directory`, and make each docstring say unit directory where it says unit name (for example `_gate_keys`, line 667). No logic outside lines 638 and 642 changes.
 - [ ] **Step 5:** Change every row Step 1 listed:
   - in the fixture and `evidence-units/`, `Unit: u1` becomes `Unit: u1-limiter`, and `Unit: u2` becomes `Unit: u2-notice`;
   - in `test_plan.py`, `test_task_change.py`, `test_unit_status.py` and `unit_status.feature`, the edits the Files list names;
@@ -802,7 +805,7 @@ from pytest_bdd import given, parsers, scenarios, then, when
 
 from tests.conftest import commit_on_main
 from tests.fork import Fork, compile_graph, fork_checkout, gate_approvals, human_turn, run_fork
-from tests.sarif import RECORD
+from tests.sarif import RECORD, header, record
 
 scenarios("../features/aidlc_fork.feature")
 
@@ -811,10 +814,6 @@ scenarios("../features/aidlc_fork.feature")
 def fork(tmp_path_factory) -> Fork:
     root, bun = fork_checkout()
     return compile_graph(root, bun, tmp_path_factory.mktemp("fork-graph"))
-
-
-def _runs(repo):
-    return json.loads((repo / ".earnest" / "assessment.json").read_text())["runs"]
 
 
 @given("a local AI-DLC fork checkout with Bun")
@@ -852,43 +851,44 @@ def sensor_exits_zero(sensor):
 
 @then(parsers.parse('the record holds a run header for "{stage}"'))
 def per_unit_header(repo, stage):
-    runs = _runs(repo)
+    runs = record(repo)["runs"]
     assert f"{RECORD}/{stage}" in runs, sorted(runs)
+
+
+def _state(repo, fork, verb, slug, unit, *tail):
+    """Run one direct state transition of the fork for a stage, of one unit when `unit` is set."""
+    done = run_fork(repo, fork, "engine", "state", verb, slug, *(("--unit", unit) if unit else ()), *tail, direct=True)
+    assert done.returncode == 0, done.stderr
 
 
 @when(parsers.parse('AI-DLC opens the gate of "{slug}"'))
 def open_gate(repo, fork, slug):
-    done = run_fork(repo, fork, "engine", "state", "gate-start", slug, direct=True)
-    assert done.returncode == 0, done.stderr
+    _state(repo, fork, "gate-start", slug, None)
 
 
 @when(parsers.parse('AI-DLC opens the gate of unit "{unit}" for "{slug}"'))
 def open_unit_gate(repo, fork, slug, unit):
-    done = run_fork(repo, fork, "engine", "state", "gate-start", slug, "--unit", unit, direct=True)
-    assert done.returncode == 0, done.stderr
+    _state(repo, fork, "gate-start", slug, unit)
 
 
 @when(parsers.parse("the repo maintainer approves \"{slug}\" at the fork's gate"))
 def approve(repo, fork, slug):
     human_turn(repo)
-    done = run_fork(repo, fork, "engine", "state", "approve", slug, "--user-input", "Approve", direct=True)
-    assert done.returncode == 0, done.stderr
+    _state(repo, fork, "approve", slug, None, "--user-input", "Approve")
 
 
 @when(parsers.parse("the repo maintainer approves for unit \"{unit}\" the stage \"{slug}\" at the fork's gate"))
 def approve_unit(repo, fork, slug, unit):
     human_turn(repo)
-    done = run_fork(repo, fork, "engine", "state", "approve", slug, "--unit", unit, "--user-input", "Approve",
-                    direct=True)
-    assert done.returncode == 0, done.stderr
+    _state(repo, fork, "approve", slug, unit, "--user-input", "Approve")
 
 
 def _approval(repo, slug, stage, by, unit=None):
-    header = _runs(repo)[f"{RECORD}/{stage}"]
+    run = header(repo, stage)
     (row,) = [event for event in gate_approvals(repo) if event.fields.get("Stage") == slug]
     assert row.fields.get("Unit") == unit, row.fields
-    assert row.fields["Assessment Hash"] == header["hash"], row.fields
-    assert row.fields["Items"].split(", ") == header["items"], row.fields
+    assert row.fields["Assessment Hash"] == run["hash"], row.fields
+    assert row.fields["Items"].split(", ") == run["items"], row.fields
     assert row.fields["Approved By"] == by, row.fields
 
 
