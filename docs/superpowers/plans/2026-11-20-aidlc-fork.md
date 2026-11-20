@@ -235,7 +235,7 @@ Row as asked: "how a `unit-end` gate checks each stage its `Gate Stages` lists w
 
 This changes, in this repository:
 
-- `01`, lines 130-133, 167-169 and 671;
+- `01`, lines 167-169 and 671, and `02`, line 200, which say a gate row's `Unit` is the unit's name by the id rule;
 - the keys of `stage_ids` and `lanes` in `plan.py`, which every read of `Unit` compares against;
 - the `Unit` rows of the `units/` overlay, and `units/FUTURE-FORMAT.md`;
 - the unit names in `04`'s and `unit_status.feature`'s Gherkin that steps write into `Unit` rows, and the test rows and assertions that carry the old names (Task 2).
@@ -382,13 +382,13 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 
 | Path | Responsibility | Task |
 | --- | --- | --- |
-| `docs/superpowers/plans/2026-11-20-aidlc-fork.md` | this plan | 0 |
+| `docs/superpowers/plans/2026-11-20-aidlc-fork.md` | this plan: the decisions (Task 0), then each task's counts and notes | 0-5 |
 | `docs/design/01-logic-design.md`, `02-structural-design.md`, `03-implementation-plan.md`, `04-bdd-test-plan.md` | the decisions, the resolved rows, `04`'s M7 section, the link | 0 |
 | `packages/earnest/tests/fork.py` | `Fork`, `fork_checkout`, `compile_graph`, `run_fork`, `fork_shard`, `human_turn`, `gate_approvals` | 1 |
 | `packages/earnest/tests/unit/test_fork.py` | fail-not-skip and scrubbed-environment tests | 1 |
 | `packages/earnest/src/earnest/plan.py` | `Unit` joined by unit directory through one helper | 2 |
 | `packages/earnest/tests/unit/test_plan.py` | the join tests | 2 |
-| `packages/earnest/tests/fixtures/seeded-change/units/` (`aidlc/**/audit/*.md`, `FUTURE-FORMAT.md`) and `evidence-units/`, wherever a row writes `Unit` | `Unit: u1-limiter` in place of `Unit: u1` | 2 |
+| `packages/earnest/tests/fixtures/seeded-change/units/` (the audit shard `fixture-a1b2c3d4.md`, `FUTURE-FORMAT.md`) | `**Unit**: u1-limiter` in place of `**Unit**: u1`; the value described as the construction directory | 2 |
 | `packages/earnest/tests/unit/test_plan.py`, `tests/integration/test_task_change.py`, `tests/integration/test_seeded_change.py`, `tests/features/unit_status.feature` | gate rows name the unit's directory; `UNITS_SHA` moves | 2 |
 | `packages/earnest/tests/steps/test_unit_status.py` | the guard at line 49 and the assertion at line 124 name `u1-limiter` and `u2-notice` (Task 2); `define_twice` moves to `conftest.py` (Task 3) | 2, 3 |
 | `packages/earnest/tests/fixtures/seeded-change/fork/` | the solo gate overlay: the intent's `aidlc-state.md`, with `code-generation` at `[-]`, `build-and-test` at `[ ]` and `- **Review Override**: none`, plus `aidlc/.aidlc-clone-id` | 3 |
@@ -431,9 +431,9 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
   - the readings;
   - the Gherkin below, marked PROPOSED.
 
-  Replace the sentence "The scenarios of M7 and M8 are added here when each milestone's plan is written" so that it names M8 alone.
-- [ ] **Step 3:** Resolve the thirteen rows in `01` and `02` with the decisions, and add rows 14 to 17 as resolved. Then make the edits the decisions call for:
-  - `01`, lines 130-133, 167-169 and 671, for answer 14;
+  Replace the sentence "The scenarios of M7 and M8 are added here when each milestone's plan is written" so that it names M8 alone. Do the same for the Future directions bullet at line 1844, which names M7 and M8.
+- [ ] **Step 3:** Resolve the thirteen rows with the decisions, each where it is written (`01`'s and `02`'s Open questions; an M2b row that only `03`'s M7 entry names is resolved there), and add rows 14 to 17 as resolved. Then make the edits the decisions call for:
+  - `01`, lines 167-169 and 671, and `02`, line 200, for answer 14: each says a gate row's `Unit` is the unit's name by the id rule, and comes to say the unit's construction directory;
   - `04`'s unit Gherkin, for answer 14. Lines 766, 795 and 802 name the unit's directory (`u2-notice`, `u1-limiter`). In SC8's Examples (lines 782-790), the `unit` column's `u2` becomes `u2-notice`, `u2-notice` becomes `u2`, and `U2` becomes `U2-notice`; each row keeps its approval. In the rejection outline's Examples (lines 821-824), `u1` becomes `u1-limiter` and `u2` becomes `u2-notice`; `-` and `u9` stay. Line 700's `unit "u1"` is a unit-table id and stays. The maintainer's approval of answer 14 is the ratification `04`'s "Fixed for the loop" asks for;
   - `01`'s mapping table, for answers 6 and 7;
   - in `02`'s Fork delta, the base commit and the tree (answer 15), and the approve check in the `aidlc-state.ts` bullet (answer 3);
@@ -494,7 +494,7 @@ Feature: AI-DLC fork
 
 ### Task 1: The fork helper
 
-**Files:** Create `packages/earnest/tests/fork.py`. Modify `packages/earnest/tests/sarif.py` and `packages/earnest/tests/conftest.py`. Test `packages/earnest/tests/unit/test_fork.py`.
+**Files:** Create `packages/earnest/tests/fork.py`. Modify `packages/earnest/tests/sarif.py`, `packages/earnest/tests/conftest.py`, and this plan, where the task records its counts. Test `packages/earnest/tests/unit/test_fork.py`.
 
 **Interfaces:**
 
@@ -731,13 +731,13 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 
 **Files:** Modify:
 
-- `packages/earnest/src/earnest/plan.py` (lines 637-642);
+- this plan, where the task records its grep hits and counts;
+- `packages/earnest/src/earnest/plan.py`: the keys at lines 637-642, the `floors` comprehension at line 644, the `Unit` docstring and field at lines 336-343, and the parameters and docstrings of `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` (lines 666-775);
 - `packages/earnest/tests/fixtures/seeded-change/units/aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` (line 30);
 - `packages/earnest/tests/fixtures/seeded-change/units/FUTURE-FORMAT.md`;
-- every file under `packages/earnest/tests/fixtures/seeded-change/evidence-units/` that writes a `Unit` row;
 - `packages/earnest/tests/features/unit_status.feature`: lines 166, 195 and 202, SC8's Examples (lines 182-190) and the rejection outline's Examples (lines 221-224), so they read as `04` does after Task 0 Step 3. Line 100's `unit "u1"` is a unit-table id and stays;
 - `packages/earnest/tests/steps/test_unit_status.py`: the guard at line 49 becomes the exact field `"**Unit**: u1-limiter\n"`, so a substring cannot pass it, and the assertion at line 124 becomes `(unit, slug) == ("u2-notice", "code-generation")`. The other steps write `Unit` as the Gherkin gives it, so they stay;
-- `packages/earnest/tests/unit/test_plan.py`: every gate row that `units_plan` (line 1632) joins through a unit table takes that unit's directory from the table, for example `Unit="a"` becomes `Unit="a-dir"` against `| A | a-dir |` (line 602). The direct `_gate_keys` tests through `keys()` (line 1861) pass their own `LANES` and stay;
+- `packages/earnest/tests/unit/test_plan.py`: every gate row that `units_plan` (line 1632) joins through a unit table takes that unit's directory from the table it joins: `TABLE` (lines 1616-1618: `A` to `a-dir`, `B` to `b-dir`), `FALLBACK_TABLE` (line 2367) or the table at line 2479. For example `Unit="a"` becomes `Unit="a-dir"`. That includes unit names fed in as data: the parametrize list at lines 2055-2058 and the enumerated list at lines 2331-2334. The direct `_gate_keys` tests through `keys()` (line 1861) pass their own `LANES` and stay;
 - `packages/earnest/tests/integration/test_task_change.py` (line 121): `("Unit", "u1")` becomes `("Unit", "u1-limiter")`, since the test runs on `units_repo()`;
 - `packages/earnest/tests/integration/test_seeded_change.py`: the shard literal at line 215, whose `**Unit**: u1\n` becomes `**Unit**: u1-limiter\n`, and `UNITS_SHA = "4cdc2f5"` at line 287. That constant pins the units variant's commit, which moves when the overlay's audit shard changes.
 
@@ -750,16 +750,29 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 - [ ] **Step 2:** Write the failing tests in `test_plan.py`:
   - `test_gate_row_joins_unit_by_directory`: a per-stage row with `Unit: u1-limiter` approves `construction/u1-limiter/functional-design`.
   - `test_gate_row_with_the_id_rule_name_approves_nothing`: the same row with `Unit: u1` approves nothing.
-  - `test_attempt_generation_counts_by_directory`: a row with `Unit: u1-limiter` and `Attempt Generation: 2` voids a generation-1 approval of `u1-limiter`.
+  - `test_attempt_generation_counts_by_directory`: a generation-1 row with `Unit: u1-limiter` approves `u1-limiter`'s stage, and once a row with `Unit: u1-limiter` and `Attempt Generation: 2` follows, that approval no longer counts. The first half fails before Step 4.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
-- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`. In `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named`, rename the key's parameter and local from `name` to `directory`, and make each docstring say unit directory where it says unit name (for example `_gate_keys`, line 667). No logic outside lines 638 and 642 changes.
+- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`, and add `if unit.directory` to both comprehensions: `Unit.directory` is typed `str | None`, and `joined`'s filter at line 627 does not narrow it for `mypy --strict`. The two become:
+
+```python
+    stage_ids = {
+        (unit.directory, _slug(stage)): f"{_phase_of(stage)}/{unit.directory}/{_slug(stage)}"
+        for unit in joined
+        if unit.directory  # narrows the type; joined already holds only units with one
+        for stage in per_unit
+    }
+    lanes = {unit.directory: frozenset(_slug(stage) for stage in per_unit) for unit in joined if unit.directory}
+```
+
+  Rename `name` to `directory` in the `floors` comprehension (line 644) and in the parameters and locals of `_gate_keys`, `_generation` and `_voids`. Make their docstrings, and those of `_unit_approval` and `_unit_named`, say unit directory where they say unit name (for example `_gate_keys`, line 667). `Unit.name`'s docstring (line 343) drops the gate row's `Unit`, and the `directory` field gets the comment `# the unit table's directory, which a gate row's Unit carries`. No logic changes beyond the two comprehensions.
+
 - [ ] **Step 5:** Change every row Step 1 listed:
-  - in the fixture and `evidence-units/`, `Unit: u1` becomes `Unit: u1-limiter`, and `Unit: u2` becomes `Unit: u2-notice`;
+  - in the fixture shard, line 30's `**Unit**: u1` becomes `**Unit**: u1-limiter`;
   - in `test_plan.py`, `test_task_change.py`, `test_unit_status.py`, `unit_status.feature` and line 215 of `test_seeded_change.py`, the edits the Files list names;
   - in `FUTURE-FORMAT.md`, the sentence that describes the value now reads "the unit's construction directory, upstream's unit name (`core/knowledge/aidlc-shared/verification.md:23` of the fork)";
   - update `UNITS_SHA` in `test_seeded_change.py` to the new short sha of the units variant, and grep `tests/` and `04` for `4cdc2f5` to find any other copy. The comment on that line says why the sha moved. Every other pinned sha stays as it is.
-- [ ] **Step 6:** Run `rtk proxy uv run pytest tests/unit/test_plan.py tests/steps/test_unit_status.py tests/steps/test_evidence_check.py tests/integration/test_seeded_change.py tests/integration/test_task_change.py; echo $?` and the regression run. Expected: `0`, all pass, at Task 1's count plus 4.
+- [ ] **Step 6:** Run `rtk proxy uv run pytest tests/unit/test_plan.py tests/steps/test_unit_status.py tests/steps/test_evidence_check.py tests/integration/test_seeded_change.py tests/integration/test_task_change.py; echo $?`, `rtk proxy uv run mypy --strict src/; echo $?` and the regression run. Expected: `0` from each, all pass, at Task 1's count plus 4.
 - [ ] **Step 7:** Commit `fix: a gate row's Unit names the unit's construction directory, as upstream writes it`.
 
 ### Task 3: The `aidlc_fork` behavior gate, red
@@ -770,7 +783,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
   - everything under `packages/earnest/tests/fixtures/seeded-change/fork/` and `packages/earnest/tests/fixtures/seeded-change/fork-units/`;
   - `packages/earnest/tests/features/aidlc_fork.feature`;
   - `packages/earnest/tests/steps/test_aidlc_fork.py`.
-- Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/steps/test_unit_status.py` and `packages/earnest/pyproject.toml`.
+- Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/steps/test_unit_status.py`, `packages/earnest/pyproject.toml`, and this plan, where the task records its readings and counts.
 
 **Interfaces:**
 
@@ -784,7 +797,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
   - `fork/aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` is the base state file with three changes: `- [x] code-generation` becomes `- [-] code-generation`, `- [x] build-and-test` becomes `- [ ] build-and-test`, and `- **Review Override**: none` goes on the line after `- **Start Date**: 2026-09-26`.
   - `fork/aidlc/.aidlc-clone-id` holds the line `fixturecloneid01`.
 - [ ] **Step 2:** Write the units overlay `fork-units/`:
-  - `fork-units/aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` is the units variant's state file with these changes: the `- **Unit Ownership**: team` line removed; `- **Review Override**: none` added; `- [x] functional-design` becomes `- [-] functional-design` and `- [x] code-generation` becomes `- [ ] code-generation`, while the three `[S]` rows and `build-and-test` stay; and in Unit Progress, `| u2 | - | [x] | [-] | [ ] |` becomes `| u2 | - | [-] | [ ] | [ ] |`, which reopens `functional-design` for `u2-notice`. The `u1` row stays. The readings in the Fork facts were taken on the units variant before these edits, so Step 5 measures them again.
+  - `fork-units/aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` is the units variant's state file with these changes: the `- **Unit Ownership**: team` line removed; `- **Review Override**: none` added on the line after `- **Start Date**: 2026-09-26`; `- [x] functional-design` becomes `- [-] functional-design` and `- [x] code-generation` becomes `- [ ] code-generation`, while the three `[S]` rows and `build-and-test` stay; and in Unit Progress, `| u2 | - | [x] | [-] | [ ] |` becomes `| u2 | - | [-] | [ ] | [ ] |`, which reopens `functional-design` for `u2-notice`. The `u1` row stays. The readings in the Fork facts were taken on the units variant before these edits, so Step 5 measures them again.
   - `fork-units/aidlc/.aidlc-clone-id` holds `fixturecloneid01`.
 - [ ] **Step 3:** Add `"fork"` and `"fork-units"` to `_OVERLAYS` in `conftest.py`, in the same commit as the overlay files. Without that, the base copy takes them in, and the base commit's sha moves, which the sha pins in `test_seeded_change.py` catch.
 - [ ] **Step 4:** Move `define_twice` (`test_unit_status.py:53-55`) into `conftest.py`, with its `REQUIREMENTS`, `read` and `write` imports, so that both features share it. `test_unit_status.py` drops the moved step and any import it no longer uses (ruff F401).
@@ -810,7 +823,7 @@ from tests.fork import Fork, compile_graph, fork_checkout, gate_approvals, human
 from tests.sarif import RECORD, header, record
 
 
-scenarios("../features/aidlc_fork.feature")
+scenarios("aidlc_fork.feature")
 
 
 @pytest.fixture(scope="session")
@@ -843,6 +856,7 @@ def fire(repo, fork, slug, path):
 
 @then(parsers.parse("the sensor prints pass {verdict} with findings count {count:d}"))
 def sensor_prints(sensor, verdict, count):
+    assert sensor.stdout.strip(), sensor.stderr  # a fork without the sensor prints nothing; show why
     out = json.loads(sensor.stdout)  # 01 lets the output carry more keys; the contract fixes these two
     assert (out["pass"], out["findings_count"]) == (verdict == "true", count), sensor.stderr
 
@@ -914,7 +928,7 @@ def unit_approval_row(repo, slug, unit, stage, by):
 
 ### Task 4: Make and CI
 
-**Files:** Modify `packages/earnest/Makefile`, `Makefile`, `.github/workflows/ci.yml` and `CLAUDE.md`.
+**Files:** Modify `packages/earnest/Makefile`, `Makefile`, `.github/workflows/ci.yml`, `CLAUDE.md`, and this plan, where the task records its counts.
 
 - [ ] **Step 1:** Change the two Makefiles. In each recipe line below, the leading space stands for a tab; the Markdown linter rewrites tabs in this plan, but make needs them.
 
@@ -972,7 +986,7 @@ test-aidlc-fork:
 
 Start this task only after the fork's plan has merged the delta on the fork's `main`.
 
-**Files:** Modify `.github/workflows/ci.yml` (`AIDLC_FORK_REPO`, `AIDLC_FORK_REF`).
+**Files:** Modify `.github/workflows/ci.yml` (`AIDLC_FORK_REPO`, `AIDLC_FORK_REF`), and this plan, where the task records the pinned sha and its counts.
 
 - [ ] **Step 1:** Set `AIDLC_FORK_REF` to the full sha of the fork's `main` that holds the delta, and `AIDLC_FORK_REPO` to the repository of answer 4. In the local checkout, run `git -C "$EARNEST_AIDLC_FORK" fetch` and `git -C "$EARNEST_AIDLC_FORK" switch --detach <sha>`. This is the one change this plan makes in the fork checkout, and the maintainer approves it at this step.
 - [ ] **Step 2:** In `packages/earnest/`, run `rtk proxy uv run pytest tests/steps/test_aidlc_fork.py; echo $?`. Expected: `0`, with 5 passed.
