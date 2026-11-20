@@ -376,7 +376,7 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 **Regression expectations:**
 
 - For Tasks 1 to 4, the regression run is `rtk proxy uv run pytest; echo $?` in `packages/earnest/`, and its evidence is the printed code. From Task 3 on, `addopts` leaves the fork module out of it. It stays green at the count the M7 branch records at the start of Task 1, plus the tests each task adds.
-- Every task records its exact count.
+- Tasks 1 to 5 each record their exact count in this plan.
 
 ## File Structure
 
@@ -744,7 +744,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 **Interfaces:**
 
 - Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647).
-- Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`. Their parameters and docstrings now say unit directory.
+- Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`. `_gate_keys`, `_generation` and `_voids` name the key `directory`, and all five docstrings say unit directory.
 
 - [ ] **Step 1:** From `packages/earnest/`, run `grep -rn 'Unit' src/earnest/plan.py tests/ --include='*.py' --include='*.md' --include='*.feature'`. List in this task every hit that reads or writes a gate row's `Unit`; skip `Unit Progress`, `Unit Ownership` and unit-table ids. Correct the Files list if it misses one.
 - [ ] **Step 2:** Write the failing tests in `test_plan.py`:
@@ -753,7 +753,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
   - `test_attempt_generation_counts_by_directory`: a generation-1 row with `Unit: u1-limiter` approves `u1-limiter`'s stage, and once a row with `Unit: u1-limiter` and `Attempt Generation: 2` follows, that approval no longer counts. The first half fails before Step 4.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
-- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`, and add `if unit.directory` to both comprehensions: `Unit.directory` is typed `str | None`, and `joined`'s filter at line 627 does not narrow it for `mypy --strict`. The two become:
+- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`, and add `if unit.directory` to both comprehensions: `Unit.directory` is typed `str | None`, and `joined`'s filter at line 628 does not narrow it for `mypy --strict`. The two become:
 
 ```python
     stage_ids = {
@@ -999,4 +999,4 @@ Start this task only after the fork's plan has merged the delta on the fork's `m
 
 - [ ] **Step 1:** Run `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` and save the output. Then run `rtk proxy make test-aidlc-fork; echo $?`. Expected: `0`, and a second `git status --short --ignored` identical to the first.
 - [ ] **Step 2:** From the repository root, run `rtk proxy make test; echo $?` and `rtk proxy make lint; echo $?`. Expected: both print `0`.
-- [ ] **Step 3:** Run the `/pre-pr-review` skill on HEAD, and record its verdict. Push only under the maintainer's standing rule: three reviewers, every finding fixed, three fresh checkers PASS on the final sha. The PR waits for the CI job `test-aidlc-fork` to be green at the pinned sha.
+- [ ] **Step 3:** Run the `/pre-pr-review` skill on HEAD, and report its verdict. Push only under the maintainer's standing rule: three reviewers, every finding fixed, three fresh checkers PASS on the final sha. The PR waits for the CI job `test-aidlc-fork` to be green at the pinned sha.
