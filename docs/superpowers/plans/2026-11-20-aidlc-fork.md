@@ -940,6 +940,8 @@ test-aidlc-fork:
       AIDLC_FORK_REF: 0000000000000000000000000000000000000000  # Task 5 sets the fork sha that holds the delta
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false  # the fork's code and lifecycle scripts run in this job
       - uses: actions/checkout@v4
         with:
           repository: ${{ env.AIDLC_FORK_REPO }}
