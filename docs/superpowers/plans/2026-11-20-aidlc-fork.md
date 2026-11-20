@@ -249,7 +249,7 @@ The alternative is for the fork to map upstream's name to the id-rule name at it
 - **The delta's base.** The delta is applied to the fork's `main` as it stands when the fork's plan starts, `f2acb53d` or later, not to `fe563195d827`. Task 0 updates two things in `02`'s Fork delta:
   - its base commit;
   - its tree: `tests/.coverage-registry.json` is replaced by `// covers:` headers on the two new tests (F2).
-- **`make test` stays self-contained.** It passes `--ignore=tests/steps/test_aidlc_fork.py`, which keeps Bun and TypeScript out of the package's tests, as L5 of `02` does. A new target, `make test-aidlc-fork`, runs the exit command. The module itself never skips.
+- **`make test` stays self-contained.** pytest's `addopts` in `pyproject.toml` carries `--ignore=tests/steps/test_aidlc_fork.py`, so a bare `uv run pytest` and `make test` keep Bun and TypeScript out of the package's tests, as L5 of `02` does. Naming the module's path still runs it (checked on pytest 9.1.1). A new target, `make test-aidlc-fork`, runs the exit command. The module itself never skips.
 - **A new CI job, `test-aidlc-fork`,** does these steps:
   - checks out the fork at `AIDLC_FORK_REF`, a full sha on the fork's `main` that holds the delta;
   - installs Bun 1.4.2 with `oven-sh/setup-bun`, pinned by sha as the fork's own CI pins it;
@@ -339,7 +339,7 @@ The calls, in order:
 - **Fail, not skip.** `tests/unit/test_fork.py` asserts `pytest.fail.Exception` for each missing precondition, never `pytest.skip.Exception`.
 - **The hash binds.** The approve scenarios assert that `Assessment Hash` equals the run header's `hash` byte for byte, and that `Items` lists the header's `items`. Checking only that the fields exist is not enough.
 - **`pass: false` arrives with exit 0.** A script that exits 1 would be read by AI-DLC as `PASSED script-error` (F5). The failing-sensor scenario asserts both the exit code and the value.
-- **The per-unit stage is named in full.** The per-unit sensor scenario asserts that the record holds a run header keyed `<record dir>/construction/u2-notice/functional-design`, and none keyed `<record dir>/functional-design`. A bare slug on the units variant makes `earnest check` exit 2, so a sensor that passed one would print `pass: false`.
+- **The per-unit stage is named in full.** The per-unit sensor scenario asserts that the record holds a run header keyed `<record dir>/construction/u2-notice/functional-design`. A bare slug on the units variant makes `earnest check` exit 2, so a sensor that passed one would print `pass: false`, which the scenario's `pass true` catches. Run headers always carry a phase, so no header keyed by a bare slug can exist to check against.
 - **Earnest reads the fork's row.** After each approve, `earnest plan` shows the stage's approval as `current, human`. This end-to-end check proves that the field names and the `Unit` join agree.
 - **The second check at approve keeps the hash.** Before approve, gate-start rewrites `aidlc-state.md` and adds `<record dir>/.aidlc-engine/` and the shard. Answer 3's equality holds only if the hash leaves those paths out. `01` keeps the route and the approvals outside the hash. Task 5 Step 3 checks this on the real delta.
 - **The fork checkout stays clean** (Task 6).
@@ -367,7 +367,7 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 | --- | --- | --- | --- |
 | 0 | The docs commit: the decisions, `04`'s M7 section, the rows of `01` and `02`, the Fork delta's base, the link in `03` | the maintainer's decisions | none |
 | 1 | `tests/fork.py`: locate the checkout, compile the graph, run the fork, write the human's turn; unit tests | T0 | none (unit tier) |
-| 2 | `Unit` joined by unit directory in `plan.py`, with its fixture rows and steps (answer 14) | T0 | none new; M2b and M5 stay green |
+| 2 | `Unit` joined by unit directory in `plan.py`, with its fixture rows, tests and M5 Gherkin (answer 14) | T0 | none new; M2b and M5 stay green |
 | 3 | The gate overlays, the feature and the step module, red | T1, T2 | none |
 | 4 | Make and CI: `make test` ignores the module; `make test-aidlc-fork`; the `test-aidlc-fork` job | T3 | none; `make test` stays green |
 | 5 | Pin the fork commit that holds the delta, and run the exit command | T4, and the delta merged in the fork | all 5 |
@@ -375,7 +375,7 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 
 **Regression expectations:**
 
-- For Tasks 1 to 4, the regression run is `rtk proxy uv run pytest --ignore=tests/steps/test_aidlc_fork.py; echo $?` in `packages/earnest/`, and its evidence is the printed code. It stays green at the count the M7 branch records at the start of Task 1, plus the tests each task adds.
+- For Tasks 1 to 4, the regression run is `rtk proxy uv run pytest; echo $?` in `packages/earnest/`, and its evidence is the printed code. From Task 3 on, `addopts` leaves the fork module out of it. It stays green at the count the M7 branch records at the start of Task 1, plus the tests each task adds.
 - Every task records its exact count.
 
 ## File Structure
@@ -389,13 +389,14 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 | `packages/earnest/src/earnest/plan.py` | `Unit` joined by unit directory through one helper | 2 |
 | `packages/earnest/tests/unit/test_plan.py` | the join tests | 2 |
 | `packages/earnest/tests/fixtures/seeded-change/units/` (`aidlc/**/audit/*.md`, `FUTURE-FORMAT.md`) and `evidence-units/`, wherever a row writes `Unit` | `Unit: u1-limiter` in place of `Unit: u1` | 2 |
-| `packages/earnest/tests/steps/test_unit_status.py`, and any step module that writes a `Unit` row | rows written by hand use the directory | 2 |
+| `packages/earnest/tests/unit/test_plan.py`, `tests/integration/test_task_change.py`, `tests/steps/test_unit_status.py`, `tests/features/unit_status.feature` | gate rows name the unit's directory | 2 |
 | `packages/earnest/tests/fixtures/seeded-change/fork/` | the solo gate overlay: the intent's `aidlc-state.md`, with `code-generation` at `[-]`, `build-and-test` at `[ ]` and `- **Review Override**: none`, plus `aidlc/.aidlc-clone-id` | 3 |
 | `packages/earnest/tests/fixtures/seeded-change/fork-units/` | the units gate overlay: the units variant's `aidlc-state.md` without `Unit Ownership: team`, with `- **Review Override**: none` and the `functional-design` row reopened for `u2-notice`, plus `aidlc/.aidlc-clone-id` | 3 |
 | `packages/earnest/tests/conftest.py` | `fork` and `fork-units` added to `_OVERLAYS`; `define_twice` moved here from `test_unit_status.py` | 3 |
 | `packages/earnest/tests/features/aidlc_fork.feature` | M7's 5 scenarios, copied verbatim from `04` | 3 |
 | `packages/earnest/tests/steps/test_aidlc_fork.py` | the steps; the exit command | 3 |
-| `packages/earnest/Makefile`, `Makefile` | `--ignore` in `test`; the `test-aidlc-fork` target | 4 |
+| `packages/earnest/pyproject.toml` | `--ignore` of the fork module in pytest's `addopts` | 3 |
+| `packages/earnest/Makefile`, `Makefile` | the `test-aidlc-fork` target | 4 |
 | `.github/workflows/ci.yml` | the `test-aidlc-fork` job | 4, 5 |
 | `CLAUDE.md` | the Build section names `make test-aidlc-fork` and `EARNEST_AIDLC_FORK` | 4 |
 
@@ -431,6 +432,7 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
   Replace the sentence "The scenarios of M7 and M8 are added here when each milestone's plan is written" so that it names M8 alone.
 - [ ] **Step 3:** Resolve the thirteen rows in `01` and `02` with the decisions, and add rows 14 to 17 as resolved. Then make the edits the decisions call for:
   - `01`, lines 130-133, 167-169 and 671, for answer 14;
+  - `04`'s unit Gherkin, for answer 14. Lines 766, 795 and 802 name the unit's directory (`u2-notice`, `u1-limiter`). In SC8's Examples (lines 782-790), the `unit` column's `u2` becomes `u2-notice`, `u2-notice` becomes `u2`, and `U2` becomes `U2-notice`; each row keeps its approval. Line 700's `unit "u1"` is a unit-table id and stays. The maintainer's approval of answer 14 is the ratification `04`'s "Fixed for the loop" asks for;
   - `01`'s mapping table, for answers 6 and 7;
   - in `02`'s Fork delta, the base commit and the tree (answer 15), and the approve check in the `aidlc-state.ts` bullet (answer 3);
   - if answer 13 is option (c), the new row in `01`'s Open questions;
@@ -477,7 +479,7 @@ Feature: AI-DLC fork
     When AI-DLC fires the earnest sensor for "functional-design" on "construction/u2-notice/functional-design/functional-spec.md"
     Then the sensor prints pass true with findings count 0
     And the sensor exits zero
-    And the record holds a run header for "construction/u2-notice/functional-design" and none for "functional-design"
+    And the record holds a run header for "construction/u2-notice/functional-design"
 
   Scenario: Approving a per-unit stage records its unit with the assessment (SC9)
     Given the repo maintainer's "seeded-change" units variant with the functional design of "u2-notice" at its gate
@@ -508,7 +510,7 @@ Feature: AI-DLC fork
   - `def human_turn(repo: Path) -> None`;
   - `def gate_approvals(repo: Path) -> list[Event]`.
 
-- [ ] **Step 1:** Record the regression count: run `rtk proxy uv run pytest --ignore=tests/steps/test_aidlc_fork.py -q; echo $?` in `packages/earnest/`, and write the passed count into this task.
+- [ ] **Step 1:** Record the regression count: run `rtk proxy uv run pytest -q; echo $?` in `packages/earnest/`, and write the passed count into this task.
 - [ ] **Step 2:** Write the failing tests in `tests/unit/test_fork.py`:
 
 ```python
@@ -566,9 +568,9 @@ def test_found_checkout_and_bun(monkeypatch, tmp_path):
 
 def test_the_gate_never_skips():
     tests = Path(__file__).resolve().parents[1]
-    for path in (tests / "fork.py", tests / "steps" / "test_aidlc_fork.py"):
-        if path.exists():
-            assert not re.search(r"pytest\.skip|skipif|importorskip", path.read_text()), path
+    for path in (tests / "fork.py", tests / "steps" / "test_aidlc_fork.py", tests / "features" / "aidlc_fork.feature"):
+        if path.exists():  # a Gherkin @skip tag becomes a skip mark, so the feature is scanned too
+            assert not re.search(r"\.skip\b|skipif|importorskip|xfail|@skip\b", path.read_text()), path
 
 
 def test_environment_is_scrubbed(monkeypatch):
@@ -594,7 +596,7 @@ def test_run_fork_scrubs_and_names_the_repo(monkeypatch, tmp_path):
     assert "CLAUDE_SESSION_ID" not in seen
 ```
 
-  `test_the_gate_never_skips` looks for skip calls, not the word, because the helper's docstrings say "never skip".
+  `test_the_gate_never_skips` looks for skip calls, skip and xfail marks, and `@skip` tags, not the word, because the helper's docstrings say "never skip".
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_fork.py; echo $?`. Expected: a non-zero code; collection fails with `ModuleNotFoundError: tests.fork`.
 - [ ] **Step 4:** Write `tests/fork.py`:
@@ -724,36 +726,35 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 
 **Files:** Modify:
 
-- `packages/earnest/src/earnest/plan.py`;
+- `packages/earnest/src/earnest/plan.py` (lines 637-642);
 - `packages/earnest/tests/fixtures/seeded-change/units/aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` (line 30);
 - `packages/earnest/tests/fixtures/seeded-change/units/FUTURE-FORMAT.md`;
 - every file under `packages/earnest/tests/fixtures/seeded-change/evidence-units/` that writes a `Unit` row;
-- `packages/earnest/tests/steps/test_unit_status.py`: the steps at lines 105-136 that write `Unit` rows, which map the unit's name to its directory through the unit table, and the guard at line 49, which becomes the exact field `"**Unit**: u1-limiter\n"` so a substring cannot pass it. The feature's `unit "u1"` and `unit "u2"` at `unit_status.feature` lines 166, 195 and 202 stay, since the steps map them; line 100's `unit "u1"` is a unit-table id and is not touched;
+- `packages/earnest/tests/features/unit_status.feature`: lines 166, 195 and 202, and SC8's Examples (lines 181-189), so they read as `04` does after Task 0 Step 3. Line 100's `unit "u1"` is a unit-table id and stays;
+- `packages/earnest/tests/steps/test_unit_status.py`: the guard at line 49 becomes the exact field `"**Unit**: u1-limiter\n"`, so a substring cannot pass it. The steps write `Unit` as the Gherkin gives it, so they stay;
+- `packages/earnest/tests/unit/test_plan.py`: every gate row whose `Unit` names a unit takes that unit's directory from the test's unit table, for example `Unit="a"` becomes `Unit="a-dir"` against `| A | a-dir |` (line 602);
+- `packages/earnest/tests/integration/test_task_change.py` (line 121): `("Unit", "u1")` becomes `("Unit", "u1-limiter")`, since the test runs on `units_repo()`;
 - `packages/earnest/tests/integration/test_seeded_change.py`, including `UNITS_SHA = "4cdc2f5"` at line 287. That constant pins the units variant's commit, which moves when the overlay's audit shard changes.
-
-Test `packages/earnest/tests/unit/test_plan.py`.
 
 **Interfaces:**
 
-- Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647), and `_gate_keys(event, lanes)` (`plan.py:666-682`).
-- Produces:
-  - `def _unit_of(event: Event, names: Mapping[str, str]) -> str | None`. `names` maps a unit directory to its unit name, and the function returns `names.get(event.fields.get("Unit", ""))`.
-  - Every read of `Unit` in `plan.py` goes through it: `_gate_keys`, the `Attempt Generation` maximum (`:685-702`), `_unit_approval` (`:718-750`), and the voiding by a rejection. `_gate_keys` gains a third parameter, `names`.
+- Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647).
+- Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`.
 
-- [ ] **Step 1:** Run `grep -n '"Unit"' src/earnest/plan.py`, and list every read in this task.
-- [ ] **Step 2:** Write the failing tests:
+- [ ] **Step 1:** From `packages/earnest/`, run `grep -rn 'Unit' src/earnest/plan.py tests/ --include='*.py' --include='*.md' --include='*.feature'`. List in this task every hit that reads or writes a gate row's `Unit`; skip `Unit Progress`, `Unit Ownership` and unit-table ids. Correct the Files list if it misses one.
+- [ ] **Step 2:** Write the failing tests in `test_plan.py`:
   - `test_gate_row_joins_unit_by_directory`: a per-stage row with `Unit: u1-limiter` approves `construction/u1-limiter/functional-design`.
   - `test_gate_row_with_the_id_rule_name_approves_nothing`: the same row with `Unit: u1` approves nothing.
   - `test_attempt_generation_counts_by_directory`: a row with `Unit: u1-limiter` and `Attempt Generation: 2` voids a generation-1 approval of `u1-limiter`.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
-- [ ] **Step 4:** Implement `_unit_of`, and route each read listed in Step 1 through it. Build `names` once, where `lanes` is built, from the same joined rows.
-- [ ] **Step 5:** Change the fixture and the rows written by hand:
-  - `Unit: u1` becomes `Unit: u1-limiter`, and `Unit: u2` becomes `Unit: u2-notice`;
-  - in `FUTURE-FORMAT.md`, the sentence that describes the value now reads "the unit's construction directory, upstream's unit name (`core/knowledge/aidlc-shared/verification.md:23` of the fork)".
-  - Leave the Gherkin of `unit_status.feature` and `04` as it is. The steps name units by Earnest's name and write the directory into `Unit` (Files, above), so no ratified scenario changes.
-  - Update `UNITS_SHA` in `test_seeded_change.py` to the new short sha of the units variant, and grep `tests/` and `04` for `4cdc2f5` to find any other copy. The comment on that line says why the sha moved. Every other pinned sha stays as it is.
-- [ ] **Step 6:** Run `rtk proxy uv run pytest tests/unit/test_plan.py tests/steps/test_unit_status.py tests/steps/test_evidence_check.py tests/integration/test_seeded_change.py; echo $?` and the regression run. Expected: `0`, all pass, at Task 1's count plus 4.
+- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`. Nothing else in `src/` changes.
+- [ ] **Step 5:** Change every row Step 1 listed:
+  - in the fixture and `evidence-units/`, `Unit: u1` becomes `Unit: u1-limiter`, and `Unit: u2` becomes `Unit: u2-notice`;
+  - in `test_plan.py`, `test_task_change.py`, `test_unit_status.py` and `unit_status.feature`, the edits the Files list names;
+  - in `FUTURE-FORMAT.md`, the sentence that describes the value now reads "the unit's construction directory, upstream's unit name (`core/knowledge/aidlc-shared/verification.md:23` of the fork)";
+  - update `UNITS_SHA` in `test_seeded_change.py` to the new short sha of the units variant, and grep `tests/` and `04` for `4cdc2f5` to find any other copy. The comment on that line says why the sha moved. Every other pinned sha stays as it is.
+- [ ] **Step 6:** Run `rtk proxy uv run pytest tests/unit/test_plan.py tests/steps/test_unit_status.py tests/steps/test_evidence_check.py tests/integration/test_seeded_change.py tests/integration/test_task_change.py; echo $?` and the regression run. Expected: `0`, all pass, at Task 1's count plus 4.
 - [ ] **Step 7:** Commit `fix: a gate row's Unit names the unit's construction directory, as upstream writes it`.
 
 ### Task 3: The `aidlc_fork` behavior gate, red
@@ -764,7 +765,7 @@ Test `packages/earnest/tests/unit/test_plan.py`.
   - everything under `packages/earnest/tests/fixtures/seeded-change/fork/` and `packages/earnest/tests/fixtures/seeded-change/fork-units/`;
   - `packages/earnest/tests/features/aidlc_fork.feature`;
   - `packages/earnest/tests/steps/test_aidlc_fork.py`.
-- Modify: `packages/earnest/tests/conftest.py` and `packages/earnest/tests/steps/test_unit_status.py`.
+- Modify: `packages/earnest/tests/conftest.py`, `packages/earnest/tests/steps/test_unit_status.py` and `packages/earnest/pyproject.toml`.
 
 **Interfaces:**
 
@@ -788,7 +789,7 @@ Test `packages/earnest/tests/unit/test_plan.py`.
   - `earnest check --stage construction/u2-notice/functional-design` on `fork-units`. Expected: exit 0 and 0 results.
 
   If a count differs, stop. The Gherkin's counts change only through Task 0 and the maintainer.
-- [ ] **Step 6:** Copy the M7 Gherkin of `04` into `aidlc_fork.feature`, verbatim.
+- [ ] **Step 6:** Copy the M7 Gherkin of `04` into `aidlc_fork.feature`, verbatim. Add `addopts = ["--ignore=tests/steps/test_aidlc_fork.py"]` to `[tool.pytest.ini_options]` in `packages/earnest/pyproject.toml`, so a bare run leaves the module out; naming its path still runs it.
 - [ ] **Step 7:** Write `tests/steps/test_aidlc_fork.py`. Every step asserts on a fork call's exit code, and its message is the call's stderr:
 
 ```python
@@ -849,11 +850,10 @@ def sensor_exits_zero(sensor):
     assert sensor.returncode == 0, sensor.stderr
 
 
-@then(parsers.parse('the record holds a run header for "{stage}" and none for "{bare}"'))
-def per_unit_header(repo, stage, bare):
+@then(parsers.parse('the record holds a run header for "{stage}"'))
+def per_unit_header(repo, stage):
     runs = _runs(repo)
     assert f"{RECORD}/{stage}" in runs, sorted(runs)
-    assert f"{RECORD}/{bare}" not in runs, sorted(runs)
 
 
 @when(parsers.parse('AI-DLC opens the gate of "{slug}"'))
@@ -906,7 +906,7 @@ def unit_approval_row(repo, slug, unit, stage, by):
 
   The `Items` comparison relies on the run header's `items` being sorted (`plan.header`, `plan.py:1362-1378`) and on the fork writing them in that order, joined by `", "`, as the fixture rows are. If the fork's plan settles a different order, compare sorted lists, and record that in Task 0 Step 4.
 
-- [ ] **Step 8:** With `EARNEST_AIDLC_FORK` pointing at a checkout that has no delta (the maintainer's `earnest/m7-base`), run `rtk proxy uv run pytest tests/steps/test_aidlc_fork.py; echo $?`. Expected: a non-zero code; all 5 scenarios fail on `engine sensor-earnest` or on the missing fields, and none is skipped. Then run it once with `EARNEST_AIDLC_FORK` unset. Expected: a non-zero code, and all 5 reported as errors at the setup of the session fixture `fork`, each with the message naming `EARNEST_AIDLC_FORK`. An error at setup fails the run; it is not a skip. The regression run (`--ignore` of this module) is green at Task 2's count.
+- [ ] **Step 8:** With `EARNEST_AIDLC_FORK` pointing at a checkout that has no delta (the maintainer's `earnest/m7-base`), run `rtk proxy uv run pytest tests/steps/test_aidlc_fork.py; echo $?`. Expected: a non-zero code; all 5 scenarios fail on `engine sensor-earnest` or on the missing fields, and none is skipped. Then run it once with `EARNEST_AIDLC_FORK` unset. Expected: a non-zero code, and all 5 reported as errors at the setup of the session fixture `fork`, each with the message naming `EARNEST_AIDLC_FORK`. An error at setup fails the run; it is not a skip. The regression run, which `addopts` now keeps this module out of, is green at Task 2's count.
 - [ ] **Step 9:** Commit `test: RED aidlc_fork behavior gate`.
 
 ### Task 4: Make and CI
@@ -915,7 +915,7 @@ def unit_approval_row(repo, slug, unit, stage, by):
 
 - [ ] **Step 1:** Change the two Makefiles. In each recipe line below, the leading space stands for a tab; the Markdown linter rewrites tabs in this plan, but make needs them.
 
-  - In `packages/earnest/Makefile`, add `test-aidlc-fork` to `.PHONY`. Change the `test` recipe to `uv run pytest --ignore=tests/steps/test_aidlc_fork.py --cov --cov-report=term-missing --cov-report=xml:coverage.xml`. Add this target after `test`:
+  - In `packages/earnest/Makefile`, add `test-aidlc-fork` to `.PHONY`. Add this target after `test`:
 
 ```make
 test-aidlc-fork: install
