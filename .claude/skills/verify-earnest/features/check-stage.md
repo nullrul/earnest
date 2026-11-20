@@ -20,7 +20,7 @@ Preconditions: `build-fixture.sh base` repo at `89f3937`, `EARNEST_JUDGE` unset,
 
 - **Stage run.** `run-earnest.sh "$REPO" "$EV" stage check --stage inception/requirements-analysis`. Exit `0`; `stage.stdout` has no results; `stage.stderr` ends `findings: 0, errors: 0`.
 - **Header line.** `stage.stderr` has `assessment aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis: sha256:341675c6b680d9c0d2557b501ea04d443f76b923bf4706155b84373f058c8ba7 (done)`.
-- **Record.** `stage.record.json` has `runs` with the one key `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis`, whose `hash` equals that sha256, `status` `done`, `items` the three requirement ids, and `bodies` for the same three.
+- **Record.** `stage.record.json` has `runs` with the one key `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis`, whose `hash` equals that sha256, `status` `done`, and `items` the three requirement ids; the top-level `bodies` key holds the same three.
 - **Bad stage.** `run-earnest.sh "$REPO" "$EV" badstage check --stage nope`. Exit `2`, empty stdout, stderr `earnest: nope is not a stage on the route: inception/requirements-analysis, construction/code-generation, construction/build-and-test`.
 - **Bad intent.** `run-earnest.sh "$REPO" "$EV" badintent check --intent nope`. Exit `2`, empty stdout, stderr `earnest: no record directory nope: the record directories are aidlc/spaces/default/intents/260926-checkout`.
 

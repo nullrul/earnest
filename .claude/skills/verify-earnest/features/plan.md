@@ -26,4 +26,4 @@ Preconditions: `build-fixture.sh base` repo at `89f3937`, `EARNEST_JUDGE` unset.
 ## Gotchas
 
 - A `plan` run following a `check --stage` run in the same repo sees the earlier `.earnest/`; start from a fresh build for the no-record step.
-- The base build has an empty `plan.units` array; the `units` build was not driven for this map.
+- The base build has an empty `runs[0].properties.plan.intents[0].units` array; the `units` build was not driven for this map.

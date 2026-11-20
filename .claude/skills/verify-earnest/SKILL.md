@@ -35,7 +35,7 @@ Ready means `git rev-parse --short=7 HEAD` matches the doctor table below.
 Read-only. Run first, and whenever anything looks off:
 
 ```bash
-( cd "$REPO" && git rev-parse --short=7 HEAD && git status --short | wc -l && git log --format=%s )
+( cd "$REPO" && git rev-parse --short=7 HEAD && git status --porcelain | wc -l && git log --format=%s )
 ```
 
 | Build | Expected short sha | Expected `git log` subjects |
@@ -55,7 +55,7 @@ EV=${TMPDIR:-/tmp}/verify-earnest/evidence/$(date +%Y%m%dT%H%M%S)
 $SK/scripts/run-earnest.sh "$REPO" "$EV" <label> <earnest args...>
 ```
 
-It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and `.record.json` (copy of `.earnest/assessment.json`). It exits with earnest's own code.
+It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and `.record.json` (copy of `.earnest/assessment.json` as it stands after the run). It exits with earnest's own code.
 
 Exit codes: `0` clean; `1` an error-level finding at plan position behind or current; `2` earnest could not run (bad flag value, no judge model, unknown stage). Features, one file each:
 
@@ -64,7 +64,7 @@ Exit codes: `0` clean; `1` an error-level finding at plan position behind or cur
 - [plan](features/plan.md): `earnest plan`.
 - [judge](features/judge.md): `check --judge` with the stub model.
 
-`check --evidence` runs tests and mutmut: heavy, and not verified here. The `evidence` and `evidence-units` overlays (with `$PKG/tests/fixtures/seeded-change/evidence-verdicts.json`) have never been built by this skill; check them before trusting a run.
+`check --evidence` runs tests and mutmut: heavy, and not verified here (its overlays are unverified; see Launch).
 
 ## Evidence
 
@@ -74,7 +74,7 @@ Evidence goes to `${TMPDIR:-/tmp}/verify-earnest/evidence/<timestamp>/`. Cleanup
 
 ## Cleanup
 
-Removes only a scratch directory the builder created (it checks the parent is `.../verify-earnest/scratch.*` and holds the marker file `.verify-earnest-scratch`, else refuses):
+Removes only a scratch directory the builder created. It resolves symlinks and `..` on both the repo's parent and the scratch root, requires the parent to be a `scratch.*` directory directly under `.../verify-earnest/` that holds the marker file `.verify-earnest-scratch`, else refuses:
 
 ```bash
 $SK/scripts/build-fixture.sh --clean "$REPO"
@@ -86,5 +86,3 @@ Run it after every attempt, failed ones included. Never `rm` anything else, and 
 
 - `scripts/build-fixture.sh base|units [overlay ...]` prints the repo path; `--clean <repo-path>` removes it.
 - `scripts/run-earnest.sh <repo> <evidence-dir> <label> <earnest args...>` runs and records one command.
-
-Both are executable; `bash -n` and `shellcheck` are clean.

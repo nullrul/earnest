@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Build or remove a committed earnest fixture repo, mirroring packages/earnest/tests/conftest.py.
 #   build-fixture.sh base|units [overlay ...]   build under $TMPDIR/verify-earnest/scratch.XXXXXX, print the repo path
-# Each overlay is committed on main. Only base, units and base+override were verified; other overlays are unverified,
-# and conftest commits change and task on a new branch (commit_overlay, commit_task_change), which is not mirrored.
+# Each overlay is committed on main. Unverified overlays and the unmirrored change/task: see SKILL.md Launch.
 #   build-fixture.sh --clean <repo-path>        remove the scratch directory that build made (nothing else)
 set -euo pipefail
 
@@ -13,14 +12,22 @@ SRC=$(cd "$here/../../../../packages/earnest/tests/fixtures/seeded-change" && pw
 RECORD=aidlc/spaces/default/intents/260926-checkout
 
 if [ "${1:-}" = "--clean" ]; then
-  scratch=$(dirname "${2:?usage: --clean <repo-path>}")
-  case "$scratch" in "$ROOT"/scratch.*) ;; *) echo "refusing: $scratch is not a scratch dir of this skill" >&2; exit 1 ;; esac
+  # Resolve both sides physically (symlinks, ..): on macOS /var is /private/var, so one side alone breaks.
+  root=$(cd -P "$ROOT" 2>/dev/null && pwd -P) || { echo "refusing: $ROOT does not exist" >&2; exit 1; }
+  scratch=$(cd -P "$(dirname "${2:?usage: --clean <repo-path>}")" 2>/dev/null && pwd -P) || { echo "refusing: cannot resolve the parent of $2" >&2; exit 1; }
+  rest=${scratch#"$root"/}
+  case "$rest" in scratch.*/*) rest= ;; scratch.*) ;; *) rest= ;; esac
+  [ -n "$rest" ] || { echo "refusing: $scratch is not a scratch dir of this skill" >&2; exit 1; }
   [ -f "$scratch/$MARK" ] || { echo "refusing: no $MARK in $scratch" >&2; exit 1; }
   rm -rf "$scratch"; echo "removed $scratch"; exit 0
 fi
 
 variant="${1:?usage: build-fixture.sh base|units [overlay ...]}"; shift
 case "$variant" in base|units) ;; *) echo "variant must be base or units" >&2; exit 2 ;; esac
+
+for overlay in "$@"; do
+  [ -d "$SRC/$overlay" ] || { echo "no overlay $overlay" >&2; exit 2; }
+done
 
 mkdir -p "$ROOT"
 scratch=$(mktemp -d "$ROOT/scratch.XXXXXX")
@@ -47,7 +54,6 @@ git add -A
 git commit -q --no-verify -m fixture
 
 for overlay in "$@"; do
-  [ -d "$SRC/$overlay" ] || { echo "no overlay $overlay" >&2; exit 2; }
   (cd "$SRC/$overlay" && find . -type f ! -name '*.pyc' ! -path '*/__pycache__/*' | sed 's|^\./||' | sort) > "$scratch/files"
   rsync -a --exclude=__pycache__ --exclude='*.pyc' "$SRC/$overlay/" "$repo/"
   xargs git add -- < "$scratch/files"
