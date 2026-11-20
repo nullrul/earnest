@@ -1,6 +1,6 @@
 ---
 name: verify-earnest
-description: Drive the earnest CLI (`earnest check`, `plan`, `calibrate`) against a committed fixture repo and capture proof of its behavior: exit code, SARIF on stdout, summary on stderr, and the `.earnest/assessment.json` record. Use to confirm a change to packages/earnest works in the real CLI, not just in pytest.
+description: "Drive the earnest CLI (`earnest check`, `plan`) against a committed fixture repo and capture proof of its behavior, meaning exit code, SARIF on stdout, summary on stderr, and the `.earnest/assessment.json` record. Use to confirm a change to packages/earnest works in the real CLI, not just in pytest."
 ---
 
 # Verify earnest
@@ -20,7 +20,7 @@ SK=.claude/skills/verify-earnest
 REPO=$($SK/scripts/build-fixture.sh base)          # prints the repo path
 ```
 
-`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top (`change`, `task`, `override`, `override-change`, `evidence`, `evidence-units`).
+`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. `change` and `task` are not mirrored: `packages/earnest/tests/conftest.py` commits them on a new branch (`commit_overlay`, `commit_task_change`), and the builder commits on `main`.
 
 | Need | Build |
 | --- | --- |
@@ -44,7 +44,7 @@ Read-only. Run first, and whenever anything looks off:
 | `base override` | differs (override commit on top; base is its parent) | `override`, `fixture` |
 | `units` | `4cdc2f5` | `fixture` |
 
-The status count must be `0` (before the first run; a run adds an untracked `.earnest/`, itself ignored by its own `.gitignore`). Also `uv run --quiet --project packages/earnest earnest --help` must exit 0. A wrong sha means the fixture files changed: `packages/earnest/tests/integration/test_seeded_change.py` pins `BASE_SHA` and `UNITS_SHA`, so update those, not this table, only on purpose.
+The status count must be `0` (before the first run; a run adds an untracked `.earnest/`, itself ignored by its own `.gitignore`). Also `uv run --quiet --project packages/earnest earnest --help` must exit 0. A wrong sha has two causes: the fixture files changed, or conftest's `_OVERLAYS` gained an entry that `build-fixture.sh`'s exclude list (`EXCL`) lacks. For the first, `packages/earnest/tests/integration/test_seeded_change.py` pins `BASE_SHA` and `UNITS_SHA`, so update those, not this table, only on purpose.
 
 ## Drive
 
@@ -64,7 +64,7 @@ Exit codes: `0` clean; `1` an error-level finding at plan position behind or cur
 - [plan](features/plan.md): `earnest plan`.
 - [judge](features/judge.md): `check --judge` with the stub model.
 
-`check --evidence` runs tests and mutmut: heavy, skip unless the change under test is the evidence layer (`build-fixture.sh base evidence`, `EARNEST_JUDGE=stub:$PKG/tests/fixtures/seeded-change/evidence-verdicts.json`).
+`check --evidence` runs tests and mutmut: heavy, and not verified here. The `evidence` and `evidence-units` overlays (with `$PKG/tests/fixtures/seeded-change/evidence-verdicts.json`) have never been built by this skill; check them before trusting a run.
 
 ## Evidence
 

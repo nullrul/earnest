@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Build or remove a committed earnest fixture repo, mirroring packages/earnest/tests/conftest.py.
 #   build-fixture.sh base|units [overlay ...]   build under $TMPDIR/verify-earnest/scratch.XXXXXX, print the repo path
+# Each overlay is committed on main. Only base, units and base+override were verified; other overlays are unverified,
+# and conftest commits change and task on a new branch (commit_overlay, commit_task_change), which is not mirrored.
 #   build-fixture.sh --clean <repo-path>        remove the scratch directory that build made (nothing else)
 set -euo pipefail
 
@@ -31,7 +33,7 @@ export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 XDG_CONFIG_HOME=/dev/nu
 export GIT_AUTHOR_NAME="Earnest Fixture" GIT_AUTHOR_EMAIL="fixture@example.com" GIT_AUTHOR_DATE="2026-09-26T12:00:00+00:00"
 export GIT_COMMITTER_NAME="Earnest Fixture" GIT_COMMITTER_EMAIL="fixture@example.com" GIT_COMMITTER_DATE="2026-09-26T12:00:00+00:00"
 
-# _OVERLAYS, anchored to the fixture root, plus bytecode.
+# _OVERLAYS, anchored to the fixture root, plus bytecode. Must match conftest's _OVERLAYS.
 EXCL=(--exclude=/change --exclude=/task --exclude=/units --exclude=/override --exclude=/override-change
       --exclude=/evidence --exclude=/evidence-units --exclude=/judge-verdicts.json --exclude=/evidence-verdicts.json
       --exclude=/stub-pass.json --exclude=/stub-fail.json --exclude=__pycache__ --exclude='*.pyc')
