@@ -44,18 +44,19 @@ Read-only. Run first, and whenever anything looks off:
 | `base override` | differs (override commit on top; base is its parent) | `override`, `fixture` |
 | `units` | `4cdc2f5` | `fixture` |
 
-The status count must be `0` (before the first run; a run adds an untracked `.earnest/`, itself ignored by its own `.gitignore`). Also `uv run --quiet --project packages/earnest earnest --help` must exit 0. A wrong sha has two causes: the fixture files changed, or conftest's `_OVERLAYS` gained an entry that `build-fixture.sh`'s exclude list (`EXCL`) lacks. For the first, `packages/earnest/tests/integration/test_seeded_change.py` pins `BASE_SHA` and `UNITS_SHA`, so update those, not this table, only on purpose.
+The status count must be `0` (a `check --stage` or `check --judge` run adds an untracked `.earnest/`, which its own `.gitignore` hides, so the count stays `0`). Also `uv run --quiet --project packages/earnest earnest --help` must exit 0. A wrong sha has two causes: the fixture files changed, or conftest's `_OVERLAYS` gained an entry that `build-fixture.sh`'s exclude list (`EXCL`) lacks. For the first, `packages/earnest/tests/integration/test_seeded_change.py` pins `BASE_SHA` and `UNITS_SHA`, so update those, not this table, only on purpose.
 
 ## Drive
 
 Use the capture helper so the exit code comes straight from `$?`:
 
 ```bash
-EV=${TMPDIR:-/tmp}/verify-earnest/evidence/$(date +%Y%m%dT%H%M%S)
+mkdir -p "${TMPDIR:-/tmp}/verify-earnest/evidence"
+EV=$(mktemp -d "${TMPDIR:-/tmp}/verify-earnest/evidence/$(date +%Y%m%dT%H%M%S).XXXXXX")
 $SK/scripts/run-earnest.sh "$REPO" "$EV" <label> <earnest args...>
 ```
 
-It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and `.record.json` (copy of `.earnest/assessment.json` as it stands after the run). It exits with earnest's own code.
+It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and, only when `.earnest/assessment.json` exists after the run, `.record.json` (a copy of it, which may come from an earlier run). It exits with earnest's own code.
 
 Exit codes: `0` clean; `1` an error-level finding at plan position behind or current; `2` earnest could not run (bad flag value, no judge model, unknown stage). Features, one file each:
 
@@ -68,9 +69,9 @@ Exit codes: `0` clean; `1` an error-level finding at plan position behind or cur
 
 ## Evidence
 
-A proof is: the real CLI path (`earnest ...` inside a committed fixture repo, not a Python call or a test-only hook), the exact command (`.cmd`), the exit code captured directly with `$?` by the helper (never through `rtk`, which can mask exit codes; if you run earnest by hand, use `rtk proxy` and `echo $?`), the SARIF on stdout, the summary on stderr, and the record file `.earnest/assessment.json` as a side effect (read it: a `check --stage` run writes a header under `runs`, keyed `<record dir>/<stage>` with `hash` and `items`, while other runs leave `runs` empty; `judge.cache` holds judge answers). Assert on ruleIds and levels in `runs[0].results`, not on prose. Where a feature says the run must leave no record, verify the absence in the repo.
+A proof is: the real CLI path (`earnest ...` inside a committed fixture repo, not a Python call or a test-only hook), the exact command (`.cmd`), the exit code captured directly with `$?` by the helper (never through `rtk`, which can mask exit codes; if you run earnest by hand, use `rtk proxy` and `echo $?`), the SARIF on stdout, the summary on stderr, and the record file `.earnest/assessment.json` as a side effect (of the mapped features, only `check --stage` and `check --judge` write it: `check --stage` adds a header under `runs` keyed `<record dir>/<stage>` with `hash` and `items`, plus top-level `bodies`; `check --judge` without `--stage` leaves `runs` and `bodies` empty and keeps its answers in `judge.cache`; plain `check` and `plan` write none). Assert on ruleIds and levels in `runs[0].results`, not on prose. Where a feature says the run must leave no record, verify the absence in the repo.
 
-Evidence goes to `${TMPDIR:-/tmp}/verify-earnest/evidence/<timestamp>/`. Cleanup never touches it.
+Evidence goes to `${TMPDIR:-/tmp}/verify-earnest/evidence/<timestamp>.XXXXXX/` (one directory per drive, made by `mktemp -d`, so side-by-side drives never share one). Cleanup never touches it.
 
 ## Cleanup
 
