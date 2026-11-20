@@ -1,6 +1,6 @@
 # M7 `aidlc_fork` Implementation Plan
 
-Status: PROPOSED, 2026-11-20. Every gating answer below is waiting on the maintainer. No task starts until Task 0 Step 1 records the decisions. This repository alone cannot turn the exit command green. It needs the Fork delta of `02`, built under the fork's own plan, merged in the fork's repository at the commit that Task 5 pins. The plan was written on `main` and is not committed; Task 0 commits it on the M7 branch.
+Status: PROPOSED, 2026-11-20. Every gating answer below is waiting on the maintainer. No task starts until Task 0 Step 1 records the decisions. This repository alone cannot turn the exit command green. It needs the Fork delta of `02`, built under the fork's own plan, merged in the fork's repository at the commit that Task 5 pins. The plan is committed on the branch `docs/m7-aidlc-fork-plan` for review; Task 0 records the decisions in it.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -45,7 +45,7 @@ Status: PROPOSED, 2026-11-20. Every gating answer below is waiting on the mainta
 
 ## Fork facts (2026-11-20)
 
-The fork checkout is `/Users/rc/Projects/workspace/aidlc-workflows`. Its branch `earnest/m7-base` is the same commit as `origin/main`, `f2acb53d`. No Earnest delta is applied: `git log main..HEAD` is empty. Paths below are relative to the fork. The feasibility runs used copies of the built fixtures in the session scratchpad. The fork's `git status --short` was the same before and after.
+The fork checkout is `/Users/rc/Projects/workspace/aidlc-workflows`. Its branch `earnest/m7-base` is the same commit as `origin/main`, `f2acb53d`. No Earnest delta is applied: `git log main..HEAD` is empty. Paths below are relative to the fork. The feasibility runs used copies of the built fixtures in the session scratchpad. The fork's `git status --short --ignored` was the same before and after.
 
 | # | Fact | Evidence |
 | --- | --- | --- |
@@ -293,10 +293,10 @@ This is what the gate calls. `<fork>` is `$EARNEST_AIDLC_FORK`. Every call runs 
 
 - the working directory is the built fixture repository;
 - the environment holds only:
-  - `HOME`;
+  - `HOME`, set to an empty directory in pytest's temporary space, so no per-user configuration under `~` reaches the fork;
   - `PATH`, set to `<venv bin>:<bun dir>:/usr/bin:/bin`;
   - the `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM`, `XDG_CONFIG_HOME` and `GIT_ATTR_NOSYSTEM` values that `_isolated_git` in `tests/conftest.py` sets;
-  - `AIDLC_PROJECT_DIR=<repo>`;
+  - `AIDLC_PROJECT_DIR=<repo>` and `AIDLC_RUNTIME_PROJECT_DIR=<repo>`. Without the second, a write the fork marks mutable falls back to `<fork>/core` when the fork runs from source (`core/tools/aidlc-runtime-paths.ts:352-360`, `:515-523`, `:697-705`);
   - `AIDLC_STAGE_GRAPH=<graph>`.
 
 The calls, in order:
@@ -323,7 +323,7 @@ The calls, in order:
 - **The fork is read-only.** No task edits, commits, stashes or pushes a fork file, or switches the fork's branch. No `gh` command runs from the fork clone, which defaults to `awslabs` (F1).
 - **The gate leaves the checkout clean.**
   - The graph and the fixture copies live in pytest's temporary directories, not in the checkout.
-  - `git -C "$EARNEST_AIDLC_FORK" status --short` is identical before and after a gate run (Task 6).
+  - `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` is identical before and after a gate run (Task 6).
   - The gate never runs `bun install`. That is a precondition (answer 12).
 - **Fail, never skip.** A missing `EARNEST_AIDLC_FORK`, a path without `core/tools/aidlc.ts`, or no `bun` on `PATH` each call `pytest.fail` with a one-line message that names the cause. Neither the module nor its helper uses `pytest.skip`, `skipif` or `importorskip`.
 - **A scrubbed environment for every fork call** (F17). The fork never sees the caller's session, host settings or Git configuration.
@@ -375,7 +375,7 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 
 **Regression expectations:**
 
-- For Tasks 1 to 4, the regression run is `uv run pytest --ignore=tests/steps/test_aidlc_fork.py` in `packages/earnest/`. It stays green at the count the M7 branch records at the start of Task 1, plus the tests each task adds.
+- For Tasks 1 to 4, the regression run is `rtk proxy uv run pytest --ignore=tests/steps/test_aidlc_fork.py; echo $?` in `packages/earnest/`, and its evidence is the printed code. It stays green at the count the M7 branch records at the start of Task 1, plus the tests each task adds.
 - Every task records its exact count.
 
 ## File Structure
@@ -418,7 +418,7 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
 
 ### Task 0: The docs commit
 
-**Files:** Create `docs/superpowers/plans/2026-11-20-aidlc-fork.md`. Modify `docs/design/01-logic-design.md`, `docs/design/02-structural-design.md`, `docs/design/03-implementation-plan.md` and `docs/design/04-bdd-test-plan.md`.
+**Files:** Modify `docs/superpowers/plans/2026-11-20-aidlc-fork.md`, `docs/design/01-logic-design.md`, `docs/design/02-structural-design.md`, `docs/design/03-implementation-plan.md` and `docs/design/04-bdd-test-plan.md`.
 
 - [ ] **Step 1:** For each of the seventeen answers, replace PROPOSED with the maintainer's decision and its date. If answer 4, 13, 14, 15 or 17 has no decision, stop: Tasks 2 to 5 are built on them.
 - [ ] **Step 2:** Write the M7 section of `04`, after M6's. It holds:
@@ -499,26 +499,27 @@ Feature: AI-DLC fork
   - `parse_audit(text: str, shard: str) -> list[Event]` from `earnest.plan`, where `Event.fields` is a `dict[str, str]`.
 - Produces, all in `tests/fork.py`:
   - `FORK_ENV = "EARNEST_AIDLC_FORK"`, `ENTRY = "core/tools/aidlc.ts"`, and `CLONE_ID = "fixturecloneid01"`;
-  - `@dataclass(frozen=True) class Fork: root: Path; bun: Path; graph: Path`;
+  - `@dataclass(frozen=True) class Fork: root: Path; bun: Path; graph: Path; home: Path`;
   - `def fork_checkout() -> tuple[Path, Path]`;
-  - `def fork_env(bun: Path, **extra: str) -> dict[str, str]`;
+  - `def fork_env(bun: Path, home: Path, **extra: str) -> dict[str, str]`;
   - `def compile_graph(root: Path, bun: Path, out: Path) -> Fork`;
   - `def run_fork(repo: Path, fork: Fork, *args: str, direct: bool = False) -> subprocess.CompletedProcess[str]`;
   - `def fork_shard(repo: Path) -> Path`;
   - `def human_turn(repo: Path) -> None`;
   - `def gate_approvals(repo: Path) -> list[Event]`.
 
-- [ ] **Step 1:** Record the regression count: run `uv run pytest --ignore=tests/steps/test_aidlc_fork.py -q` in `packages/earnest/`, and write the passed count into this task.
+- [ ] **Step 1:** Record the regression count: run `rtk proxy uv run pytest --ignore=tests/steps/test_aidlc_fork.py -q; echo $?` in `packages/earnest/`, and write the passed count into this task.
 - [ ] **Step 2:** Write the failing tests in `tests/unit/test_fork.py`:
 
 ```python
 """The aidlc_fork gate's helper fails, never skips, and runs the fork in a scrubbed environment."""
 
+import re
 from pathlib import Path
 
 import pytest
 
-from tests.fork import ENTRY, FORK_ENV, fork_checkout, fork_env
+from tests.fork import ENTRY, FORK_ENV, Fork, fork_checkout, fork_env, run_fork
 from tests.sarif import EARNEST
 
 
@@ -572,17 +573,30 @@ def test_the_gate_never_skips():
 
 def test_environment_is_scrubbed(monkeypatch):
     monkeypatch.setenv("CLAUDE_SESSION_ID", "leak")
-    env = fork_env(Path("/opt/bun/bin/bun"), AIDLC_PROJECT_DIR="/repo")
+    env = fork_env(Path("/opt/bun/bin/bun"), Path("/tmp/home"), AIDLC_PROJECT_DIR="/repo")
     assert set(env) == {
         "HOME", "PATH", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME", "GIT_ATTR_NOSYSTEM",
         "AIDLC_PROJECT_DIR",
     }
     assert env["PATH"].split(":")[:2] == [str(EARNEST.parent), "/opt/bun/bin"]
+    assert env["HOME"] == "/tmp/home"
+
+
+def test_run_fork_scrubs_and_names_the_repo(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_SESSION_ID", "leak")
+    bun = tmp_path / "bun"
+    bun.write_text("#!/bin/sh\nenv\n")
+    bun.chmod(0o755)
+    fork = Fork(tmp_path, bun, tmp_path / "stage-graph.json", tmp_path / "home")
+    seen = dict(line.split("=", 1) for line in run_fork(tmp_path, fork, "engine").stdout.splitlines())
+    assert seen["AIDLC_PROJECT_DIR"] == seen["AIDLC_RUNTIME_PROJECT_DIR"] == str(tmp_path)
+    assert seen["HOME"] == str(tmp_path / "home")
+    assert "CLAUDE_SESSION_ID" not in seen
 ```
 
-  `test_the_gate_never_skips` looks for skip calls, not the word, because the helper's docstrings say "never skip". The test file also needs `import re` at the top.
+  `test_the_gate_never_skips` looks for skip calls, not the word, because the helper's docstrings say "never skip".
 
-- [ ] **Step 3:** Run `uv run pytest tests/unit/test_fork.py`. Expected: collection fails with `ModuleNotFoundError: tests.fork`.
+- [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_fork.py; echo $?`. Expected: a non-zero code; collection fails with `ModuleNotFoundError: tests.fork`.
 - [ ] **Step 4:** Write `tests/fork.py`:
 
 ```python
@@ -619,11 +633,12 @@ writeFileSync(out, compileStageGraph().json);
 
 @dataclass(frozen=True)
 class Fork:
-    """A fork checkout, the bun that runs it, and the stage graph compiled from it."""
+    """A fork checkout, the bun that runs it, the stage graph compiled from it, and the empty HOME its calls see."""
 
     root: Path
     bun: Path
     graph: Path
+    home: Path
 
 
 def fork_checkout() -> tuple[Path, Path]:
@@ -640,33 +655,38 @@ def fork_checkout() -> tuple[Path, Path]:
     return root, Path(bun)
 
 
-def fork_env(bun: Path, **extra: str) -> dict[str, str]:
+def fork_env(bun: Path, home: Path, **extra: str) -> dict[str, str]:
     """Return the only environment a fork call sees: no session, host setting or Git configuration leaks in."""
     path = os.pathsep.join([str(EARNEST.parent), str(bun.parent), "/usr/bin", "/bin"])
-    return {"HOME": os.environ["HOME"], "PATH": path, **_GIT, **extra}
+    return {"HOME": str(home), "PATH": path, **_GIT, **extra}
 
 
 def compile_graph(root: Path, bun: Path, out: Path) -> Fork:
     """Compile the fork's stage graph with the fork's own compileStageGraph into out, and return the Fork."""
-    script, graph = out / "compile-graph.ts", out / "stage-graph.json"
+    script, graph, home = out / "compile-graph.ts", out / "stage-graph.json", out / "home"
     script.write_text(_COMPILE)
+    home.mkdir()
     done = subprocess.run(
         [str(bun), str(script), str(root), str(graph)],
-        cwd=out, env=fork_env(bun), capture_output=True, text=True, check=False,
+        cwd=out, env=fork_env(bun, home), capture_output=True, text=True, check=False,
     )
     if done.returncode != 0 or not graph.is_file():
         pytest.fail(f"the fork's stage graph did not compile: {done.stderr.strip()}", pytrace=False)
-    return Fork(root, bun, graph)
+    return Fork(root, bun, graph, home)
 
 
 def run_fork(repo: Path, fork: Fork, *args: str, direct: bool = False) -> subprocess.CompletedProcess[str]:
     """Run `bun <fork>/core/tools/aidlc.ts <args>` in repo; direct allows the gate-start and approve transitions."""
-    extra = {"AIDLC_PROJECT_DIR": str(repo), "AIDLC_STAGE_GRAPH": str(fork.graph)}
+    extra = {
+        "AIDLC_PROJECT_DIR": str(repo),
+        "AIDLC_RUNTIME_PROJECT_DIR": str(repo),  # else mutable writes land in <fork>/core
+        "AIDLC_STAGE_GRAPH": str(fork.graph),
+    }
     if direct:
         extra["AIDLC_ALLOW_DIRECT_STATE_TRANSITIONS"] = "1"
     return subprocess.run(
         [str(fork.bun), str(fork.root / ENTRY), *args],
-        cwd=repo, env=fork_env(fork.bun, **extra), capture_output=True, text=True, check=False,
+        cwd=repo, env=fork_env(fork.bun, fork.home, **extra), capture_output=True, text=True, check=False,
     )
 
 
@@ -690,11 +710,11 @@ def gate_approvals(repo: Path) -> list[Event]:
     return [event for event in parse_audit(shard.read_text(), shard.name) if event.fields["Event"] == "GATE_APPROVED"]
 ```
 
-- [ ] **Step 5:** Run `uv run pytest tests/unit/test_fork.py` and the regression run. Expected: 7 passed, and the regression run is green at Step 1's count plus 7.
+- [ ] **Step 5:** Run `rtk proxy uv run pytest tests/unit/test_fork.py; echo $?` and the regression run. Expected: 8 passed and `0`, and the regression run is green at Step 1's count plus 8.
 - [ ] **Step 6:** Check the graph compile against the real checkout, without changing it:
-  - Run `git -C "$EARNEST_AIDLC_FORK" status --short` and save the output.
+  - Run `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` and save the output.
   - Run `uv run python -c 'from pathlib import Path; import tempfile; from tests.fork import compile_graph, fork_checkout; r, b = fork_checkout(); print(compile_graph(r, b, Path(tempfile.mkdtemp())).graph.stat().st_size)'` from `packages/earnest/`.
-  - Expected: a size above zero, and a second `git status --short` identical to the first.
+  - Expected: a size above zero, and a second `git status --short --ignored` identical to the first.
   - If the compile fails on a missing module, stop. Ask the maintainer to run `bun install --frozen-lockfile` in the checkout, which is answer 12's precondition. The agent does not run it. Then run the compile again.
 - [ ] **Step 7:** Commit `test: aidlc_fork gate helper that fails without a fork checkout`.
 
@@ -708,7 +728,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 - `packages/earnest/tests/fixtures/seeded-change/units/aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` (line 30);
 - `packages/earnest/tests/fixtures/seeded-change/units/FUTURE-FORMAT.md`;
 - every file under `packages/earnest/tests/fixtures/seeded-change/evidence-units/` that writes a `Unit` row;
-- `packages/earnest/tests/steps/test_unit_status.py` (lines 105-136);
+- `packages/earnest/tests/steps/test_unit_status.py`: the steps at lines 105-136 that write `Unit` rows, which map the unit's name to its directory through the unit table, and the guard at line 49, which becomes the exact field `"**Unit**: u1-limiter\n"` so a substring cannot pass it. The feature's `unit "u1"` and `unit "u2"` at `unit_status.feature` lines 166, 195 and 202 stay, since the steps map them; line 100's `unit "u1"` is a unit-table id and is not touched;
 - `packages/earnest/tests/integration/test_seeded_change.py`, including `UNITS_SHA = "4cdc2f5"` at line 287. That constant pins the units variant's commit, which moves when the overlay's audit shard changes.
 
 Test `packages/earnest/tests/unit/test_plan.py`.
@@ -726,14 +746,14 @@ Test `packages/earnest/tests/unit/test_plan.py`.
   - `test_gate_row_with_the_id_rule_name_approves_nothing`: the same row with `Unit: u1` approves nothing.
   - `test_attempt_generation_counts_by_directory`: a row with `Unit: u1-limiter` and `Attempt Generation: 2` voids a generation-1 approval of `u1-limiter`.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
-- [ ] **Step 3:** Run `uv run pytest tests/unit/test_plan.py -k "directory or id_rule"`. Expected: the four tests fail.
+- [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
 - [ ] **Step 4:** Implement `_unit_of`, and route each read listed in Step 1 through it. Build `names` once, where `lanes` is built, from the same joined rows.
 - [ ] **Step 5:** Change the fixture and the rows written by hand:
   - `Unit: u1` becomes `Unit: u1-limiter`, and `Unit: u2` becomes `Unit: u2-notice`;
   - in `FUTURE-FORMAT.md`, the sentence that describes the value now reads "the unit's construction directory, upstream's unit name (`core/knowledge/aidlc-shared/verification.md:23` of the fork)".
-  - If a Gherkin line in `04` or a `.feature` file carries a `Unit` value, change both. The maintainer's approval of answer 14 is the ratification that `04` "Fixed for the loop" asks for.
+  - Leave the Gherkin of `unit_status.feature` and `04` as it is. The steps name units by Earnest's name and write the directory into `Unit` (Files, above), so no ratified scenario changes.
   - Update `UNITS_SHA` in `test_seeded_change.py` to the new short sha of the units variant, and grep `tests/` and `04` for `4cdc2f5` to find any other copy. The comment on that line says why the sha moved. Every other pinned sha stays as it is.
-- [ ] **Step 6:** Run `uv run pytest tests/unit/test_plan.py tests/steps/test_unit_status.py tests/steps/test_evidence_check.py tests/integration/test_seeded_change.py` and the regression run. Expected: all pass, at Task 1's count plus 4.
+- [ ] **Step 6:** Run `rtk proxy uv run pytest tests/unit/test_plan.py tests/steps/test_unit_status.py tests/steps/test_evidence_check.py tests/integration/test_seeded_change.py; echo $?` and the regression run. Expected: `0`, all pass, at Task 1's count plus 4.
 - [ ] **Step 7:** Commit `fix: a gate row's Unit names the unit's construction directory, as upstream writes it`.
 
 ### Task 3: The `aidlc_fork` behavior gate, red
@@ -762,7 +782,7 @@ Test `packages/earnest/tests/unit/test_plan.py`.
   - `fork-units/aidlc/.aidlc-clone-id` holds `fixturecloneid01`.
 - [ ] **Step 3:** Add `"fork"` and `"fork-units"` to `_OVERLAYS` in `conftest.py`, in the same commit as the overlay files. Without that, the base copy takes them in, and the base commit's sha moves, which the sha pins in `test_seeded_change.py` catch.
 - [ ] **Step 4:** Move `define_twice` (`test_unit_status.py:53-55`) into `conftest.py`, with its `REQUIREMENTS`, `read` and `write` imports, so that both features share it. `test_unit_status.py` drops the moved step and any import it no longer uses (ruff F401).
-- [ ] **Step 5:** Check the readings on the built overlays with Earnest alone. In a scratch test, or with `uv run python`, build each overlay with `commit_on_main(fixture_repo("seeded-change"), "seeded-change", "fork")` and `commit_on_main(units_repo(), "seeded-change", "fork-units")`, then run:
+- [ ] **Step 5:** Check the readings on the built overlays with Earnest alone. In a scratch test, or with `uv run python`, build each overlay with `commit_on_main(fixture_repo("seeded-change"), "seeded-change", "fork")` and `commit_on_main(units_repo(), "seeded-change", "fork-units")`, then run each command below as `rtk proxy <command>; echo $?`, since the exit code is the reading:
   - `earnest check --stage requirements-analysis`. Expected: exit 0 and 0 results. After `define_twice`: exit 1 and 1 result.
   - `earnest check --stage code-generation`. Expected: exit 0.
   - `earnest check --stage construction/u2-notice/functional-design` on `fork-units`. Expected: exit 0 and 0 results.
@@ -886,7 +906,7 @@ def unit_approval_row(repo, slug, unit, stage, by):
 
   The `Items` comparison relies on the run header's `items` being sorted (`plan.header`, `plan.py:1362-1378`) and on the fork writing them in that order, joined by `", "`, as the fixture rows are. If the fork's plan settles a different order, compare sorted lists, and record that in Task 0 Step 4.
 
-- [ ] **Step 8:** With `EARNEST_AIDLC_FORK` pointing at a checkout that has no delta (the maintainer's `earnest/m7-base`), run `uv run pytest tests/steps/test_aidlc_fork.py`. Expected: all 5 scenarios fail on `engine sensor-earnest` or on the missing fields, and none is skipped. Then run it once with `EARNEST_AIDLC_FORK` unset. Expected: all 5 fail with the message naming `EARNEST_AIDLC_FORK`. The regression run (`--ignore` of this module) is green at Task 2's count.
+- [ ] **Step 8:** With `EARNEST_AIDLC_FORK` pointing at a checkout that has no delta (the maintainer's `earnest/m7-base`), run `rtk proxy uv run pytest tests/steps/test_aidlc_fork.py; echo $?`. Expected: a non-zero code; all 5 scenarios fail on `engine sensor-earnest` or on the missing fields, and none is skipped. Then run it once with `EARNEST_AIDLC_FORK` unset. Expected: a non-zero code, and all 5 reported as errors at the setup of the session fixture `fork`, each with the message naming `EARNEST_AIDLC_FORK`. An error at setup fails the run; it is not a skip. The regression run (`--ignore` of this module) is green at Task 2's count.
 - [ ] **Step 9:** Commit `test: RED aidlc_fork behavior gate`.
 
 ### Task 4: Make and CI
@@ -909,7 +929,7 @@ test-aidlc-fork:
  $(MAKE) -C packages/earnest test-aidlc-fork
 ```
 
-- [ ] **Step 2:** Add a job to `ci.yml` after `test-python`. It follows the existing jobs' style, including their tag pins (`actions/checkout@v4`, `astral-sh/setup-uv@v5`):
+- [ ] **Step 2:** Add a job to `ci.yml` after `test-python`. It follows the existing jobs' style, including their tag pins (`actions/checkout@v4`, `astral-sh/setup-uv@v5`), and pins `oven-sh/setup-bun` by the sha the fork's CI uses (answer 15):
 
 ```yaml
   test-aidlc-fork:
@@ -926,7 +946,7 @@ test-aidlc-fork:
           ref: ${{ env.AIDLC_FORK_REF }}
           path: aidlc-fork
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6  # v2.2.0, the sha the fork's CI pins
         with:
           bun-version: '1.4.2'  # the fork's CI pins this version
       - uses: astral-sh/setup-uv@v5
@@ -958,6 +978,6 @@ Start this task only after the fork's plan has merged the delta on the fork's `m
 
 **Files:** none. This task only runs the checks.
 
-- [ ] **Step 1:** Run `git -C "$EARNEST_AIDLC_FORK" status --short` and save the output. Then run `rtk proxy make test-aidlc-fork; echo $?`. Expected: `0`, and a second `git status --short` identical to the first.
+- [ ] **Step 1:** Run `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` and save the output. Then run `rtk proxy make test-aidlc-fork; echo $?`. Expected: `0`, and a second `git status --short --ignored` identical to the first.
 - [ ] **Step 2:** From the repository root, run `rtk proxy make test; echo $?` and `rtk proxy make lint; echo $?`. Expected: both print `0`.
 - [ ] **Step 3:** Run the `/pre-pr-review` skill on HEAD, and record its verdict. Push only under the maintainer's standing rule: three reviewers, every finding fixed, three fresh checkers PASS on the final sha. The PR waits for the CI job `test-aidlc-fork` to be green at the pinned sha.
