@@ -18,17 +18,22 @@ if [ "${1:-}" = "--clean" ]; then
   rm -rf "$scratch"; echo "removed $scratch"; exit 0
 fi
 
-variant="${1:?usage: build-fixture.sh base|units [overlay ...]}"; shift
+variant="${1:?usage: build-fixture.sh base|units [overlay ...] | --clean <repo-path>}"; shift
 case "$variant" in base|units) ;; *) echo "variant must be base or units" >&2; exit 2 ;; esac
 
+seen=" "
 for overlay in "$@"; do
-  case "$overlay" in change|task) echo "overlay $overlay is not mirrored: conftest commits it on a branch" >&2; exit 2 ;; esac
-  [ -d "$SRC/$overlay" ] || { echo "no overlay $overlay" >&2; exit 2; }
+  case "$variant:$overlay" in base:override|base:override-change|base:evidence|units:evidence-units) ;;
+    *) echo "overlay $overlay is not one conftest commits on main for $variant (base: override, override-change, evidence; units: evidence-units)" >&2; exit 2 ;; esac
+  case "$seen" in *" $overlay "*) echo "overlay $overlay given twice" >&2; exit 2 ;; esac
+  [ "$overlay" != override-change ] || case "$seen" in *" override "*) ;; *) echo "override-change goes on top of override" >&2; exit 2 ;; esac
+  seen="$seen$overlay "
 done
 
 mkdir -p "$ROOT"
 scratch=$(mktemp -d "$ROOT/scratch.XXXXXX")
 touch "$scratch/$MARK"
+trap 'rm -rf "$scratch"' ERR
 repo="$scratch/seeded-change"
 
 for v in $(env | sed -n 's/^\(GIT_[A-Za-z_]*\)=.*/\1/p'); do [ "$v" = GIT_EXEC_PATH ] || unset "$v"; done
@@ -49,9 +54,8 @@ git add -A
 git commit -q --no-verify -m fixture
 
 for overlay in "$@"; do
-  (cd "$SRC/$overlay" && find . -type f ! -name '*.pyc' ! -path '*/__pycache__/*' | sed 's|^\./||' | sort) > "$scratch/files"
   rsync -a --exclude=__pycache__ --exclude='*.pyc' "$SRC/$overlay/" "$repo/"
-  xargs git add -- < "$scratch/files"
+  git add -A
   git commit -q --no-verify -m "$overlay"
 done
 echo "$repo"

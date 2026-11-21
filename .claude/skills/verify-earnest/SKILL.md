@@ -20,7 +20,7 @@ SK=.claude/skills/verify-earnest
 REPO=$($SK/scripts/build-fixture.sh base)
 ```
 
-`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. `change` and `task` are not mirrored, and the builder refuses them: `packages/earnest/tests/conftest.py` commits them on a new branch (`commit_overlay`, `commit_task_change`).
+`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. It takes only the overlays conftest commits on main, each once: `override`, `override-change` (on top of `override`) and `evidence` on `base`, and `evidence-units` on `units`. Anything else, including `change` and `task` (conftest commits those on a new branch with `commit_overlay` and `commit_task_change`), exits 2 before a directory is made. A build that fails later removes its own scratch directory.
 
 | Need | Build |
 | --- | --- |
@@ -56,12 +56,12 @@ EV=$(mktemp -d "${TMPDIR:-/tmp}/verify-earnest/evidence/$(date +%Y%m%dT%H%M%S).X
 $SK/scripts/run-earnest.sh "$REPO" "$EV" <label> <earnest args...>
 ```
 
-It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and, only when `.earnest/assessment.json` exists after the run, `.record.json` (a copy of it, which may come from an earlier run). It exits with earnest's own code.
+It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and, only when `.earnest/assessment.json` exists after the run, `.record.json` (a copy of it, which may come from an earlier run). It exits with earnest's own code, or `3`, writing nothing, when it cannot enter `$REPO`. `.cmd` records the directory, `EARNEST_JUDGE` and every argument, quoted. The helper clears inherited `GIT_*` variables.
 
 Exit codes: `0` clean; `1` an error-level finding at plan position behind or current; `2` earnest could not run (bad flag value, no judge model, unknown stage). Features, one file each:
 
 - [check](features/check.md): `earnest check`, whole intent.
-- [check-stage](features/check-stage.md): `check --stage`, `--intent`, and the bad-input exits.
+- [check-stage](features/check-stage.md): `check --stage` (full stage id or its slug), `--intent`, the coverage map, and the bad-input exits.
 - [plan](features/plan.md): `earnest plan`.
 - [judge](features/judge.md): `check --judge` with the stub model.
 
@@ -69,7 +69,7 @@ Exit codes: `0` clean; `1` an error-level finding at plan position behind or cur
 
 ## Evidence
 
-A proof is: the real CLI path (`earnest ...` inside a committed fixture repo, not a Python call or a test-only hook), the exact command (`.cmd`), the exit code captured directly with `$?` by the helper (never through `rtk`, which can mask exit codes; if you run earnest by hand, use `rtk proxy` and `echo $?`), the SARIF on stdout, the summary on stderr, and the record file `.earnest/assessment.json` as a side effect (of the mapped features, only `check --stage` and `check --judge` write it: `check --stage` adds a header under `runs` keyed `<record dir>/<stage>` with `hash` and `items`, plus top-level `bodies`; `check --judge` without `--stage` leaves `runs` and `bodies` empty and keeps its answers in `judge.cache`; plain `check` and `plan` write none). Assert on ruleIds and levels in `runs[0].results`, not on prose. Where a feature says the run must leave no record, verify the absence in the repo.
+A proof is: the real CLI path (`earnest ...` inside a committed fixture repo, not a Python call or a test-only hook), the exact command (`.cmd`), the exit code captured directly with `$?` by the helper (never through `rtk`, which can mask exit codes; if you run earnest by hand, use `rtk proxy` and `echo $?`), the SARIF on stdout, the summary on stderr, and the record file `.earnest/assessment.json` as a side effect (of the mapped features, only `check --stage` and `check --judge` write it: `check --stage` adds a header under `runs` keyed `<record dir>/<stage>` with `hash` and `items`, plus top-level `bodies`, and `coverage.commit` once it has run the repo's tests under pytest-cov and written the map to `.earnest/coverage/<sha>`; `check --judge` without `--stage` leaves `runs` and `bodies` empty and keeps its answers in `judge.cache`; plain `check` and `plan` write none). Assert on ruleIds and levels in `runs[0].results`, not on prose. Where a feature says the run must leave no record, verify the absence in the repo.
 
 Evidence goes to `${TMPDIR:-/tmp}/verify-earnest/evidence/<timestamp>.XXXXXX/` (one directory per drive, made by `mktemp -d`, so side-by-side drives never share one). Cleanup never touches it.
 

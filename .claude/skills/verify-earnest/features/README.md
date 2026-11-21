@@ -28,7 +28,7 @@ Each feature file has an H1, one paragraph, then the H2s `Sub-features`, `How to
 ## Features
 
 - [check](./check.md): `earnest check` over the whole intent, with no judge.
-- [check-stage](./check-stage.md): `check --stage` and `--intent`, the record header, and the exit-2 input errors.
+- [check-stage](./check-stage.md): `check --stage` (full stage id or its slug) and `--intent`, the record header, the coverage map, and the exit-2 input errors.
 - [plan](./plan.md): `earnest plan`, the route, stage status and the frontier.
 - [judge](./judge.md): `check --judge` with the stub model, its cache and its exit codes.
 
