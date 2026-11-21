@@ -1,6 +1,6 @@
 # check
 
-`earnest check` reads the committed repo and its AI-DLC record, traces requirements to code and tests, and reports findings as SARIF 2.1.0 on stdout with a summary on stderr. Without `--judge` it asks no model.
+`earnest check` reads the repo's work tree (tracked files plus untracked files that are not ignored) and its AI-DLC record, traces requirements to code and tests, and reports findings as SARIF 2.1.0 on stdout with a summary on stderr. Without `--judge` it asks no model.
 
 ## Sub-features
 

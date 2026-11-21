@@ -17,10 +17,10 @@ Launch means build one fixture repo; the CLI starts per command. `uv` installs t
 
 ```bash
 SK=.claude/skills/verify-earnest
-REPO=$($SK/scripts/build-fixture.sh base)          # prints the repo path
+REPO=$($SK/scripts/build-fixture.sh base)
 ```
 
-`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. `change` and `task` are not mirrored: `packages/earnest/tests/conftest.py` commits them on a new branch (`commit_overlay`, `commit_task_change`), and the builder commits on `main`.
+`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. `change` and `task` are not mirrored, and the builder refuses them: `packages/earnest/tests/conftest.py` commits them on a new branch (`commit_overlay`, `commit_task_change`).
 
 | Need | Build |
 | --- | --- |

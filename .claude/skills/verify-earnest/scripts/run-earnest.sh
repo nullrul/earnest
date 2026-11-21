@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Run one earnest command inside a fixture repo and record the proof, with the exit code taken directly from `$?`.
-#   run-earnest.sh <repo> <evidence-dir> <label> <earnest args...>
-# Writes <evidence-dir>/<label>.{cmd,stdout,stderr,exit} and a copy of .earnest/assessment.json as <label>.record.json
-# when one exists after the run (it may come from an earlier run). Honours EARNEST_JUDGE from the environment. Exits with earnest's own exit code.
 set -uo pipefail
 
 repo="${1:?usage: run-earnest.sh <repo> <evidence-dir> <label> <earnest args...>}"
