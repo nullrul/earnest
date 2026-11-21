@@ -1,6 +1,6 @@
 # check-stage
 
-`earnest check --stage <stage>` assesses one stage of the route, and `--intent <record dir>` picks the intent. A stage run writes a run header into the record. It also runs the repo's tests under pytest-cov to take a coverage map.
+`earnest check --stage <stage>` assesses one stage of the route, and `--intent <record dir>` picks the intent. A stage run writes a run header into the record.
 
 ## Sub-features
 

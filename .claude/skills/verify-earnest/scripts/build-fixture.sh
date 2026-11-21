@@ -33,7 +33,7 @@ done
 mkdir -p "$ROOT"
 scratch=$(mktemp -d "$ROOT/scratch.XXXXXX")
 touch "$scratch/$MARK"
-trap 'rm -rf "$scratch"' ERR
+trap 'rm -rf "$scratch"' EXIT
 repo="$scratch/seeded-change"
 
 for v in $(env | sed -n 's/^\(GIT_[A-Za-z_]*\)=.*/\1/p'); do [ "$v" = GIT_EXEC_PATH ] || unset "$v"; done
@@ -58,4 +58,5 @@ for overlay in "$@"; do
   git add -A
   git commit -q --no-verify -m "$overlay"
 done
+trap - EXIT
 echo "$repo"
