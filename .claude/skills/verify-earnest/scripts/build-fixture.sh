@@ -21,19 +21,14 @@ fi
 variant="${1:?usage: build-fixture.sh base|units [overlay ...] | --clean <repo-path>}"; shift
 case "$variant" in base|units) ;; *) echo "variant must be base or units" >&2; exit 2 ;; esac
 
-seen=" "
-for overlay in "$@"; do
-  case "$variant:$overlay" in base:override|base:override-change|base:evidence|units:evidence-units) ;;
-    *) echo "overlay $overlay is not one conftest commits on main for $variant (base: override, override-change, evidence; units: evidence-units)" >&2; exit 2 ;; esac
-  case "$seen" in *" $overlay "*) echo "overlay $overlay given twice" >&2; exit 2 ;; esac
-  [ "$overlay" != override-change ] || case "$seen" in *" override "*) ;; *) echo "override-change goes on top of override" >&2; exit 2 ;; esac
-  seen="$seen$overlay "
-done
+case "$variant:$#:$*" in
+  base:0:|base:1:override|"base:2:override override-change"|base:1:evidence|units:0:|units:1:evidence-units) ;;
+  *) echo "overlays '$*' are not a stack conftest commits on main for $variant (base: override, override override-change, evidence; units: evidence-units)" >&2; exit 2 ;;
+esac
 
 mkdir -p "$ROOT"
 scratch=$(mktemp -d "$ROOT/scratch.XXXXXX")
 touch "$scratch/$MARK"
-trap 'rm -rf "$scratch"' EXIT
 repo="$scratch/seeded-change"
 
 for v in $(env | sed -n 's/^\(GIT_[A-Za-z_]*\)=.*/\1/p'); do [ "$v" = GIT_EXEC_PATH ] || unset "$v"; done
@@ -54,9 +49,9 @@ git add -A
 git commit -q --no-verify -m fixture
 
 for overlay in "$@"; do
+  (cd "$SRC/$overlay" && find . -type f ! -name '*.pyc' ! -path '*/__pycache__/*' | sed 's|^\./||' | sort) > "$scratch/files"
   rsync -a --exclude=__pycache__ --exclude='*.pyc' "$SRC/$overlay/" "$repo/"
-  git add -A
+  xargs git add -- < "$scratch/files"
   git commit -q --no-verify -m "$overlay"
 done
-trap - EXIT
 echo "$repo"

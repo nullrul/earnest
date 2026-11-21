@@ -20,7 +20,7 @@ SK=.claude/skills/verify-earnest
 REPO=$($SK/scripts/build-fixture.sh base)
 ```
 
-`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. It takes only the overlays conftest commits on main, each once: `override`, `override-change` (on top of `override`) and `evidence` on `base`, and `evidence-units` on `units`. Anything else, including `change` and `task` (conftest commits those on a new branch with `commit_overlay` and `commit_task_change`), exits 2 before a directory is made. A build that fails or is interrupted removes its own scratch directory.
+`build-fixture.sh <base|units> [overlay ...]` makes `${TMPDIR:-/tmp}/verify-earnest/scratch.XXXXXX/seeded-change`, mirroring `packages/earnest/tests/conftest.py` (pinned identity and date, `GIT_*` isolation, overlays and bytecode left out), commits it as `fixture` on `main`, then commits each named overlay on top, on `main`. Only `base`, `units` and `base override` have been built and checked; the other overlays (`override-change`, `evidence`, `evidence-units`) are unverified. It takes only the overlay stacks conftest commits on main: `override`, `override override-change` or `evidence` on `base`, and `evidence-units` on `units`. Anything else, including `change` and `task` (conftest commits those on a new branch with `commit_overlay` and `commit_task_change`), exits 2 before a directory is made.
 
 | Need | Build |
 | --- | --- |
@@ -56,7 +56,7 @@ EV=$(mktemp -d "${TMPDIR:-/tmp}/verify-earnest/evidence/$(date +%Y%m%dT%H%M%S).X
 $SK/scripts/run-earnest.sh "$REPO" "$EV" <label> <earnest args...>
 ```
 
-It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and, only when `.earnest/assessment.json` exists after the run, `.record.json` (a copy of it, which may come from an earlier run). It exits with earnest's own code, or `3`, writing nothing, when it cannot enter `$REPO`. `.cmd` records the directory, `EARNEST_JUDGE` and every argument, quoted. The helper clears inherited `GIT_*` variables.
+It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and, only when `.earnest/assessment.json` exists after the run, `.record.json` (a copy of it, which may come from an earlier run). It exits with earnest's own code.
 
 Exit codes: `0` clean; `1` an error-level finding at plan position behind or current; `2` earnest could not run (bad flag value, no judge model, unknown stage). Features, one file each:
 
