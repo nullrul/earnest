@@ -58,7 +58,7 @@ $SK/scripts/run-earnest.sh "$REPO" "$EV" <label> <earnest args...>
 
 It runs `uv run --quiet --project $PKG earnest <args>` inside `$REPO` and writes `<label>.cmd`, `.stdout` (SARIF 2.1.0), `.stderr` (summary), `.exit`, and, only when `.earnest/assessment.json` exists after the run, `.record.json` (a copy of it, which may come from an earlier run). It exits with earnest's own code.
 
-Exit codes: `0` clean; `1` an error-level finding at plan position behind or current; `2` earnest could not run (bad flag value, no judge model, unknown stage). Features, one file each:
+Exit codes: `0` clean; `1` an error-level finding at plan position behind or current; `2` earnest could not run (bad flag value, no judge model, unknown or ambiguous stage). Features, one file each:
 
 - [check](features/check.md): `earnest check`, whole intent.
 - [check-stage](features/check-stage.md): `check --stage` (full stage id or its slug), `--intent`, the coverage map, and the bad-input exits.

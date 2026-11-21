@@ -25,6 +25,7 @@ case "$variant:$#:$*" in
   base:0:|base:1:override|"base:2:override override-change"|base:1:evidence|units:0:|units:1:evidence-units) ;;
   *) echo "overlays '$*' are not a stack conftest commits on main for $variant (base: override, override override-change, evidence; units: evidence-units)" >&2; exit 2 ;;
 esac
+for overlay in "$@"; do [ -d "$SRC/$overlay" ] || { echo "no overlay $overlay" >&2; exit 2; }; done
 
 mkdir -p "$ROOT"
 scratch=$(mktemp -d "$ROOT/scratch.XXXXXX")
