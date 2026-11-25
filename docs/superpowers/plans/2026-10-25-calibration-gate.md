@@ -1,6 +1,6 @@
 # M6 `calibration_gate` Implementation Plan
 
-Status: gating answers approved; on 2026-10-27 the user decided that Tasks 2 to 5 and 7 build against the synthetic `tests/fixtures/calibration-dev/`, while Task 1 stays the maintainer's. The maintainer approved the three gating answers and the output contract on 2026-10-25, and on 2026-10-26 revised answer 2 (the fixture source) and approved vendoring the 3d-pipe excerpts, as set out in Gating open questions and Task 1 below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
+Status: APPROVED-ready, 2026-11-25: every maintainer-only decision of Remaining work is DECIDED except the post-run rulings, so what is left is by hand: the user's twenty verdicts (Task 1 Step 6) and, for the SC4 run, this host's Claude Code logged in to Amazon Bedrock, through the `claude-code:` judge backend that Task 7b designs (from spike G) and adds. Gating answers approved; on 2026-10-27 the user decided that Tasks 2 to 5 and 7 build against the synthetic `tests/fixtures/calibration-dev/`, while Task 1 stays the maintainer's. The maintainer approved the three gating answers and the output contract on 2026-10-25, and on 2026-10-26 revised answer 2 (the fixture source) and approved vendoring the 3d-pipe excerpts, as set out in Gating open questions and Task 1 below. Task 0 records each answer in the row of `docs/design/01-logic-design.md` or `docs/design/02-structural-design.md` that asks it, as each row's "Resolved by" column requires.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -15,11 +15,11 @@ The exit command `uv run pytest tests/steps/test_calibration_gate.py` turns gree
 
 **Architecture:**
 
-- `judge/__init__.py` gains calibration. It asks each of `questions(index, levels)` through `model.ask`, with no override and no cache. It compares each `result` with the maintainer's, and judges pass or fail. It also gains `calibrated(slot, model)`, which reads the record's `calibration` slot. `judge()` takes the whole `Record` in place of its `judge` slot, and raises `judge-uncalibrated` only when `calibrated` is false.
+- `judge/__init__.py` gains calibration. It asks each of `questions(index, levels)` through `model.ask`, with no override. A later review fix gave `calibrate` its own answer cache, so a rerun skips the answers it already holds (Global Constraints). It compares each `result` with the maintainer's, and judges pass or fail. It also gains `calibrated(slot, model)`, which reads the record's `calibration` slot. `judge()` takes the whole `Record` in place of its `judge` slot, and raises `judge-uncalibrated` only when `calibrated` is false.
 - `cli.py` gains the `calibrate` subcommand. It indexes `<fixture>` through the same chain as `check` and reads `<fixture>/verdicts.json`. It prints the comparison and writes the slot through `reporter.write_record` at the working directory's repository root (L7).
 - `tests/fixtures/calibration/` is a plain-file fixture (L6), built into a one-commit repository in `tmp_path` by `tests/conftest.py`.
 
-**Tech Stack:** Python 3.12 standard library at runtime for Tasks 1 to 6 (`json`, `pathlib`, `dataclasses`, `argparse`). Task 7 adds the `anthropic` SDK inside `judge/` (L4), as gating answer 3 sets out.
+**Tech Stack:** Python 3.12 standard library at runtime for Tasks 1 to 6 (`json`, `pathlib`, `dataclasses`, `argparse`). Task 7 adds the `anthropic` SDK inside `judge/` (L4), as gating answer 3 sets out. Task 7b adds the `claude-code:` model beside it, which runs `claude -p` through the standard library's `subprocess` and so adds no dependency.
 
 **Spec:**
 
@@ -74,7 +74,7 @@ Row as asked, before Task 0 resolved it: `01`, Open questions, "Judge model choi
 **APPROVED (2026-10-25):**
 
 - **Model.** `EARNEST_JUDGE=anthropic:claude-opus-5-5`. The model id in the run header, the cache key and the calibration slot is that value, verbatim.
-- **Credentials.** The `anthropic` Python SDK resolves them on its own, from `ANTHROPIC_API_KEY` or an `ant auth login` profile. Earnest reads no key itself.
+- **Credentials.** The `anthropic:` adapter's `anthropic` Python SDK resolves them on its own, from `ANTHROPIC_API_KEY` or an `ant auth login` profile, and Earnest reads no key itself. The SC4 run does not use this path: it uses a logged-in Claude Code (Remaining work, Decision 1).
 - **Request settings.** Effort is pinned to `high` in code. The verdict object is requested through structured outputs. `temperature` is not sent, because the API has rejected sampling parameters since 2026-10-21 (the `claude-api` skill, read 2026-10-25; Task 7 re-checks it).
 - **Prompt.** `judge/prompt.txt` stays as M4 wrote it. Any rewording changes the prompt hash and calls for a new calibration (UC8's trigger).
 - Sources:
@@ -125,7 +125,7 @@ Not a gating row: the Command surface row of `01` leaves it open, and Task 0 add
   - the index defines other than exactly ten requirements, or any of them is untraced or does not parse as EARS;
   - the verdict file lacks an answer for any of their twenty questions;
   - `EARNEST_JUDGE` fails as it does for `--judge`.
-- **No overrides, no cache:** calibration measures the model. `calibrate` asks every question, ignores `Override:` lines, and neither reads nor writes the record's `judge` slot.
+- **No overrides; answers kept apart from check's:** calibration measures the model. `calibrate` ignores `Override:` lines and never reads or writes check's `judge.cache`. It keeps its own answers in the record's `judge.calibrate` entry, through a `Cache` with check's key, so it asks a question again only when the model id, the prompt hash, the sentence or the regions changed (and, from Task 7b, the harness). A question that fails, or a ^C, still saves the answers given before it (`cli._calibrate`, `_keep_calibration`; tests `test_a_failed_calibration_keeps_the_answers_already_given` and `test_a_calibration_rerun_asks_no_question_it_has_an_answer_to` in `tests/unit/test_cli.py`). It writes the `calibration` slot only after all twenty are answered.
 - **The `calibration` slot:** `{"model": str, "prompt": str, "matches": int, "total": 10, "pass": bool}`, written whole through `reporter.write_record` at `git.repo_root(Path.cwd())`. The other slots are kept as read.
 - **`judge-uncalibrated`:** raised on a judge run unless the slot holds `pass` true with `model` equal to the run's model id and `prompt` equal to `PROMPT_HASH` (`01` Command surface: "While the record holds no passing calibration for the current model id and prompt hash, every judge run raises `judge-uncalibrated`").
 - **Exit codes:** `calibrate` keeps the output contract of answer 4. `check` keeps its codes as M5 left them.
@@ -164,6 +164,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | 5 | `judge-uncalibrated` read from the slot | T4 | "After a passing calibration …"; `test_calibrated_needs_same_model_and_prompt` is the red-to-green proof of the model and prompt binding |
 | 6 | The full suite, lint and the pre-PR review | T5 | all 5 of M6, with M1 to M5 unchanged |
 | 7 | The `anthropic:` model, off the exit path | T6 | none new |
+| 7b | The `claude-code:` model through Claude Code on Bedrock, with the `claude` version and flags in the cache key and the calibration slot; the live one-call check before the SC4 run | T7 | none new |
 
 **Regression expectations:**
 
@@ -195,6 +196,9 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `src/earnest/cli.py` | the `calibrate` subcommand, dispatched before `_read()`; `judge` passed the `Record` | 4, 5 |
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py` | each task's tests | 3-5 |
 | `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `uv.lock`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge.py` | Task 7's model, its root, and its dependency | 7 |
+| `src/earnest/judge/__init__.py`, `src/earnest/cli.py` (`_comparison`), `tests/unit/test_judge_claude_code.py`, `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge_anthropic.py` | Task 7b's model, the harness in the key and the slot, the two `load_model` messages | 7b |
+| `docs/superpowers/plans/2026-11-25-spikes/spike-g-*` | spike G's source diff, tests and live-check script, kept as reference | 7b |
+| `docs/demo/m6-calibrate.md`, `.claude/skills/verify-earnest/features/judge.md`, `docs/design/01-logic-design.md` | the new unset-model message, and the harness in the key and the provider paragraph | 7b |
 
 `reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs and the demo files `docs/demo/m6-calibrate.sh` and `docs/demo/m6-calibrate.md` change. Before Task 1, the branch also carries a test-tree fix in `tests/conftest.py`, so that fixture copies leave bytecode out; Task 2 builds on it. Scope paths below cover Tasks 1 to 7; Task 0's docs are named in its Files line.
 
@@ -205,11 +209,13 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 - The slot holds one result, the latest (answer 4). Calibrating a second candidate model replaces the pass of the model in use, and `check --judge` under that model is uncalibrated again until it is recalibrated.
 - Effort is pinned in code and is not part of the model id. A change to it is a code change, and a new calibration should follow.
 - The prompt hash covers `prompt.txt` alone. The rest of each question, its labels, clause list and region layout, is built in `question_text`; a change to that code changes what the model is asked but leaves the calibration pass and the cache keys standing, so a new calibration should follow it, as it does for effort.
-- An `anthropic:` model id must be the id that answers: a reply whose `model` differs, as from an alias, exits 2 and names the id to set, so a pass binds the model that gave it.
+- An `anthropic:` model id must be the id that answers: a reply whose `model` differs, as from an alias, exits 2 and names the id to set, so a pass binds the model that gave it. A `claude-code:` id is bound the same way, by the single key of the reply's `modelUsage`, and on Bedrock that key may be an inference-profile id (Task 7b).
+- A `claude-code:` model also binds its harness: `claude --version` and a digest of the flags, the schema, the system text and the two pinned variables. A `claude` upgrade, or a change to any of them, makes the judge uncalibrated again and asks every question again, which is the intent. Keep the version the run recorded on #29, so a later uncalibrated warning can be traced to the upgrade.
+- A `claude-code:` call loads the user settings (`--setting-sources user`), so the user's `env` block, `model` allowlist and telemetry settings apply to it beside the allowlisted variables. A credential in the user settings' `env` reaches `claude` whatever the allowlist says. On this host that block names no `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` (checked 2026-11-25 by key name).
 - The slot binds the model id and the prompt hash, as the Command surface of `01` says, and not the fixture's content. An edit to `verdicts.json` or `requirements.md` after a pass leaves the judge calibrated until `calibrate` runs again.
 - The match compares `result` alone. A judge that is right for the wrong reason still matches, and the printed reasoning is for the maintainer to read.
 - Until Task 1 lands, every M6 test and the demo run on the synthetic `calibration-dev` fixture, and a pass there is no SC4 evidence.
-- The SC4 gate is unrun until the maintainer runs Task 7's model over the fixture: `EARNEST_JUDGE=anthropic:claude-opus-5-5 uv run earnest calibrate tests/fixtures/calibration`, from `packages/earnest/`.
+- The SC4 gate is unrun until the maintainer runs Task 7b's model over the fixture: `EARNEST_JUDGE=claude-code:claude-opus-5-5 uv run earnest calibrate tests/fixtures/calibration`, from `packages/earnest/`, on the host where Claude Code is logged in to Bedrock (the `anthropic:` model of Task 7 is built and needs a key, which the run does not use).
 
 ---
 
@@ -555,11 +561,287 @@ This builds the model of gating answer 3. Load the `claude-api` skill before wri
   "packages/earnest/tests/steps/test_judge_check.py",
   "packages/earnest/tests/unit/test_judge.py",
   "packages/earnest/tests/unit/test_judge_anthropic.py",
+  "packages/earnest/tests/unit/test_judge_claude_code.py",
   "packages/earnest/tests/unit/test_cli.py",
   "packages/earnest/tests/integration/test_calibration_gate.py",
   "packages/earnest/tests/fixtures/calibration/",
   "packages/earnest/tests/fixtures/calibration-dev/",
   "docs/demo/m6-calibrate.sh",
-  "docs/demo/m6-calibrate.md"
+  "docs/demo/m6-calibrate.md",
+  ".claude/skills/verify-earnest/features/judge.md",
+  "docs/design/01-logic-design.md",
+  "docs/superpowers/plans/2026-11-25-spikes/"
 ]
 ```
+
+## Remaining work (2026-11-25)
+
+M6's code merged in PR #15 on 2026-11-04, on the synthetic `calibration-dev` fixture. The GitHub milestone "M6 calibration_gate" holds two open issues, and they are the whole of what is left: #28 (Task 1, the SC4 fixture) and #29 (the SC4 real-model run of Known limits). No code is missing. The one box this section leaves alone is Task 6 Step 3, whose PR has merged; the maintainer ticks it. The maintainer decided seven of the eight maintainer-only decisions below on 2026-11-25 (DECIDED (user, 2026-11-25)); Decision 6, the rulings after the run, can only be made once the run exists.
+
+### Ground truth, measured 2026-11-25
+
+All commands ran from `packages/earnest/` at `docs/plan-m6-m9`, with the stub model and no network.
+
+| `EARNEST_JUDGE=`, then `earnest calibrate <fixture>` | Exit | Result |
+| --- | --- | --- |
+| `stub:tests/fixtures/calibration-dev/verdicts.json`, on `tests/fixtures/calibration-dev` | 0 | `matches: 10/10`, `pass` |
+| `stub:tests/fixtures/calibration-dev/stub-pass.json`, on `tests/fixtures/calibration-dev` | 0 | `matches: 8/10`, `pass` |
+| `stub:tests/fixtures/calibration-dev/stub-fail.json`, on `tests/fixtures/calibration-dev` | 1 | `matches: 7/10`, `fail` |
+| `stub:tests/fixtures/calibration-dev/stub-pass.json`, on `tests/fixtures/calibration` | 2 | `earnest: the maintainer's verdicts cannot be read: [Errno 2] No such file or directory: 'tests/fixtures/calibration/verdicts.json'` |
+| unset, on `tests/fixtures/calibration-dev` | 2 | `earnest: earnest needs a model: set EARNEST_JUDGE to anthropic:<model> or stub:<path of a canned-verdict file>` |
+
+So `tests/fixtures/calibration/` does not exist yet, and the command named in #28 and #29 exits 2 until it does.
+
+What the real run needs:
+
+- **Adapter:** Task 7b's `ClaudeCode` is to be written; the run waits for it. `Claude` in `src/earnest/judge/__init__.py` is Task 7's `anthropic:` model, built and not used for this run (`anthropic>=2.3.0` stays in `pyproject.toml`, locked at 2.3.0 in `uv.lock`).
+- **Environment variable:** `EARNEST_JUDGE=claude-code:claude-opus-5-5`. The id is used verbatim; a reply whose `modelUsage` names another key, as an alias or a Bedrock inference-profile id would, exits 2 and names the id to set (Task 7b, "The model id may need the Bedrock form"; unverified until its live check).
+- **Credentials: DECIDED (user, 2026-11-25), no `ANTHROPIC_API_KEY`.** The SC4 run calls Claude through Claude Code, `claude -p`, on this host, where Claude Code authenticates to Amazon Bedrock (decided 2026-11-25; the first decision named the subscription plan, and the later one moved the run to this host). Task 7b designs and adds that backend, and its environment allowlist forwards exactly the Bedrock and AWS variables that Claude Code reads. The run bills the AWS account Claude Code is configured for, at Bedrock's price, and not a subscription or an Anthropic key. The `anthropic:` adapter of Task 7 stays as built, and its key-or-`ant auth login` credentials are not used for this run. A passing `claude-code:` calibration satisfies SC4. Nothing of the credentials is written to the repository or CI.
+- **Shape of the run:** 20 sequential calls, one per question (ten requirements, `implemented` and `tested`), effort `high`, `max_tokens` 16000, no `temperature`. There is a resume: `calibrate` keeps its answers in the record's `judge.calibrate` entry, keyed as check's are, and saves the ones given before a failed call (the code is `cli._calibrate` and `_keep_calibration`; `test_a_failed_calibration_keeps_the_answers_already_given` and `test_a_calibration_rerun_asks_no_question_it_has_an_answer_to` pin it). So a fault at call k exits 2 with no `calibration` slot written, the k-1 answers kept, and the next run asks only the rest. The keys cover the model id, the prompt hash, the sentence and the regions (and, from Task 7b, the harness), so an edit to any of them, or a new `claude`, asks again; nothing else makes the next run pay twice. A run that finishes, pass or fail, drops this model's older answers and keeps the other models'.
+- **Where the result lands:** `calibrate` writes the `calibration` slot of `.earnest/assessment.json` at the root of the working directory's repository. That file is gitignored (`.earnest/.gitignore` holds `*`), so a pass is a local file and not in Git; the evidence to commit is the captured output and the note in `03`. The stub runs above left a stub slot (7 of 10, fail) in this checkout's record; the real run replaces it.
+- **Prompt hash in force:** `sha256:94db4a9d47417c69a26d450d6b74e0ab7dfff4d17288cbdaf76bf1c7ef9c20a6`. Any edit to `judge/prompt.txt` changes it and voids a pass.
+
+### Cost estimate for one real run
+
+The run bills the AWS account that Claude Code is configured for on this host, through Amazon Bedrock (DECIDED, user, 2026-11-25), and not an Anthropic key or a subscription. The dollar figures below are the old API-key estimate at Anthropic's list price, kept as a reference for the size of the run: 20 calls and the token counts. Bedrock's price for the model has not been read, so the real cost is read from the account's usage after the run and recorded on #29. Task 7b keeps the call count at 20 (one `claude -p` process per question), but its tokens per call differ from this estimate in two ways that are unmeasured: Claude Code replaces its system prompt with one line and offers no tools but the schema's `StructuredOutput`, which lowers the framing, and the documented result shows `num_turns` 2 for a structured reply, which may bill the input twice. Step 5 of Task 7b prints `num_turns` and `usage` for one call, and Step 6 replaces these figures with them.
+
+This is an ESTIMATE. Nothing was sent to the API, and no tokenizer ran.
+
+- **Input bytes.** `question_text` sends `prompt.txt` (891 bytes), the sentence and its clauses, and both the code regions and the test regions in every question, whatever its kind. Measured on `calibration-dev`: 20 questions, 31,470 bytes, 1,493 to 1,723 per question, mean 1,573. The real fixture is not written, so its size comes from the 15 candidates above: the cited code and test ranges total 24 to 107 lines per requirement (mean 52; single-line anchors left out, so a lower bound). At an assumed 45 bytes a line, plus 891 bytes of prompt and about 400 of framing, that is 2.4 to 6.1 KB a question, mean 3.6 KB, or about 72 KB over 20 questions. If each tag's region covers its whole enclosing function and not the cited lines, allow twice the code: about 11 KB a question at worst, 220 KB over 20.
+- **Input tokens.** Bytes divided by 4, a heuristic, since the real count needs `client.messages.count_tokens`, a call that needs the key: about 18k tokens typical, 55k at the ceiling.
+- **Output tokens.** Not measurable offline. Assumed 1k to 6k a call, thinking included (Opus bills it as output; `MAX_TOKENS` says the model always thinks), so 20k to 120k in all. The hard ceiling is 20 calls at the 16,000-token cap, 320k; a call that reaches the cap stops the run with exit 2.
+- **Price (reference only; Bedrock's price was not read).** $4 and $20 per million input and output tokens, from gating answer 3 (the `claude-api` skill, read 2026-10-25), Anthropic's list price. It was not re-read today.
+- **Result (reference, in dollars).** About $0.07 of input and $0.40 to $2.40 of output: roughly $0.5 to $2.5 for a run, and about $6.6 at the ceiling. A failing run that is repeated costs the same again, because a new prompt hash or model id asks all 20; a run that faulted at call k resumes from the answers kept, so it pays only for the rest.
+- **Optional extra.** `check --judge` on this repository, to see `judge-uncalibrated` go quiet, asks 26 questions (measured today: 13 judgeable requirements, 50,663 bytes, the synthetic fixtures' among them), about $0.5 to $3.2 more. Step 5 of #29 gives a free check that proves the same slot.
+
+### Where the source is
+
+- **No local checkout.** `find ~ -maxdepth 4` for `apartment-twin*`, `3d-pipe*`, `openspec` and `blueprint` finds nothing; `~/Projects` holds `cdk-tf` and `earnest`; `git cat-file -t <pin>` fails in this repository.
+- **The pin does not resolve.** `gh api repos/nullrul/apartment-twin/commits/ef5b737ff6d8032c0ae2ae81b253127f660a8734` answers HTTP 422, "No commit found", as the unpushed branch of Task 1 predicts. The repository is private, its `main`, as read on 2026-11-25, is `aff94e3c0ba5667645c5779bbd5b80baf715fc10`, and that `main` now carries `openspec/specs/`. This supersedes "holds no `openspec/`" under "Vendoring the 3d-pipe material".
+- **The candidates survive on that `main`.** All 15 requirements match the quotes above and begin at the cited spec lines. Fourteen code anchors (`_build_scene`, `_add_parts`, `NAMESPACE`, `_anchor`, `build_model`, `NOISE_FLOOR`, `_beats`, `review`, `parse_vote`, `index`, `_UNREACHABLE`, `EXIT_CODES`, and two tests) sit inside the cited line ranges, and the eleven test names sampled exist. Not checked: the remaining test line ranges, and whether `blender.py`, `cli.py`, `ifc.py`, `index.py` and `test_index.py` equal the old pin byte for byte. The vendored files are the record, so a new pin is acceptable (Decision 2).
+- **EARS rewriting is real work.** Only 6 of the 15 (numbers 1, 3, 4, 5, 12 and 13) parse as one EARS sentence once `SHALL` is lowercased; 2, 6, 7, 8, 9, 10, 11, 14 and 15 do not, and uppercase `SHALL` does not parse at all today (#21, in M9, is open). #28 does not wait for #21 or for #20 (how OpenSpec specs carry ids): `requirements.md` is Earnest's own item syntax, with lowercase `shall`.
+- **Lint and tests ignore the fixture.** Ruff and markdownlint exclude `tests/fixtures`, mypy and vulture read `src` alone, and `conftest.py` sets `collect_ignore = ["fixtures"]`, so vendored files with unresolved imports break nothing. The repository-level index does read every tracked file: it defines 26 ids today, among them the ten of `calibration-dev`. Pick slugs that no other fixture already defines.
+
+### Task 1, finished: issue #28
+
+Run from the repository root unless a block says otherwise. `[maintainer]` steps are the maintainer's alone; `[agent]` steps may be delegated.
+
+- [x] **Step 1 [maintainer]:** Decisions 1 to 4 below, decided 2026-11-25: the spend, the pin `aff94e3`, and that an agent drafts the ten requirements, the EARS rewrites and the tags for the user to approve. Still to supply: the redaction names (Step 4).
+- [ ] **Step 1b [agent]:** Draft the choice of ten of the fifteen (with two alternates), each EARS rewrite, the tags and the region bounds, and hand them to the user for approval. Step 5 starts from this draft.
+- [ ] **Step 2 [agent]:** Fetch the source into a new, empty directory outside the repository, and prove the pin resolves.
+- [ ] **Step 3 [agent]:** Copy the chosen candidates' code and test files, each once, under their relative paths. Write `SOURCE.md` as the vendoring decision says: the source repository, the pin, the ownership note, and each chosen requirement's spec text verbatim in a `text` fence, so it defines no `req` item. The only change to a copied file is the maintainer's tags.
+- [ ] **Step 4 [agent]:** Run the redaction scan. On a hit, stop and ask the owner to redact or drop the candidate.
+- [ ] **Step 5 [agent, then maintainer approves]:** Write `requirements.md` from the approved draft of Step 1b, ten items in the syntax of `calibration-dev`: an id line `` `req~<slug>~1` ``, a blank line, then one EARS sentence with lowercase `shall`. Tag the copied code and tests above the function or test, as `# [impl->req~<slug>~1]` and `# [utest->req~<slug>~1]`. Check each sentence with `ears.parse` before writing it.
+- [ ] **Step 6 [maintainer, alone]:** Write `verdicts.json`, twenty answers in the canned-verdict format, with at least three `not-satisfied` answers over at least three requirements.
+- [ ] **Step 7 [agent]:** Run the checks of the exit criterion. Commit `test: the calibration fixture`, staging the fixture's paths by name and never with `--no-verify`. The maintainer opens the PR through the pre-PR gate, with `Closes #28`.
+
+```bash
+WORK=$(mktemp -d)
+gh repo clone nullrul/apartment-twin "$WORK/apartment-twin" -- --filter=blob:none --no-checkout
+SHA=aff94e3c0ba5667645c5779bbd5b80baf715fc10    # or the pin chosen in Step 1
+git -C "$WORK/apartment-twin" cat-file -t "$SHA"    # expect: commit
+```
+
+```bash
+FIX=packages/earnest/tests/fixtures/calibration
+for f in packages/blueprint/src/blueprint/blender.py packages/blueprint/tests/test_blender.py; do    # the chosen files, each once
+  mkdir -p "$FIX/$(dirname "$f")"
+  git -C "$WORK/apartment-twin" show "$SHA:$f" > "$FIX/$f"
+done
+```
+
+```bash
+rtk proxy grep -rnEi '[0-9a-f]{64}|api[_-]?key|token|secret|/home/|/Users/|https?://' "$FIX"; echo $?    # 1 means no hit
+```
+
+Add `-e '<name>'` to the scan for each client and project name the owner supplies. The exit criterion, from `packages/earnest/` with the fixture staged (`git add tests/fixtures/calibration`), is all of these together:
+
+```bash
+EARNEST_JUDGE=stub:tests/fixtures/calibration/verdicts.json rtk proxy uv run earnest calibrate tests/fixtures/calibration; echo $?
+uv run python - tests/fixtures/calibration <<'EOF'
+import sys
+from pathlib import Path
+from earnest import adapters, ears, git, structural
+from earnest.index import build_index
+fixture = Path(sys.argv[1]).resolve()
+index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
+levels = structural.traced(index)
+reqs = [i for i in index.defined.values() if i.id.type == "req"]
+traced = [i for i in reqs if levels.get(str(i.id)) == "traced"]
+bad = [f for f in ears.findings(index) if "req-not-ears" in str(f)]
+print(f"requirements={len(reqs)} traced={len(traced)} req-not-ears={len(bad)}")
+EOF
+jq '{answers: [to_entries[] | .value | to_entries[] | select(.value.result=="not-satisfied")] | length, reqs: [to_entries[] | select(.value | to_entries | any(.value.result=="not-satisfied"))] | length, total: ([to_entries[] | .value | to_entries[]] | length)}' tests/fixtures/calibration/verdicts.json
+```
+
+Done when:
+
+- the first command prints ten rows that each end in `match`, then `matches: 10/10` and `pass`, with exit `0` (the maintainer's verdicts answer their own questions, which proves all twenty answers exist and the ten are askable);
+- the script prints `requirements=10 traced=10 req-not-ears=0` (checked on `calibration-dev`, and on a scratch repository with one `SHALL` sentence, which it counts as `req-not-ears=1`);
+- the `jq` output reads `total` 20, with `answers` and `reqs` each at least 3, so an always-`satisfied` judge matches at most 7;
+- the scan prints nothing and exits 1;
+- `make lint` and `make test` from the repository root both exit 0.
+
+The BDD gate stays on `calibration-dev` (Decision 7, decided); the real fixture needs no code change.
+
+### Task 7b: The `claude-code:` model, through Claude Code on Bedrock
+
+DECIDED (user, 2026-11-25): the SC4 run uses no `ANTHROPIC_API_KEY`. The judge calls Claude through Claude Code, `claude -p`, and the run happens on this host, where Claude Code authenticates to Amazon Bedrock. A passing `claude-code:` calibration SATISFIES SC4. Spike G prototyped the backend on 2026-11-25 in a scratch copy of earnest at `ae4136c`: 88 lines in `judge/__init__.py`, 29 tests against a fake `claude` on `PATH` (29 passed; `ruff check`, `ruff format --check`, `mypy --strict` and `vulture` are clean on that copy, checked again 2026-11-25), and two real calls that both failed at the provider (Change 1 and Step 5 say why). The spike's files are kept in [2026-11-25-spikes/](2026-11-25-spikes/README.md). This task takes its design with three changes, marked below. Gating answer 3 stands (Opus 5.5, effort `high`, `prompt.txt` as M4 wrote it); only the transport differs, so the model id differs. The design below, with its harness table, was built in a scratch copy on 2026-11-25 before it was written down here: the full suite ran 1,108 passed and 1 failed (the demo-transcript test of `test_judge.py`, which reads `docs/`, absent from the scratch copy), `mypy --strict` and `vulture` were clean, and `ruff check` found nothing in `src`. No model was called.
+
+#### Design
+
+- **Selector and id.** `EARNEST_JUDGE=claude-code:<model>`, for the SC4 run `claude-code:claude-opus-5-5`. The model id in the run header, the cache key and the calibration slot is that value, verbatim, as for `anthropic:`. `<model>` goes to `--model` and must be the one key of the reply's `modelUsage`: a reply from another key, or from two, exits 2 and names the id to set, so a pass binds the model that gave it. The SDK path of Task 7 is untouched, and no `anthropic` package is imported on this path.
+- **Command.** One `claude -p` process per question, so 20 for the SC4 run. The question text, from `question_text`, goes in on stdin and never on the command line. The working directory is a fresh empty temporary directory, removed afterwards, so nothing there is discoverable. A call is bounded at 900 seconds.
+
+  ```text
+  claude -p --model <name> --effort high --output-format json --json-schema <_SCHEMA> --tools ""
+         --safe-mode --setting-sources user --no-session-persistence --permission-prompts none
+         --system-prompt "You are a code reviewer. Follow the user's instructions exactly."
+  ```
+
+  `--tools ""` leaves only the schema's `StructuredOutput`; `--safe-mode` drops CLAUDE.md, skills, plugins, hooks, MCP servers and auto memory (`claude --help`: authentication and model selection "work normally"); `--system-prompt` replaces Claude Code's own; `--permission-prompts none` denies anything that would prompt. The reply is one JSON object: `structured_output` holds the verdict (documented: absent when the model declined), `modelUsage` the models that answered, `is_error` and `terminal_reason` the failure.
+- **Change 1 from the spike: `--setting-sources user` in place of `--restricted`.** `claude --help` says `--restricted` "ignores user, project and local settings files (managed settings and `--settings` still apply)". On this host the provider setup lives in the user settings: the `env` block (`CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `ANTHROPIC_BEDROCK_REGION_PREFIX`) and an `awsCredentialExport` command, and the process environment holds no `AWS_ACCESS_KEY_ID` or other AWS credential variable. The spike's second call ran with `--restricted` and none of those, and Bedrock refused it with a 403 for the host's EC2 instance profile role, on `inference-profile/us.anthropic.claude-opus-5-5` in `us-east-1`, where the user's settings name the `global` prefix and `us-west-2`: the user's region, prefix and credentials were not applied. Forwarding environment variables alone cannot reach the credential helper, so the user settings must load. `--setting-sources user` loads those and no project or local settings; with `--tools ""` and `--permission-prompts none`, what `--restricted` also did (no code-running tools, file tools confined, writes to settings refused) has nothing left to act on. UNVERIFIED until Step 5: that this flag pair makes `claude -p` run `awsCredentialExport` and apply the `env` block.
+- **Change 2 from the spike: the Bedrock variables.** The environment is an allowlist: `claude` gets exactly the variables below when the caller has them set, plus the two pins, and nothing else. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` never pass, nor does `CLAUDE_CODE_OAUTH_TOKEN` (the spike forwarded it for the subscription path; one billing path per run is clearer, and it is Bedrock). Sources: A is the Amazon Bedrock page of the Claude Code docs (`https://code.claude.com/docs/en/amazon-bedrock.md`, read 2026-11-25), E its Environment variables page (`/env-vars.md`, the same date), H is `claude --help` of 2.1.330.1791.
+
+  | Variable | Why `claude` needs it | Source |
+  | --- | --- | --- |
+  | `PATH`, `HOME`, `LANG`, `LC_ALL`, `TMPDIR` | find `claude`, its user directory and a temporary directory | spike |
+  | `CLAUDE_CONFIG_DIR` | where Claude Code reads the user settings, when not `~/.claude` | E |
+  | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS` | reach the provider through the host's proxy and certificates | spike |
+  | `CLAUDE_CODE_USE_BEDROCK` | selects Amazon Bedrock (step 3, "Configure Claude Code") | A, E |
+  | `AWS_REGION`, `AWS_DEFAULT_REGION` | the region, in that order, then the profile's, then `us-east-1` | A |
+  | `ANTHROPIC_BEDROCK_REGION_PREFIX` | the inference-profile prefix tried first: `us`, `eu`, `apac`, `jp`, `au` or `global` | A, E |
+  | `AWS_PROFILE`, `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | the active profile and non-default file paths | A |
+  | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | an exported access key ("Export an access key") | A |
+  | `AWS_BEARER_TOKEN_BEDROCK` | a Bedrock API key; when set it replaces the credential chain | A, E |
+  | `AWS_EC2_METADATA_DISABLED` | the AWS SDK's own switch for the instance-profile fallback of the default chain; not named by the docs; kept because, without it, the spike's second call resolved the instance role through the metadata service, and a host that sets it must have it reach `claude` | spike |
+
+  Left out on purpose: `ANTHROPIC_DEFAULT_*_MODEL` and `ANTHROPIC_MODEL` (they resolve aliases, and `--model` names an id), `ANTHROPIC_BEDROCK_BASE_URL` and `CLAUDE_CODE_SKIP_BEDROCK_AUTH` (gateways), `ANTHROPIC_BEDROCK_SERVICE_TIER`, and the timeout and cache tuning variables. The two pins are `CLAUDE_CODE_MAX_OUTPUT_TOKENS=16000` (`MAX_TOKENS`, as `Claude` sends) and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+- **Billing.** The run bills the AWS account that Claude Code is configured for on this host (the identity `awsCredentialExport` or the variables above resolve to), at Bedrock's price for the model, not the subscription and not an Anthropic key. Read the usage in that account.
+- **The model id may need the Bedrock form.** Claude Code maps `--model claude-opus-5-5` to an inference profile: `us.anthropic.claude-opus-5-5` was the resource of the spike's 403, and the docs name the prefix by region (`us.`, `eu.`, `apac.`, `global.`) or by `ANTHROPIC_BEDROCK_REGION_PREFIX`. UNVERIFIED: what key `modelUsage` takes on Bedrock, the name as typed or the profile id; no call has returned an answer. Step 5 prints the keys. If the key differs from the selector, set `EARNEST_JUDGE=claude-code:<that key>` (the error message says so), and check that `--model` accepts it: the docs say to give Bedrock an inference profile id, and an `availableModels` allowlist in the user settings, enforced on this host, may refuse an id that it does not list, in which case that id is added to it by the maintainer. Do not widen the check to a substring match: that would let a dated alias or a fallback model bind to a calibration it did not earn.
+- **Every failure is a `JudgeError`, so exit 2.** No `claude` on `PATH`, or `claude --version` failing or empty (`cannot start`); `claude` not executable, timing out or exiting non-zero; output that is not a JSON object; `is_error` (the text of `result`, or `errors`, or `subtype`, or stderr, cut at 300 characters); a `modelUsage` that is not exactly `{name}`; a missing or malformed `structured_output` (a line below 1 is read as line 1, as `Claude` does).
+
+**The harness in the cache key and the calibration record (Change 3).** Claude Code changes under the model: a new `claude` can change the system prompt, the tool schema or the structured-output handling. Both the judge cache key and the calibration slot therefore record a `harness` string for a model that runs behind one: the string `<claude --version output>; flags <digest>`, where the digest is that of `canonical({"flags": [*_CLAUDE_FLAGS], "pin": _CLAUDE_PIN})`. `_CLAUDE_FLAGS` is the module constant that holds every flag but the model name, including the schema and the system text, and `ask` builds its argv from it, so the hash and the command cannot differ. On this host `claude --version` prints `claude 2.1.330.1791 (ASBX Claude Code, channel stable)`. The exact change, all in `judge/__init__.py` unless named:
+
+| Where | Today | Change |
+| --- | --- | --- |
+| `Model` | `id`, `ask` | a read-only `harness: str`: what the model runs behind, `""` for none |
+| `Stub`, `Claude` | no such field | a last field `harness: str = ""`; their constructors and ids are unchanged |
+| `Cache` | `id` property over `model.id` | a `harness` property over `model.harness` (`calibrate` is handed the `Cache` as its model) |
+| `Cache.ask` | `parts` holds the seven parts that `KEY` of `test_judge.py` names | `if self.model.harness: parts["harness"] = self.model.harness`: an eighth part, only for a model that has one, so every stub and `anthropic:` key stays as it is, and a new `claude` or a changed flag re-asks every question; the entry keeps `harness`, as it keeps the other parts |
+| `Calibration` | `model`, `rows` | `harness: str = ""` after `rows`; `calibrate` returns `Calibration(model.id, rows, model.harness)` |
+| `slot` | `model`, `prompt`, `matches`, `total`, `pass` | adds `"harness"` when it is non-empty, so a stub slot keeps its five keys and the BDD gate's table of `04` is unchanged |
+| `calibrated` | `model`, `prompt`, `pass`, `matches`, `total` | `and held.get("harness", "") == model.harness`: a slot written under another `claude`, or none, is not a pass, and neither is a slot with a harness under a model without one |
+| `uncalibrated` | names the model id and the prompt | names the harness too when it is non-empty, so a user told to recalibrate after an upgrade sees why |
+| `cli._comparison` | `calibration of {model} with the prompt {hash}` | appends the word `through` and the harness when it is non-empty, so the captured table that goes on #29 names the version |
+
+`region_hash` and `held` need no change: the regions are not what moved. `cli._keep_calibration` prunes a finished run's earlier answers by `model` id alone, so the answers of an older harness go when a run finishes under the new one, and until then they sit unused under their old keys.
+
+**Files:** Create `packages/earnest/tests/unit/test_judge_claude_code.py` (from the spike) and `docs/superpowers/plans/2026-11-25-spikes/spike-g-live-check.sh` (already written with this plan); Modify `packages/earnest/src/earnest/judge/__init__.py` (the model, `load_model`'s two messages and docstring, and the table above), `packages/earnest/src/earnest/cli.py` (`_comparison`'s header only); Test `packages/earnest/tests/unit/test_judge.py`, `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/unit/test_judge_anthropic.py` (one message pattern); Doc `docs/demo/m6-calibrate.md`, `.claude/skills/verify-earnest/features/judge.md`, `docs/design/01-logic-design.md`. `pyproject.toml` and `uv.lock` do not change: `os`, `shutil`, `subprocess` and `tempfile` are standard library.
+
+**Interfaces:**
+
+- Consumes: `load_model(value, root)`, `question_text`, `_SCHEMA`, `_verdict`, `_from_line_one`, `MAX_TOKENS`, `JudgeError`, `Cache`, `Calibration`, `slot`, `calibrated`, `uncalibrated`, `digest`, and `canonical` (already imported from `earnest.reporter`).
+- Produces: `@dataclass(frozen=True) class ClaudeCode` with `id`, `root`, `claude` (the executable's path), `harness` (required: an empty one on a harness model would silently switch the binding off) and `ask(question) -> Verdict`; `_claude_code(value, root)`, which finds `claude` with `shutil.which`, runs `claude --version` (30 seconds, the same environment) and builds the harness; `_claude_env()`, the allowlisted environment that the version call and `ask` share; the constants `_CLAUDE_ENV`, `_CLAUDE_PIN`, `_CLAUDE_SYSTEM`, `_CLAUDE_FLAGS`, `_CLAUDE_TIMEOUT` and `_CLAUDE_VERSION_TIMEOUT`; a `load_model` branch for `claude-code:<model>` beside `anthropic:`.
+
+**Spike artifacts:**
+
+| File in [2026-11-25-spikes/](2026-11-25-spikes/README.md) | What it is |
+| --- | --- |
+| `spike-g-prototype-src.diff` | the +88 lines of `judge/__init__.py`: `ClaudeCode`, `_claude_code`, the constants and the `load_model` branch; apply with `git apply -p1` from the repository root |
+| `spike-g-prototype-tests.diff` | `tests/unit/test_judge_claude_code.py`, 29 tests, a fake `claude` on `PATH`; no login, no network |
+| `spike-g-live-check.sh` | the one-call live check of Step 5, adapted from the spike's `drive.py`: it saves no record, makes one call and prints what the 20-call run depends on |
+
+- [ ] **Step 1 [agent]:** Tests first. From the repository root run `git apply -p1 docs/superpowers/plans/2026-11-25-spikes/spike-g-prototype-tests.diff`, then change the new test file:
+  - **The fake answers `--version`.** In `FAKE`, before `record.json` is written: `if sys.argv[1:] == ["--version"]: print(spec.get("version", "claude 9.9.9 (fake)")); sys.exit(spec.get("version_exit", 0))`. `FakeClaude.says` gains `version` and `version_exit` keywords, and `ran()` still reports the last question's run.
+  - **The command.** In `test_the_question_goes_in_on_stdin_and_the_command_line_isolates_claude`, replace `--restricted` in the set with `argv[argv.index("--setting-sources") + 1] == "user"` and `"--restricted" not in argv`.
+  - **The environment.** In `test_only_allowlisted_variables_reach_claude`, take `CLAUDE_CODE_USE_BEDROCK` and `AWS_REGION` out of `forbidden`, add `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and `CLAUDE_CODE_OAUTH_TOKEN`, and drop its OAuth assertion. Add a parametrized `test_a_bedrock_variable_reaches_claude` over the twelve variables of the table (`CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `ANTHROPIC_BEDROCK_REGION_PREFIX`, `AWS_PROFILE`, `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `AWS_EC2_METADATA_DISABLED`): each set to a marker reaches `claude` unchanged. Add `test_the_allowlist_is_exactly_the_documented_set`: `set(judge._CLAUDE_ENV)` equals the base variables plus those twelve, so an addition needs a test and a row.
+  - **The constructor.** `test_a_claude_that_cannot_be_executed_cannot_run` passes a fourth argument, the harness.
+  - **The harness.** `test_the_harness_is_the_version_then_a_digest_of_the_flags` (`"claude 9.9.9 (fake); flags sha256:"` and 64 hex digits); `test_a_new_claude_changes_the_harness` (`says(version="claude 9.9.10 (fake)")`); `test_a_changed_flag_or_pin_changes_the_harness` (monkeypatch `_CLAUDE_FLAGS`, then `_CLAUDE_PIN`); `test_the_flags_carry_the_system_text_and_the_schema` (`_CLAUDE_SYSTEM` and `json.dumps(_SCHEMA)` are members of `_CLAUDE_FLAGS`, so the digest covers them); parametrized `test_a_claude_without_a_version_cannot_start` (`version_exit=1`, and an empty version) matching `cannot start`; `test_a_claude_upgrade_voids_a_calibration`: a slot built from the loaded model's `harness` is `calibrated`, and after `says(version="claude 9.9.10 (fake)")` and a second `load_model` it is not.
+  - **The key and the record**, in `test_judge.py`: `test_a_harness_is_the_eighth_part_of_the_cache_key` (a `Stub` with `harness="h"` leaves entries holding `harness` and keys equal to the digest of eight parts; a rerun with `harness="h2"` asks every question again; the existing seven-part test still passes on a stub without one, and asserts `"harness"` is not in its entries); `test_calibrated_needs_the_same_harness` (same harness true; another, none, or a harness the model lacks false); `test_slot_holds_a_harness_only_when_the_model_has_one` (the existing `test_slot_shape` is unchanged); `test_calibrate_carries_the_models_harness`; `test_uncalibrated_names_a_harness`. In `test_cli.py`: `test_the_calibrate_header_names_a_harness`.
+  - **The model doubles.** `Counting` (`test_judge.py`, line 262) copies `model.harness` beside `model.id`, and `Recording` (inside the calibrate test, line 806) gains `harness = ""`. `harness` is a member of `Model`, so a double without it fails: in the scratch proof of this task's first paragraph, ten existing tests failed with `AttributeError` until these two had it.
+  - **The messages**, Step 4's two tests: `test_cli.py:951` (`"anthropic:<model>" in result[2]` also asserts `claude-code:<model>`) and `test_judge_anthropic.py:209` (its pattern `anthropic:<model> or stub:<path>` becomes the new order).
+
+  Run `uv run pytest tests/unit/test_judge_claude_code.py tests/unit/test_judge.py tests/unit/test_cli.py tests/unit/test_judge_anthropic.py` from `packages/earnest/`. Expected: the new and changed tests fail (no `claude-code` branch, no `harness`) and the rest pass.
+- [ ] **Step 2 [agent]:** The backend. `git apply -p1 docs/superpowers/plans/2026-11-25-spikes/spike-g-prototype-src.diff` from the repository root, then, on `judge/__init__.py`:
+  - set `_CLAUDE_ENV` to the table's variables (the spike's tuple loses `CLAUDE_CODE_OAUTH_TOKEN` and gains the Bedrock ones);
+  - move the flags into `_CLAUDE_FLAGS` (the schema as `json.dumps(_SCHEMA)`, the system text as `_CLAUDE_SYSTEM`, `--setting-sources user` in place of `--restricted`) and build argv as `[self.claude, "-p", "--model", name, *_CLAUDE_FLAGS]`; the order keeps the spike's `argv[:5]` assertion true;
+  - add a small `_claude_env()` (the allowlist and the pins) that `ask` and the version call share;
+  - give `ClaudeCode` its `harness` and have `_claude_code` build it as the section above says, raising `JudgeError` `the model <value> cannot start: ...` for a missing `claude`, a failed or empty `--version`, or an `OSError`.
+
+  Run the same four test files. Expected: the spike's tests and the Step 1 tests of this step pass; the key and record tests still fail until Step 3.
+- [ ] **Step 3 [agent]:** The key and the record: the table above, in `judge/__init__.py` and `cli._comparison`. Run the four files, then the regression run (`uv run pytest --ignore=tests/steps/test_calibration_gate.py`) and `uv run pytest tests/steps/test_calibration_gate.py`. Expected: all green, with no existing test changed beyond Step 1's; record the exact counts against the same runs before the task (the scratch proof ran the whole suite at 1,108 passed, with the spike's tests adapted and the harness tests added).
+- [ ] **Step 4 [agent]:** The two `load_model` messages and its docstring. The unset one becomes `earnest needs a model: set EARNEST_JUDGE to anthropic:<model>, claude-code:<model> or stub:<path of a canned-verdict file>`, and the unknown one `EARNEST_JUDGE names no model Earnest knows: {value!r}; use anthropic:<model>, claude-code:<model> or stub:<path>`. A `claude-code:` value with no name after the colon falls to the unknown-model message, as `anthropic:` does (the spike has `test_a_claude_code_value_without_a_model_name_cannot_run`).
+- [ ] **Step 5 [agent, on this host]:** The live check, ONE real call and the step before the 20-call run. It bills one question to the account of "Billing", and it is covered by Decision 1. The spike's two real calls were blocked by the agent's permission classifier from forwarding the provider variables (call 2's environment held only `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, `HOME`, `LANG` and `PATH`), so neither reached an answer: if the classifier blocks this one, the maintainer runs the command. From `packages/earnest/`, on a host where Claude Code is logged in to Bedrock:
+
+  ```bash
+  EARNEST_JUDGE=claude-code:claude-opus-5-5 rtk proxy bash ../../docs/superpowers/plans/2026-11-25-spikes/spike-g-live-check.sh; echo "exit=$?"
+  ```
+
+  It asks `req~daily-cap~1` `implemented` of the synthetic `calibration-dev` fixture and prints the harness, the argv, the NAMES of the variables that reached `claude` (never their values), `claude`'s exit and wall time, the `modelUsage` keys, `num_turns`, `usage` and `total_cost_usd`, the verdict beside the maintainer's, and the path of the raw output. Its verdict need not match the maintainer's: this is a plumbing check, and its `match` line is informational. It passes when all of these hold; paste its output on #29:
+  - `claude exit=0`, `is_error` false and `terminal_reason` `completed`, and a `verdict` line (exit `0` of the script);
+  - `modelUsage` has exactly one key, equal to the selector's name. If it has one key that differs, follow "The model id may need the Bedrock form", then run the check again; if it has two, a fallback model answered, and the run stops there for the maintainer;
+  - the `env names` line holds the Bedrock variables the host sets and no `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or `CLAUDE_CODE_OAUTH_TOKEN`.
+
+  A failure maps to a cause. A 403 that names the EC2 instance profile role, or an `us.` prefix when the user's settings say `global`, means the user settings did not load: the flag pair is the suspect (Change 1), and the maintainer rules between `--settings` carrying `awsCredentialExport` and dropping `--safe-mode`, because the plan does not guess. A 403 that names the user's own role means the credentials loaded and lack Bedrock access for the model: that is the account's, not the backend's. "Not logged in" means no login on this host. An unknown-flag error means a `claude` newer or older than 2.1.330.1791: record the version and read `claude --help`.
+- [ ] **Step 6 [agent]:** Put the live check's measured numbers into "Cost estimate for one real run" (wall time per call, `num_turns`, input and output tokens, and the account's usage, not the reference dollars), and recompute the run's length from them. The figures there now are the estimate; do not drop its UNVERIFIED label before this step.
+- [ ] **Step 7 [agent]:** `docs/demo/m6-calibrate.md`: rerun `docs/demo/m6-calibrate.sh` and paste its output over the document's captured run, because the unset-model line (line 114 today) carries the old message. `test_judge.py` pins the document's prompt hash and nothing else.
+- [ ] **Step 8 [agent]:** `.claude/skills/verify-earnest/features/judge.md`, line 24 (the "No model" case): the expected stderr becomes Step 4's unset message.
+- [ ] **Step 9 [agent]:** `docs/design/01-logic-design.md`: the judge cache key paragraph (lines 743 to 746) gains "and, for a model that runs behind a harness, the harness"; the paragraph on `EARNEST_JUDGE` (lines 1674 to 1690) names `claude-code:<model>`, its `claude --version` binding and the Bedrock billing; the row "Judge model choice and prompt" (line 1700) notes that the SC4 run used `claude-code:claude-opus-5-5`, the same model by another transport. `02` needs no change: L4 names the model SDKs, and this backend uses the standard library.
+- [ ] **Step 10 [agent]:** From the repository root run `rtk proxy make lint; echo $?` and `rtk proxy make test; echo $?`; both must print `0`. Run `LINT_FILE=<path> make lint-file` on each Markdown file touched. Commit `feat: the claude-code judge model`, staging the paths of this task by name and never with `--no-verify`; the live check's output goes on #29, not into a commit.
+
+Done when:
+
+- Steps 1 to 4 and 7 to 10 are done, the regression run, `tests/steps/test_calibration_gate.py` and both makes are green, and the new tests need no login, no network and no `claude` on the real `PATH`;
+- the stub model's behavior and every stub key and slot are unchanged: the BDD gate's tables of `04` did not move;
+- Step 5 passed on this host and its output is on #29, with the `claude --version` line that the SC4 run will record;
+- "Cost estimate for one real run" and the #29 commands below carry `claude-code:` and the live check's numbers.
+
+Unverified until Step 5, because no call has returned an answer: the `modelUsage` key on Bedrock; that `--setting-sources user` with `--safe-mode` applies the user's `awsCredentialExport` and `env` block; that `--effort high` and the pins behave as under the API; how many model requests one question makes (the documented result shows `num_turns` 2) and so its tokens; the wall time of a call; and Bedrock's price for the model, which this plan has not read.
+
+The SC4 run (issue #29) starts only after this task lands and Step 5 has passed.
+
+### The SC4 run: issue #29
+
+Depends on #28 landing on the branch it runs from, and on Task 7b. Run from `packages/earnest/`.
+
+- [ ] **Step 1 [maintainer]:** The run is approved (Decision 1); run it on this host, with Claude Code logged in to Bedrock, once #28 and Task 7b have landed (Task 7b's Step 5, the one-call live check, has passed on this host). The run bills the AWS account Claude Code is configured for. Check that `tests/fixtures/calibration/verdicts.json` exists and that `git status` shows `src/earnest/judge/prompt.txt` unmodified, since its hash binds the pass. Note `claude --version`: the pass binds it, and a `claude` upgrade between the run and a later `check --judge` makes the judge uncalibrated again.
+- [ ] **Step 2 [agent]:** Run the free dry run: the stub command of #28's exit criterion above, expecting exit 0 and `matches: 10/10`. It proves the fixture before any money is spent.
+- [ ] **Step 3 [maintainer]:** Run the gate, with output kept for the record.
+- [ ] **Step 4 [maintainer]:** Read the table: ten requirements, the judge's pair beside the maintainer's, and `matches: <n>/10`. Exit 0 is a pass (8 or more), 1 a fail, 2 means it could not run (a provider error, a refusal, a malformed reply, an alias or another `modelUsage` key, or a missing `claude`). On a 2 the `calibration` slot is not written, but the answers already given are kept in the record, so the retry asks only the rest. Confirm the record, and keep the `jq` output with the captured table, because `.earnest/` is gitignored. The table's first line names the `claude` version the pass binds.
+- [ ] **Step 5 [agent]:** Prove that `judge-uncalibrated` is quiet for this model, prompt and `claude`. The free form loads the model (it runs `claude --version`, no model call) and checks the slot with the function `check --judge` uses. It prints `True` on a pass, and `False` if `claude` was upgraded since the run.
+- [ ] **Step 6 [agent]:** On a pass, write it down: the M6 entry of `03` (SC4 done, with the date, model id, prompt hash, `claude` version and match count, and the "SC4 real-model run is unrun" sentence of its Development fixture bullet replaced); the "Judge model choice and prompt" row of `01` (the gate confirmed the choice, with the result); and this plan's last two Known limits bullets, Task 1's boxes and Task 6 Step 3. Run `LINT_FILE=<path> make lint-file` on each. The maintainer comments on #29 and closes #28 and #29.
+- [ ] **Step 7 [maintainer]:** On a fail (fewer than 8), reopen the "Judge model choice and prompt" row of `01`. Do not edit `verdicts.json` to fit the judge's answers. Change the prompt (a new hash) or the model (a new id), and run again; each run costs about as much as the first. The slot keeps the latest result, so a failing run replaces an earlier pass, and the run is recorded on the issue either way.
+
+```bash
+# no API key (Decision 1): Claude Code, logged in to Bedrock on this host, answers through the claude-code: backend of Task 7b
+OUT="$(mktemp -d)/sc4-run.txt"
+EARNEST_JUDGE=claude-code:claude-opus-5-5 rtk proxy uv run earnest calibrate tests/fixtures/calibration > "$OUT"; echo "exit=$?"
+cat "$OUT"
+jq .calibration ../../.earnest/assessment.json
+```
+
+```bash
+EARNEST_JUDGE=claude-code:claude-opus-5-5 uv run python -c 'import json, os; from pathlib import Path; from earnest import judge; s = json.load(open("../../.earnest/assessment.json"))["calibration"]; print(judge.calibrated(s, judge.load_model(os.environ["EARNEST_JUDGE"], Path("."))))'
+```
+
+If Task 7b's live check had to use another `<model>` (the Bedrock form of the id), use that value in both commands and in the record below. The paid form of Step 5 is not run (Decision 8); it would be `EARNEST_JUDGE=claude-code:claude-opus-5-5 rtk proxy uv run earnest check --judge > sarif.json; echo $?`, then `grep -c judge-uncalibrated sarif.json`, expecting 0. It would spend the extra estimated above, and the maintainer declined it (Decision 8).
+
+Done when:
+
+- the record holds `{"model": "claude-code:claude-opus-5-5", "prompt": "sha256:94db4a9d…", "harness": "claude <version>; flags sha256:…", "matches": <8 to 10>, "total": 10, "pass": true}` and the run's table is on the issue;
+- Step 5 prints `True` (or the paid `check --judge` shows no `judge-uncalibrated`);
+- the M6 entry of `03` notes that the SC4 run is done.
+
+### Maintainer-only decisions
+
+An agent may not make these for the maintainer. Each is DECIDED (user, 2026-11-25) below, except Decision 6.
+
+1. **Spend and credentials.** Reference: about $0.5 to $2.5 a real run in API dollars, about $6.6 at the ceiling, plus the same again for every rerun. **DECIDED (user, 2026-11-25):** the real SC4 run (#29) is APPROVED, with no `ANTHROPIC_API_KEY`. The judge calls Claude through Claude Code programmatically (`claude -p`, on the subscription plan), or through the Claude Agent SDK if needed. **Later the same day (user):** the run happens on this host, where Claude Code authenticates to Amazon Bedrock, so the spend is Bedrock usage on the AWS account Claude Code is configured for and not subscription usage; Task 7b's allowlist forwards the Bedrock and AWS variables; and a passing `claude-code:` calibration satisfies SC4, its slot and cache key recording the `claude` version and a hash of the flags and system text. The user needs Claude Code logged in to Bedrock on this host once the fixture and Task 7b are ready. A rerun after a fail spends that usage again, and the user approves it when it arises.
+2. **The new pin.** Accept `aff94e3c0ba5667645c5779bbd5b80baf715fc10`, the `main` as read on 2026-11-25, in place of the unresolvable `ef5b737`, and confirm the 2026-10-26 approval to publish excerpts covers files taken from it. Also supply the client and project names for the redaction scan, and rule on each hit: redact or drop. **DECIDED (user, 2026-11-25):** pin apartment-twin `aff94e3` (`aff94e3c0ba5667645c5779bbd5b80baf715fc10`), and the user approved cloning it, read-only, for a real-world run. The client and project names for the redaction scan are not yet supplied; Step 4 stops on a hit and asks for them.
+3. **Which ten of the fifteen,** with the two alternates. **DECIDED (user, 2026-11-25):** an agent drafts the choice and the user approves it.
+4. **The EARS rewrite of each, the tags and where each region begins and ends.** Nine of the fifteen need more than lowercasing `SHALL`. **DECIDED (user, 2026-11-25):** an agent drafts the rewrites, the tags and the regions, and the user approves them.
+5. **The twenty verdicts,** at least three `not-satisfied` over at least three requirements, written before the real run and never changed to fit its output. **DECIDED (user, 2026-11-25):** the user writes the twenty verdicts; an agent does not. The slot does not bind the fixture's content (Known limits), so an edit after a pass leaves the judge calibrated until `calibrate` runs again.
+6. **Rulings after the run.** The match compares `result` alone, so a judge that is right for the wrong reason still matches: the maintainer reads the reasoning. On a fail, whether to reword the prompt, change the model or accept the result, and whether a disagreement is the judge's error or the maintainer's. Still open by nature: the maintainer rules once the run's table exists.
+7. **Which fixture the BDD gate uses.** **DECIDED (user, 2026-11-25):** it stays on `calibration-dev`. Repointing it needs `stub-pass.json` and `stub-fail.json` for the real fixture and the tables of `04` redone.
+8. **The paid `check --judge`.** **DECIDED (user, 2026-11-25):** no paid `check --judge`; the free slot check of Step 5 is enough.

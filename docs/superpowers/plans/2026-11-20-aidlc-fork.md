@@ -1,6 +1,6 @@
 # M7 `aidlc_fork` Implementation Plan
 
-Status: PROPOSED, 2026-11-20. Every gating answer below is waiting on the maintainer. No task starts until Task 0 Step 1 records the decisions. This repository alone cannot turn the exit command green. It needs the Fork delta of `02`, built under the fork's own plan, merged in the fork's repository at the commit that Task 5 pins. The plan is committed on the branch `docs/m7-aidlc-fork-plan` for review; Task 0 records the decisions in it.
+Status: APPROVED-ready, 2026-11-25. The maintainer decided all 17 gating answers on 2026-11-25 (DECIDED (user, 2026-11-25) in each row, and recorded in Task 0 Step 1); row 4 is option A, keep `nullrul/aidlc-workflows`, against Spike F's recommendation, so L3 of `02` is revised and the fork needs an upstream sync first. Spike F (2026-11-25) checked the answers against the fork's code and Earnest's behavior and added an evidence block to each row; it recommended and decided nothing. This repository alone cannot turn the exit command green. It needs the Fork delta of `02`, built under the fork's own plan, merged in the fork's repository at the commit that Task 5 pins. The plan was reviewed on the branch `docs/m7-aidlc-fork-plan` and merged by PR #18 on 2026-11-21 (`ae4136c`); Task 0 records the decisions in it.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -18,7 +18,7 @@ Status: PROPOSED, 2026-11-20. Every gating answer below is waiting on the mainta
   - two fixture overlays, each of which puts one stage at its gate;
   - `aidlc_fork.feature` and its step module;
   - a make target and a CI job, which check out the pinned fork commit and install Bun;
-  - the change, if gating answer 14 is approved, that joins `Unit` by unit directory in `plan.py`.
+  - the change, gating answer 14 being decided, that joins `Unit` by unit directory in `plan.py`.
 - The fork's repository holds the Fork delta of `02`, under the fork's own plan. This plan fixes only what the gate calls (Interface contract, below). No task here edits, commits or pushes a fork file.
 - The two meet at the Command surface of `01` (L3 of `02`). The fork's sensor runs `earnest check --stage`. Earnest reads the fork's `GATE_APPROVED` rows from the intent's `audit/*.md`, as it reads every shard.
 
@@ -45,7 +45,7 @@ Status: PROPOSED, 2026-11-20. Every gating answer below is waiting on the mainta
 
 ## Fork facts (2026-11-20)
 
-The fork checkout is `/Users/rc/Projects/workspace/aidlc-workflows`. Its branch `earnest/m7-base` is the same commit as `origin/main`, `f2acb53d`. No Earnest delta is applied: `git log main..HEAD` is empty. Paths below are relative to the fork. The feasibility runs used copies of the built fixtures in the session scratchpad. The fork's `git status --short --ignored` was the same before and after.
+The facts come from the maintainer's checkout of the fork; its path is the maintainer's machine, so answer 12 leaves it out. Its branch `earnest/m7-base` is the same commit as `origin/main`, `f2acb53d`. No Earnest delta is applied: `git log main..HEAD` is empty. Paths below are relative to the fork. The feasibility runs used copies of the built fixtures in the session scratchpad. The fork's `git status --short --ignored` was the same before and after.
 
 | # | Fact | Evidence |
 | --- | --- | --- |
@@ -60,10 +60,10 @@ The fork checkout is `/Users/rc/Projects/workspace/aidlc-workflows`. Its branch 
 | F9 | `validateAuditEntry` keeps no per-event list of fields. `Assessment Hash`, `Items`, `Approved By` and `Unit` all pass `AUDIT_FIELD_KEY_PATTERN`. | `core/tools/aidlc-audit.ts:680`, `:682` |
 | F10 | `Attempt Generation` is raised when a unit is claimed and when it is released. `STAGE_SKIPPED` and `STAGE_JUMPED` carry no `Unit`. Upstream's skip of one unit is `UNIT_SKIPPED`, which does carry it. | `core/tools/aidlc-unit.ts:3406-3409`, `:3593`; `core/tools/aidlc-state.ts:7806-7819`, `:7848` |
 | F11 | Sensors are switched off in this order: `AIDLC_DISABLE_SENSORS=1` first, then the intent's `Sensors` field, then the scope's default. No sensor is exempt. An explicit `aidlc-sensor fire` ignores the switch. Only `core/scopes/aidlc-express.md` has `sensors: off`. | `core/tools/aidlc-lib.ts:41289-41318`; `core/hooks/aidlc-run-sensors.ts:140-141` |
-| F12 | Upstream tests pin what the delta changes: `t86-sensor-manifest-schema` (the six sensor ids and `GATE_SENSORS`), `t230-dispatcher-routes` (each manifest's help line, `TOOLS` targets), `t349-gate-sensor-reachability` (each gate glob accepts a deliverable), `t281-sensor-traceability` (a stage that emits `traceability.json` declares the sensor), `t48-audit-event-emitters` (the event set, not fields), `t28-audit-event-sync` and `t261-audit-authority-floor`. Tests run with `bun tests/run-tests.ts`. | `tests/unit/`, `tests/integration/`; `tests/README.md:3-9` |
+| F12 | Upstream tests pin what the delta changes: `t86-sensor-manifest-schema` (the six sensor ids and `GATE_SENSORS`), `t230-dispatcher-routes` (each manifest's help line, `TOOLS` targets), `t349-gate-sensor-reachability` (each gate glob accepts a deliverable), `t281-sensor-traceability` (a stage that emits `traceability.json` declares the sensor), `t48-audit-event-emitters` (the event set, not fields), `t28-audit-event-sync` and `t261-audit-authority-floor`. This list is a lower bound: answer 10 adds three tests and a wider reading of `t281`. Tests run with `bun tests/run-tests.ts`. | `tests/unit/`, `tests/integration/`; `tests/README.md:3-9` |
 | F13 | At HEAD, eight files under `core/tools/` read `source-manifest.json`: the seven that `02` names, plus `aidlc-lib.ts`. | `core/tools/aidlc-lib.ts:19275`, `:26538-26580` |
 | F14 | The sibling sensor runs on its own against the built `seeded-change`, with no `node_modules` and no stage graph: `bun <fork>/core/tools/aidlc.ts engine sensor-traceability --stage <slug> --output-path <abs>`. It exits 0 and prints one JSON line. | feasibility run |
-| F15 | Solo approve accepts the hand-written fixture intent, with no `intents.json`, engine state or `SENSOR_*` rows, once five conditions hold. (1) It is given a stage graph through `AIDLC_STAGE_GRAPH`, compiled by the fork's `compileStageGraph()`. This is needed because `bun scripts/package.ts` fails on Bun 1.3.8, and the fork's CI pins 1.4.2. (2) `AIDLC_ALLOW_DIRECT_STATE_TRANSITIONS=1` is set. (3) The stage row is at `[-]` and `engine state gate-start <slug>` runs. (4) The state file holds `- **Review Override**: none`. (5) A `HUMAN_TURN` row (`Timestamp` and `Event` only) follows gate-start. The approval lands in `audit/<hostname>-<clone id>.md`, and `aidlc/.aidlc-clone-id` pins the clone id. These runs used a scratch clone that had `bun install --frozen-lockfile`. | `core/tools/aidlc-graph.ts:2513`; `core/tools/aidlc-state.ts:867`, `:5892-5905`; `core/tools/aidlc-lib.ts:38409-38421`; `.github/workflows/ci.yml:59` |
+| F15 | Solo approve accepts the hand-written fixture intent, with no `intents.json`, engine state or `SENSOR_*` rows, once five conditions hold. (1) It is given a stage graph through `AIDLC_STAGE_GRAPH`, compiled by the fork's `compileStageGraph()`. This is needed because `bun scripts/package.ts` fails on Bun 1.3.8, and the fork's CI pins 1.4.2. (2) `AIDLC_ALLOW_DIRECT_STATE_TRANSITIONS=1` is set. (3) The stage row is at `[-]` and `engine state gate-start <slug>` runs. (4) The state file holds `- **Review Override**: none`. (5) A `HUMAN_TURN` row (`Timestamp` and `Event` only) follows gate-start. The approval lands in `audit/<hostname>-<clone id>.md`, and `aidlc/.aidlc-clone-id` pins the clone id. These runs used a scratch clone that had `bun install --frozen-lockfile`, which Spike F found unneeded (answer 12). | `core/tools/aidlc-graph.ts:2513`; `core/tools/aidlc-state.ts:867`, `:5892-5905`; `core/tools/aidlc-lib.ts:38409-38421`; `.github/workflows/ci.yml:59` |
 | F16 | The team per-unit gate stops at "no current `UNIT_COMPLETED` receipt", after it has also demanded `runtime-graph.json` and stub artifacts. `unit-merge` needs a pinned merge transaction. Solo approve on the units variant, with `Unit Ownership: team` removed, is accepted. It approves the stage's single row and writes no `Unit`. | feasibility run; `core/tools/aidlc-unit.ts:2098-2175` |
 | F17 | The fork's rows carry wall-clock timestamps. A call to the fork rewrites `aidlc-state.md` and adds untracked files: `<record>/.aidlc-engine/`, the shard, and `aidlc/.aidlc-clone-id`. An unscrubbed run also bound the caller's own session, in `aidlc/.aidlc-sessions/<session>.binding.json`. | `core/tools/aidlc-lib.ts:40105`; feasibility run |
 | F18 | `make test` runs every test (`testpaths = ["tests"]`, no markers). CI `test-python` has no fork and no Bun. A module that fails without the fork would turn both red. | `packages/earnest/pyproject.toml:78-88`; `.github/workflows/ci.yml:34-40` |
@@ -78,110 +78,198 @@ Earnest's side, on the built fixtures, without the overlays of Task 3:
 - **Scope of a `--stage` run:** it reports only the named stage's findings, plus the findings that reach no stage. That is why the failing-sensor scenario checks `requirements-analysis`, not `code-generation`.
 - **The run header:** its key is `<record dir>/<stage>`, for example `aidlc/spaces/default/intents/260926-checkout/construction/code-generation`. It holds `commit`, `dirty`, `hash`, `intent`, `items`, `layers`, `model`, `prompt`, `reasons`, `stage`, `status` and `timestamp` (`reporter.py:498-512`).
 
+## Spike F evidence (2026-11-25)
+
+Spike F checked the 17 gating answers against the fork's code and against Earnest's behavior. It decided nothing; the maintainer then decided every answer on 2026-11-25, and rows 1, 4, 11, 13 and 17 were his own to make. Each row below ends in an evidence block: its class, its evidence and a recommended answer.
+
+- **Pins.** The fork is `nullrul/aidlc-workflows` at `f2acb53d`, read-only. Earnest is at `ae4136c`. The experiments ran in a copy of this repository on Linux, on fixtures that `.claude/skills/verify-earnest/scripts/build-fixture.sh` builds.
+- **No fork code ran.** The host has no Bun. Every claim about the fork is read from its code, with a file and line. Every claim about Earnest was run, and its exit code is in the table below.
+- **Classes.**
+  - *Settled by code*: a file and line decide it. Rows 2, 3, 5, 6, 9, 12, 14 and 16.
+  - *Settled by experiment*: a run decided it. Rows 7, 8 and 15. Row 10 needs an experiment that has not run, because it needs Bun and the delta.
+  - *Maintainer-only*: a policy or a design choice that evidence can price but cannot make. Rows 1, 4, 11, 13 and 17.
+- **Raw output.** `evidence/` and `exp/` under `/tmp/earnest-swarm/spike-f/` hold the logs and the scripts, including the prototype diff of answer 14, on the machine that ran the spike. They are not committed.
+
+| Id | What ran | Exit | Result |
+| --- | --- | --- | --- |
+| E1 | `earnest plan` on the units fixture, with the gate row's `Unit` as `u1` (a, the id rule) and as `u1-limiter` (b, the directory) | 0, 0 | (a) approves `u1-limiter/functional-design`; (b) approves nothing and prints no finding about it |
+| E2 | A solo row with no `Unit` (a), with only `Unit: u1` (b), and with only `Unit: u1-limiter` (c) | 0, 0, 0 | (a) approves no per-unit stage; (b) approves `u1-limiter/functional-design`; (c) approves nothing |
+| P-E1, P-E2 | The same five runs with the prototype of Task 2 | 0 x5 | `u1` and `u1-limiter` both approve, alone or with only `Unit` in the row; the row with no `Unit` still approves nothing |
+| E3 | `check --stage requirements-analysis` five times: clean (a); a stage file added and left uncommitted (b); the same bytes committed (c); the fork's gate-start bookkeeping imitated by hand (d); a second stage file added (e) | 0 x5 | (b) `dirty` true, `commit` 89f3937; (c) `dirty` false, `commit` 38c6ea2, the hash of (b); (d) the hash of (c); (e) a new hash |
+| E5 | `check --stage requirements-analysis` with `FR1.2` absent (a), as a suffix `(FR1.2).` (b), as a prefix `FR1.2:` (c) and inside a clause (d) | 1 x4 | Each carries the same two `earnest/orphaned` errors, which fix the code at 1; only (c) adds `earnest/req-not-ears` |
+| E6 | `check --stage construction/u2-notice/functional-design` before and after a prose file with `NFR3.1`, `NFR3.2` and `FR1.2` is added there | 0, 0 | No results either time |
+| E7 | `pytest --collect-only` on pytest 9.1.1 with `addopts = ["--ignore=tests/steps/test_aidlc_fork.py"]`: bare (a), the module's path (b), `tests/steps` (c), the module's node (d) | 0 x4 | (a) and (c) leave the module out; (b) and (d) collect it |
+| E8 | `check --stage construction/u1-limiter/code-generation` with an error in it: the unit's frontier is that stage (a); the frontier is `functional-design`, so the stage lies ahead (b); `check --stage` of `functional-design` at that frontier (c) | 1, 0, 0 | (a) the errors at position current; (b) the same findings as notes at position ahead; (c) no results |
+| E9 | `check --stage requirements-analysis` twice on a clean tree | 0, 0 | The coverage map file is rewritten on each run |
+
+**Moot or wrong in the plan.** Each is corrected in place, in the row it names:
+
+- Issue #30 asks to merge PR #18. PR #18 merged on 2026-11-21, so the issue's open work is the 17 decisions and Task 0.
+- Answer 12 requires `bun install --frozen-lockfile` and names a macOS path. The first is not needed; the second is the maintainer's machine, not a fact of the repository.
+- Answer 13's option (c) says the fork holds the gate if any listed stage fails. A listed stage ahead of the unit's frontier never fails (E8b).
+- Answer 10's list of pinned tests (F12) is a lower bound.
+- Answer 17's option A needs two pieces of fork work that the plan does not list.
+- Answers 3 and 5 leave out the cost of a run: on a clean tree, each `check --stage` runs the target's tests.
+- The fork's `main` is 911 commits behind `awslabs` main (answers 4 and 15).
+
+**Left to the maintainer, decided 2026-11-25.** The evidence priced these rows and could not decide them:
+
+- Row 1: an approval may bind uncommitted bytes (neither refuses).
+- Row 4: option A, keep `nullrul/aidlc-workflows` (Spike F recommended B).
+- Row 11: agents push feature branches and open pull requests on the fork, never to main, `--force-with-lease` only; the user merges.
+- Row 13: option (c) for `unit-end`.
+- Row 17: option A, `--unit <name>` on the solo path.
+
 ## Gating open questions
 
-The M7 entry of `03` names thirteen gating rows: three from `01`, seven from `02` and three from M2b. The Fork facts raise rows 14 to 17. Every answer is **PROPOSED** until the maintainer decides. A row marked *(fork plan)* is decided here and carried out in the fork's repository. No row is dropped.
+The M7 entry of `03` names thirteen gating rows: three from `01`, seven from `02` and three from M2b. The Fork facts raise rows 14 to 17. Every answer is DECIDED (user, 2026-11-25); the rows that follow a Spike F recommendation say "as recommended". A row marked *(fork plan)* is decided here and carried out in the fork's repository. No row is dropped. Each row ends in an evidence block from Spike F, above.
 
 ### 1. A run header with `dirty` true (`01`)
 
 Row as asked: "Whether the gate or the approve transition refuses a run header with `dirty` true", resolved before `aidlc_fork`.
 
-**PROPOSED:** neither refuses. The gate shows `dirty` beside the hash, and approve records the hash as it stands.
+**DECIDED (user, 2026-11-25):** neither the gate nor approve refuses a dirty tree. The gate shows `dirty` beside the hash, and approve records the hash as it stands. The baseline cost below becomes a known limit (Known limits).
 
 - Source: `01`, Assessment hash, says "A work tree with uncommitted changes gets the hash of the bytes it holds". The hash binds the bytes the human read, whether or not they are committed.
 - Why: AI-DLC writes a stage's artifacts before anything commits them. Refusing `dirty` would hold almost every gate until someone commits.
 - Trade-off: an approval may bind bytes that never reach a commit. Earnest still marks it stale once its items change, because an approval is current by its `Items` (`01`, Frontier and position).
 
+**Evidence (Spike F):**
+
+- **Class:** maintainer-only. The evidence cannot choose between refusing and recording, but it prices the choice.
+- **Evidence:** E3b against E3c: the same bytes give the same `Assessment Hash` whether the tree is dirty or committed, so the hash ignores `dirty` and `commit`. Both runs exit 0.
+- **Unlisted cost:** a dirty header's `commit` is HEAD, which lacks the approved bytes (E3b: 89f3937, the commit before them; E3c: 38c6ea2 once committed). `change_baseline` takes that `commit` as the change baseline when the approval carries the header's hash (`plan.py:1435-1449`, read at `cli.py:281-292`). By that definition, the approved bytes then count as changed since the baseline. A dirty run also takes no coverage map (`cli.py:424`).
+- **Recommended answer:** neither refuses, with the cost above recorded as a known limit. Accepted as recommended (DECIDED, user, 2026-11-25).
+
 ### 2. Where the gate reads the run header (`01`, *fork plan*)
 
 Row as asked: "Which Fork-delta path holds the gate presentation that reads `status` and `hash` from the run header, and the path `.earnest/assessment.json` that the approve transition reads".
 
-**PROPOSED:** both live in `core/tools/aidlc-state.ts`, through one reader of `runs["<record dir>/<stage>"]` in `<project dir>/.earnest/assessment.json`.
+**DECIDED (user, 2026-11-25), as recommended:** both live in `core/tools/aidlc-state.ts`, through one reader of `runs["<record dir>/<stage>"]` in `<project dir>/.earnest/assessment.json`.
 
 - gate-start adds `Assessment Hash`, `Stage Status` and `Dirty` to its `STAGE_AWAITING_APPROVAL` row. That row already carries `Sensor State` (`core/knowledge/aidlc-shared/audit-format.md:73`).
 - `handleApprove` reads the same header.
 - No new file is needed. The fork's plan confirms how the review brief (`core/tools/aidlc-review-brief.ts`) shows the new fields.
 - Source: `02`, Fork delta, the `aidlc-state.ts` bullet.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by code.
+- **Evidence:** `gateAskFields` (`aidlc-state.ts:6278`) builds the gate-open fields at six sites: the team gate-open row (`:6655`), the revalidation row (`:6683`), the solo gate-open row (`:6715`) and the three re-entry rows (`:7108`, `:7668`, `:7697`). One edit in it adds `Assessment Hash`, `Stage Status` and `Dirty` to all six. The `GATE_APPROVED` fields are built elsewhere (F7, `:7161-7179`), so approve's edit is a second one.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
+
 ### 3. An artifact that changes during a sensor run, and the check at approve (`01`, *fork plan*)
 
 Row as asked: "Which Fork-delta path holds the hold on an artifact that changes during a sensor run, and the check in `approve` that artifacts are unchanged since the sensor ran".
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25), as recommended:**
 
 - **The hold during the run needs no delta path.** Upstream's `fireGateSensors` already holds the gate of a blocking gate sensor when an artifact changes before dispatch or during evaluation (F4). The `earnest` manifest is `fire_on: gate` and `default_severity: blocking`, so it inherits that hold.
 - **The check at approve goes in `handleApprove`, in `aidlc-state.ts`.** When the gate's `STAGE_AWAITING_APPROVAL` row carries an `Assessment Hash`, approve runs the `earnest` sensor's check for the stage again. It approves only when the new run header's `hash` equals that `Assessment Hash`. Otherwise it exits non-zero, writes no `GATE_APPROVED`, and names the stage whose gate must be reopened.
 - This makes the row's `Assessment Hash` "the hash of the assessment the gate showed" (`01`, the approval entry of the vocabulary table, line 722).
-- Trade-off: each approve costs one `earnest check --stage` run. The alternative is to persist upstream's in-memory fingerprints (`GateSensorEvaluation.fingerprints`, `aidlc-state.ts:3566`) so approve can compare them. That would be a larger change to upstream's state.
+- Trade-off: each approve costs one `earnest check --stage` run, which on a clean tree is a full run of the target's tests (below). The alternative is to persist upstream's in-memory fingerprints (`GateSensorEvaluation.fingerprints`, `aidlc-state.ts:3566`) so approve can compare them. That would be a larger change to upstream's state.
+
+**Evidence (Spike F):**
+
+- **Class:** settled by code. E3 and E9 measured Earnest's side.
+- **Evidence:** upstream's fingerprints cover declared artifacts only (`aidlc-state.ts:3735-3845`, through `existingDeclaredArtifactPaths`). Earnest's hash covers the whole evaluated tree (`plan.py:1264-1313`), so the re-run at approve is needed. E3d: with gate-start's bookkeeping imitated by hand (a rewritten state file, a new shard, `.aidlc-engine/`), the hash and `dirty` did not move; E3e: one more stage file changed the hash. All five E3 runs exit 0. Task 5 Step 3 still checks what the fork really writes.
+- **Unlisted cost:** a clean `check --stage` takes a coverage map, which runs the target repository's tests under pytest-cov with a 900 s limit (`cli.py:424`, `impact.py:33`, `:64`). E9 shows it runs again each time: the map file is rewritten between two runs, both exit 0. So approve's second check costs a full test run, and gate-start's fire runs one for each matching deliverable (F4). A dirty tree takes no map. The sibling manifests set `timeout_seconds: 300` (`core/sensors/aidlc-traceability.md:22`), so the `earnest` manifest needs a limit above the map's, or a slow suite ends as `BUDGET_OVERRIDE` (`aidlc-sensor.ts:24`). This last point comes from reading, outside the spike's report.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25), with the run cost stated beside the trade-off.
 
 ### 4. The fork repository's name and owner (`02`)
 
 Row as asked: "The fork repository's name and owner; this repository is `nullrul/earnest`", resolved by "creating the fork".
 
-**PROPOSED, for the maintainer to choose:**
+**DECIDED (user, 2026-11-25): A. Keep `nullrul/aidlc-workflows` (F1) and revise L3.** This goes against Spike F's recommendation of B, a mirror-push into a new standalone repository, so every place that assumed B is changed below.
 
-- **A. Keep `nullrul/aidlc-workflows` (F1) and revise L3.**
-  - Every clone sets `git remote set-url --push upstream no-push` and `gh repo set-default nullrul/aidlc-workflows`.
-  - The repository stays public, because a fork of a public repository stays public.
-  - `gh pr create` from a fresh clone targets `awslabs` until `set-default` runs.
-- **B. Keep L3.** Mirror-push into a new standalone public repository, with the fetch-only `upstream` remote. The maintainer picks the name. `nullrul/aidlc-workflows` is taken by the network fork unless that fork is renamed or deleted.
+- Every clone sets `git remote set-url --push upstream no-push` and `gh repo set-default nullrul/aidlc-workflows`.
+- The repository stays public, because a fork of a public repository stays public. CI checks it out with no credential.
+- `gh pr create` from a fresh clone targets `awslabs` until `set-default` runs, so every agent call names `-R nullrul/aidlc-workflows` as well (answer 11).
+- **L3 is revised** in `02` (Task 0 Step 3): the fork is the GitHub fork `nullrul/aidlc-workflows` of `awslabs/aidlc-workflows`, not a standalone mirror. "Downstream only" now rests on the per-clone `no-push` and `set-default` settings, not on the repository's shape. L3's old reason, that there is no pull-request path to upstream, no longer holds structurally; the two settings and answer 11 replace it.
+- **The upstream sync is a precondition.** The fork's `main` is 911 commits behind `awslabs` main (Spike F), and A keeps that history. Before the delta, the fork's plan syncs `main` with `awslabs/aidlc-workflows` main, and records the synced sha. Tasks 3 to 5 and the delta's base (answer 15) start from that sha. The sync is fork-side work: this plan pushes nothing to the fork (answer 11), and Task 0 Step 4 and Task 5 name it as a precondition.
 
-Recommendation: B.
+Whichever sha the sync lands on, the delta's base in `02`'s Fork delta changes with it (answer 15).
 
-- L3's reason, that there is no pull-request path to upstream, still holds.
-- The network fork has no Earnest work yet (`main..earnest/m7-base` is empty), so switching costs one mirror push.
-- A public repository lets CI check it out with no credential. If the repository were private, CI would need a GitHub App token, never a personal access token.
+**Evidence (Spike F):**
 
-Whichever is chosen, nothing in this plan pushes to the fork clone or opens a pull request from it.
+- **Class:** maintainer-only. The evidence was neutral between A and B.
+- **Evidence:** `nullrul/aidlc-workflows` is public and a fork of `awslabs/aidlc-workflows`, and an anonymous `git ls-remote` returns `f2acb53d`, so CI needs no token under either option (`gh api` and `git ls-remote`, 2026-11-25). The fork is 0 commits ahead of and 911 behind `awslabs` main.
+- **Unlisted cost, now a task:** under A the delta would start on a `main` that is 911 commits stale. The sync above removes that cost.
+- **Spike F recommended B; the maintainer chose A.**
 
 ### 5. How the sensor script finds `earnest` (`02`)
 
 Row as asked: "How the fork's sensor script finds the `earnest` command: an installed tool on the path, or a pinned invocation".
 
-**PROPOSED:** from `PATH`, as the command `earnest`.
+**DECIDED (user, 2026-11-25), as recommended:** from `PATH`, as the command `earnest`.
 
 - **When `earnest` cannot be started**, the script prints `{"pass": false, "findings_count": 0}` and exits 0. A missing engine then holds the blocking gate the way a failing check does (`01`: "a check that fails to run holds the gate like a failing one"; F5).
 - **Install:** until there is a `publish` stage (`02`, Future directions), the maintainer installs `earnest` with `uv tool install --editable packages/earnest` from this repository.
 - **In the gate:** every fork call puts the package's own venv `bin/` first on `PATH`.
 - **Trade-off:** a pinned invocation, such as `uv run --project <path> earnest`, would bind a version, but it would put this repository's path into the fork.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by code.
+- **Evidence:** the dispatcher's truth table (`aidlc-sensor.ts:20-31`) reads exit 0 with `pass: false` as `FAILED`, and a non-zero exit (branch e) or exit 127 (branch b) as `PASSED`. So printing `pass: false` and exiting 0 is the only way a missing engine holds the gate.
+- **Unlisted cost:** each run of the `earnest` sensor is a `check --stage`, which on a clean tree runs the target's tests (answer 3).
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
+
 ### 6. Readers of `source-manifest.json` (`02`)
 
 Row as asked: keep writing `source-manifest.json` "as AI-DLC input that Earnest never counts as evidence, or extend the Fork delta to those tools?"
 
-**PROPOSED:** keep it as AI-DLC input that Earnest never counts as evidence.
+**DECIDED (user, 2026-11-25), as recommended:** keep it as AI-DLC input that Earnest never counts as evidence.
 
 - The delta leaves all eight readers (F13) unchanged.
 - In `01`'s mapping table, its row changes from "replaced" to "kept, carries no weight as evidence (T2)".
 - Source: L3 says "the delta keeps to what `01` changes".
 - Trade-off: a unit's files are listed in two places, and only Earnest's out-of-task check counts.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by code.
+- **Evidence:** `readUnitSourceManifest` (`aidlc-lib.ts:26539`) is one of the readers F13 counts, and none changes under the delta. Earnest's `src/` names `source-manifest` in no file.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
+
 ### 7. Upstream artifacts the mapping table leaves unnamed (`02`)
 
 Row as asked: NFR Requirements' `scalability-requirements`, `reliability-requirements` and `tech-stack-decisions`; NFR Design's `scalability-design`, `reliability-design` and `logical-components`; and Build and Test's agent-written `cross-unit-traceability.md`.
 
-**PROPOSED:** all seven stay as AI-DLC writes them: prose with no items and no weight as evidence (T2).
+**DECIDED (user, 2026-11-25), as recommended:** all seven stay as AI-DLC writes them: prose with no items and no weight as evidence (T2).
 
 - Each gains a "kept" row in `01`'s mapping table.
 - Their stages still list `earnest`, because those stages' other artifacts carry items.
 - Trade-off: scalability and reliability stay outside the trace until a later revision adapts them.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by experiment.
+- **Evidence:** E6: a prose file with `NFR3.1`, `NFR3.2` and `FR1.2` in `construction/u2-notice/functional-design/` leaves `check --stage` at exit 0 with no results, before and after (0, 0). One stage directory was tried. Earnest reads items, not prose.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25). Write it in `01`'s mapping table as one rule, "a prose artifact with no Earnest item carries no weight (T2)", not as a "kept" row for each of the seven.
+
 ### 8. User Stories requirement ids (`02`, *fork plan*)
 
 Row as asked: "Keep the AI-DLC id in each item's prose, or move User Stories to `earnest`?"
 
-**PROPOSED:** keep the AI-DLC id in each `req` item's prose.
+**DECIDED (user, 2026-11-25), as recommended:** keep the AI-DLC id in each `req` item's prose.
 
 - The adapted `requirements.md` template writes `FR1.2` in the item's text, beside the name `req~fr1-2~1`.
 - The kept `traceability` sensor's pattern, `FR\d+(?:\.\d+)?`, then still finds it.
 - User Stories stays kept.
 - Trade-off: the id appears twice.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by experiment.
+- **Evidence:** E5: the traceability sensor's pattern (`aidlc-sensor-traceability.ts:63`) finds `FR1.2` in the suffix form `(FR1.2).`, in the prefix form `FR1.2:` and inside a clause. Earnest's `check` exits 1 in all four variants, on the same two `earnest/orphaned` errors, so the code says nothing and the rule list does. The prefix form adds `earnest/req-not-ears` at error level. The suffix and in-clause forms add nothing.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25), with a placement rule for the adapted template: write the id as a `(FR1.2)` suffix or inside a clause, never as a `FR1.2:` prefix.
+
 ### 9. The sensors-off switches (`02`)
 
 Row as asked: "Whether the fork holds the `earnest` sensor on through the per-intent `/aidlc --sensors off` and the `AIDLC_DISABLE_SENSORS=1` kill switch".
 
-**PROPOSED:** honour both switches. The delta adds no exemption for one sensor (F11).
+**DECIDED (user, 2026-11-25), as recommended:** honour both switches. The delta adds no exemption for one sensor (F11).
 
 - With sensors off, the gate fires no check and its `STAGE_AWAITING_APPROVAL` row carries no `Assessment Hash`.
 - Approve then skips answer 3's second check and writes `Approved By` alone.
@@ -189,49 +277,86 @@ Row as asked: "Whether the fork holds the `earnest` sensor on through the per-in
 - Why: both switches are explicit acts by the user. The delta already turns `express` on (`02`).
 - Trade-off: the approvals of an intent with sensors switched off bind no assessment.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by code.
+- **Evidence:** `resolveCeremony` (`aidlc-lib.ts:41289-41318`) turns the ceremony `off` for the kill switch, with no exemption for one sensor (F11).
+- **Unlisted cost:** an approval without an `Assessment Hash` has no digest, so `change_baseline` skips it (`plan.py:1447`). An intent approved only that way has no change baseline, and the task-change check says "no approved stage check is recorded" (`cli.py:287-288`).
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25), with that cost in the trade-off.
+
 ### 10. Upstream tests that pin sensor ids and routes (`02`, *fork plan*)
 
 Row as asked: "Which upstream tests pin the bundled sensor ids, the dispatcher routes or a stage's `sensors:` list", resolved by "the first run of upstream's suite on the fork".
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25), as recommended:**
 
-- The tests are the ones listed in F12. The fork's plan updates each one in the same commit as the change it pins.
+- The tests are the ones listed in F12 and the three more that the evidence block below adds. The fork's plan updates each one in the same commit as the change it pins.
 - The fork's first run of `bun tests/run-tests.ts --all` with the delta confirms the list, as the row's "Resolved by" says.
 - `t281` passes only while every stage that still produces `traceability.json` declares the `traceability` sensor. So the delta must drop the `traceability.json` output in the same change that drops the sensor, as `01` replaces it.
 
+**Evidence (Spike F):**
+
+- **Class:** experiment, not run, because it needs Bun and the delta. The list below is read from code.
+- **Evidence:** F12 is a lower bound. It leaves out these tests, which name `traceability` or `traceability.json`:
+  - `tests/integration/t89.test.ts:196`, the resolved sensor ids of `functional-design`, and `:339`, the loaded sensor ids, both from the `basic-import` fixture directory;
+  - `tests/unit/t-approval-says-what-was-left-out.test.ts`, which lists items left out as `Deferred` in a unit's `traceability.json`;
+  - `tests/unit/t314-source-freshness-receipts.test.ts`, with `traceability.json` at `:220`, `:226` and `:2302`.
+
+  F12 names `t281` but does not size it. `tests/unit/t281-sensor-traceability.test.ts:148-187` pins eight stages on `produces`, `sensors` and `outputs` together: user-stories, domain-design, units-generation, functional-design, nfr-requirements, nfr-design, infrastructure-design and code-generation.
+- **Unlisted seam:** `01` replaces `traceability` with `earnest`, so every test above may move. Keeping `traceability` beside `earnest` (add-only) would leave the eight-stage contract in place, by reading. The fork's plan weighs the two.
+- **Recommended answer:** keep "the first full run confirms". The fork's plan starts from F12 and the tests above.
+
 ### 11. Authority to create and push the fork repository (M2b)
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25):**
 
-- The maintainer creates the repository, or keeps the existing one (answer 4), and pushes the delta under the fork's plan.
-- Agents push only feature branches of the fork, after its pre-PR review, under the maintainer's standing rule. They never push to `upstream`.
-- This plan pushes nothing to the fork.
+- The repository exists (answer 4, option A). The maintainer merges.
+- Agents may push feature branches of the fork and open pull requests on the fork, after the pre-PR review passes (the maintainer's standing rule: three reviewers, every finding fixed). Every call names `-R nullrul/aidlc-workflows`, since `gh` targets `awslabs` by default (answer 4).
+- Never to the fork's `main`, and never to `upstream`. On a rebased feature branch, `git push --force-with-lease` only, never `--force`. The user merges every pull request.
+- This plan pushes nothing to the fork. The fork's plan does, under these rules.
+
+**Evidence (Spike F):**
+
+- **Class:** maintainer-only. It is policy.
+- **Evidence:** the `gh` login has admin on `nullrul/aidlc-workflows` (`gh api`, 2026-11-25), so the capability exists. The maintainer's rule above decides whether an agent may use it.
 
 ### 12. A fork checkout with Bun (M2b)
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25), as recommended:**
 
 - **Finding the checkout.** The gate reads it from `EARNEST_AIDLC_FORK`: an absolute path that holds `core/tools/aidlc.ts`. It reads `bun` from `PATH`. If either is missing, the gate fails with a message that names it (Task 1).
-- **Locally.** The maintainer's checkout is `/Users/rc/Projects/workspace/aidlc-workflows`. Its Bun, 1.3.8, should be upgraded to the fork CI's 1.4.2 with `bun upgrade`. In the checkout, `bun install --frozen-lockfile` must run once. F14 ran without `node_modules`, but the approve runs of F15 had them.
+- **Locally.** The gate takes the checkout only from `EARNEST_AIDLC_FORK`, so this plan names no machine's path. Bun should be the fork CI's 1.4.2 (`bun upgrade` from 1.3.8). No `bun install` is needed: nothing under the fork's `core/` imports a package outside `node:` and `bun:`, and F14 ran without `node_modules`.
 - **How the gate runs the fork.** It runs from source, as `bun <fork>/core/tools/aidlc.ts …`. The stage graph is compiled into pytest's temporary directory by the fork's own `compileStageGraph()` and passed as `AIDLC_STAGE_GRAPH` (F15). The gate does not package the fork, and writes nothing in the checkout.
 - **In CI:** see answer 15.
+
+**Evidence (Spike F):**
+
+- **Class:** settled by code.
+- **Evidence:** a search of `core/` for imports outside `node:` and `bun:` finds none, and the fork's `package.json` holds only `devDependencies` (typecheck, lint and the fork's own tests). The fork's `ci.yml:57-59` pins Bun 1.4.2 and `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6`.
+- **Correction:** the `bun install --frozen-lockfile` precondition is dropped here, from answer 15, from Global Constraints, from Task 1 Step 6 and from Task 4 Step 2. The macOS checkout path is dropped; the spike's host is Linux and has no Bun.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25), with those corrections.
 
 ### 13. The per-unit fork work (`01`)
 
 Row as asked: "how a `unit-end` gate checks each stage its `Gate Stages` lists while those stages read ahead of the unit's frontier; where upstream raises `Attempt Generation`; whether `STAGE_SKIPPED` or `STAGE_JUMPED` rows carry `Unit`".
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25), as recommended:**
 
 - **`Attempt Generation`.** Upstream raises it when a unit is claimed and when it is released, in `aidlc-unit.ts` (F10). The team gate already writes it (F7), and the delta leaves it as it is.
 - **`STAGE_SKIPPED` and `STAGE_JUMPED`.** Neither carries `Unit` (F10). `01`'s rule already expects that: "restarts and jumps void rows by slug for every unit". Earnest does not read `UNIT_SKIPPED` in v1.
-- **`unit-end`, for the maintainer to choose:**
-  - **(a) Root fix, in Earnest.** A `--stage` run reports at position current every stage that the same open `unit-end` gate lists, so each listed stage's errors fail the check. This changes `01`, lines 703-705, and needs a new Earnest task with its own scenario.
-  - **(c) v1.** At a `unit-end` gate, the fork fires the `earnest` sensor once for each stage that `Gate Stages` lists, each as `<phase>/<unit directory>/<slug>`, and holds the gate if any of them fails. A listed stage that lies ahead of the unit's frontier then reports its errors as notes. This plan records that as a known limit, and adds a row to `01`'s Open questions to be settled before the first team-mode intent runs through Earnest.
-- **Recommendation: (c) for M7.** Neither option can be reached from this gate, because the team path stops at a `UNIT_COMPLETED` receipt (F16). Option (a) is Earnest work that deserves its own scenario.
+- **`unit-end`: DECIDED (user, 2026-11-25), option (c), v1.** At a `unit-end` gate, the fork fires the `earnest` sensor once for each stage that `Gate Stages` lists, each as `<phase>/<unit directory>/<slug>`, and holds the gate if a listed stage at or behind the unit's frontier fails. A listed stage that lies ahead of the frontier reports its errors as notes, exits 0 and so passes: it never holds the gate (E8b). This is the weaker guard, and it goes into Known limits. Task 0 adds a row to `01`'s Open questions, to be settled before the first team-mode intent runs through Earnest. The root fix, a `--stage` run in Earnest that reports at position current every stage the same open `unit-end` gate lists, is not part of M7; it is a later Earnest task with its own scenario, because `01`, lines 703-705, would change.
+- Neither option can be reached from this gate, because the team path stops at a `UNIT_COMPLETED` receipt (F16).
+
+**Evidence (Spike F):**
+
+- **Class:** maintainer-only. The evidence prices (c) and shows it is weaker than the first wording said.
+- **Evidence:** E8: with an error in `u1-limiter`'s code-generation, `check --stage` of that stage exits 1 with the errors at position current when it is the unit's frontier (E8a), and exits 0 with the same findings as notes at position ahead when the frontier is `functional-design` (E8b). E8b models a `unit-end` gate by dropping the unit's `functional-design` approval, as no stage of the unit has its approval yet at that gate. The sensor then prints `pass: true` for the later stages.
+- **Unlisted seam:** firing once for each listed stage is new fork work. `fireGateSensors` fires for each matching deliverable and takes no unit (`aidlc-state.ts:3755-3760`). `STAGE_SKIPPED` carries no `Unit` (`:7848`), where `UNIT_SKIPPED` does (`:7806`).
+- **Recommended answer:** (c) for M7, with the weaker guard written into Known limits. Only (a) guards a stage ahead of the frontier. Accepted as recommended (DECIDED, user, 2026-11-25).
 
 ### 14. The value of `Unit` (new, from F8)
 
-**PROPOSED:** Earnest joins a gate row's `Unit` to the unit whose construction directory it names, which is upstream's unit name. That replaces the id-rule name. The fork writes upstream's unit name at every emit site, including the new `Unit` on the solo path.
+**DECIDED (user, 2026-11-25), as recommended:** Earnest joins a gate row's `Unit` to the unit whose construction directory it names, which is upstream's unit name. That replaces the id-rule name. The fork writes upstream's unit name at every emit site, including the new `Unit` on the solo path.
 
 This changes, in this repository:
 
@@ -242,27 +367,41 @@ This changes, in this repository:
 
 The alternative is for the fork to map upstream's name to the id-rule name at its emit sites. That changes a value upstream's own code already joins into paths (`aidlc-state.ts:6380`) and reads (`gateStagesFromBlock`, `aidlc-lib.ts:36460`).
 
+**Evidence (Spike F):**
+
+- **Class:** settled by code. E1, E2 and the prototype ran Earnest's side.
+- **Evidence:** upstream's unit name is the construction directory: `core/knowledge/aidlc-shared/verification.md:23` ("Unit name (its construction directory)"), `core/aidlc-common/stages/inception/units-generation.md:104`, and `aidlc-state.ts:6380`, which joins it into `construction/<unit>/`. `teamGateFields` writes it as `Unit` (`:6525`). E1b: a gate row with `Unit: u1-limiter` approves nothing today. The run exits 0, `u1-limiter/functional-design` stays "not done, approval none", and no finding names the row, so the failure is silent. E1a, the id-rule spelling, approves it.
+- **Starting diff:** a 7-line prototype in `_expand` (`plan.py:622`) makes the directory join, and is Task 2's starting diff. With it, the five runs of P-E1 and P-E2 exit 0.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
+
 ### 15. The fork commit the gate pins, and CI (new, from F2 and F18)
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25), as recommended:**
 
-- **The delta's base.** The delta is applied to the fork's `main` as it stands when the fork's plan starts, `f2acb53d` or later, not to `fe563195d827`. Task 0 updates two things in `02`'s Fork delta:
+- **The delta's base.** The delta is applied to the fork's `main` after the upstream sync of answer 4 (the fork is 911 commits behind `awslabs` main), at the synced sha that the fork's plan records, not to `f2acb53d` or `fe563195d827`. Task 0 updates two things in `02`'s Fork delta:
   - its base commit;
   - its tree: `tests/.coverage-registry.json` is replaced by `// covers:` headers on the two new tests (F2).
-- **`make test` stays self-contained.** pytest's `addopts` in `pyproject.toml` carries `--ignore=tests/steps/test_aidlc_fork.py`, so a bare `uv run pytest` and `make test` keep Bun and TypeScript out of the package's tests, as L5 of `02` does. Naming the module's path still runs it (checked on pytest 9.1.1). A new target, `make test-aidlc-fork`, runs the exit command. The module itself never skips.
+- **`make test` stays self-contained.** pytest's `addopts` in `pyproject.toml` (a list, and it has no `addopts` today) carries `--ignore=tests/steps/test_aidlc_fork.py`, so a bare `uv run pytest` and `make test` keep Bun and TypeScript out of the package's tests, as L5 of `02` does. Naming the module's path still runs it (checked on pytest 9.1.1). The M9 plan adds its own list entries to the same key (`--ignore=tests/steps/test_openspec_host.py` and `--ignore=tests/integration/test_openspec_ids.py`), so whichever of M7 and M9 lands second merges the key, never overwrites it; the merged form is `addopts = ["--ignore=tests/steps/test_aidlc_fork.py", "--ignore=tests/steps/test_openspec_host.py", "--ignore=tests/integration/test_openspec_ids.py"]`, and M9 removes its two entries at its exit while M7's stay. A new target, `make test-aidlc-fork`, runs the exit command. The module itself never skips.
 - **A new CI job, `test-aidlc-fork`,** does these steps:
   - checks out the fork at `AIDLC_FORK_REF`, a full sha on the fork's `main` that holds the delta;
   - installs Bun 1.4.2 with `oven-sh/setup-bun`, pinned by sha as the fork's own CI pins it;
-  - runs `bun install --frozen-lockfile` in the checkout;
-  - runs `make test-aidlc-fork` with `EARNEST_AIDLC_FORK` set.
+  - runs `make test-aidlc-fork` with `EARNEST_AIDLC_FORK` set. It runs no `bun install` (answer 12).
 - **Merge order:**
+  0. The fork's plan syncs the fork's `main` with `awslabs/aidlc-workflows` main (answer 4, option A), and records the synced sha.
   1. The fork's plan merges the delta on the fork's `main`, at sha X.
   2. This repository's M7 branch sets `AIDLC_FORK_REF` to X.
   3. The branch merges once the job is green. Until step 1, the exit command stays red and the branch stays unmerged.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by experiment.
+- **Evidence:** E7, pytest 9.1.1, with `addopts = ["--ignore=tests/steps/test_aidlc_fork.py"]`: a bare run collects 1054 tests, not the module (exit 0); the module's path and its node each collect it (exit 0, 0); a directory argument, `tests/steps`, leaves it out (exit 0). So only a named module path or node runs the gate. The fork's `ci.yml:57-59` pins the same `oven-sh/setup-bun` sha and Bun 1.4.2.
+- **Correction:** the job drops `bun install --frozen-lockfile`, as answer 12 says. The delta's base, `f2acb53d`, is 911 commits behind `awslabs` main, so answer 4's sync comes first.
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
+
 ### 16. How the gate drives approve (new, from F15 and F16)
 
-**PROPOSED:**
+**DECIDED (user, 2026-11-25), as recommended:**
 
 - **The calls.** The gate calls the fork's direct transitions:
   - `engine state gate-start <slug>` and then `engine state approve <slug> --user-input Approve`;
@@ -276,16 +415,31 @@ The alternative is for the fork to map upstream's name to the id-rule name at it
   - `Approved By: automatic`.
 - **The `--unit` form** belongs to the Interface contract. Task 0 Step 4 records the form the fork's plan settles on.
 
+**Evidence (Spike F):**
+
+- **Class:** settled by code.
+- **Evidence:** F15 and F16 stand. The guard that wants a human reply after gate-start has an upstream off-switch, `AIDLC_SKIP_HUMAN_PRESENCE_GUARD=1` (`aidlc-lib.ts:31144`).
+- **Unlisted seam:** 127 upstream test files under `tests/` set that switch, so it is the fork's own way to drive approve in a test. The gate could set it instead of writing a `HUMAN_TURN` row. That would turn the guard off rather than satisfy it, so the gate would no longer exercise "the human replied".
+- **Recommended answer:** accepted (DECIDED, user, 2026-11-25). Keep the hand-written `HUMAN_TURN` row, and keep the switch as the fallback if the row's format drifts.
+
 ### 17. Where the solo path gets its unit (new, from F16)
 
 `02` and `01` (line 169) have the delta write `Unit` on the solo approve path. On the units variant with solo ownership, though, upstream's solo approve covers the stage's single row, such as `functional-design — EXECUTE: per unit`, and knows no unit (F16). Upstream can also approve several per-unit stages at one solo gate (`Approves Together`, `audit-format.md:73`).
 
-**PROPOSED, for the maintainer to choose:**
+**DECIDED (user, 2026-11-25): A. `--unit <unit name>`** on the solo `gate-start` and `approve`, including the two pieces of fork work below.
 
-- **A. `--unit <unit name>`.** The delta adds this argument to gate-start and approve on the solo path. A solo gate for a per-unit stage then speaks for one unit, and writes one `GATE_APPROVED` with that `Unit`. When upstream approves per-unit stages together, the delta writes one `GATE_APPROVED` per unit stage, each with its own `Unit`, `Assessment Hash` and `Items`. That keeps `01`'s rule that one row speaks for one unit's stage.
-- **B. No `Unit` on the solo path.** Per-unit approvals come only from team gates, and on a solo intent Earnest approves no per-unit stage, as `01` (lines 684-685) says holds before M7. Scenario 5 is dropped, and clause (d)'s "approve writes `Unit`" is met only by the fork's tests of the team gate.
+- The delta adds this argument to gate-start and approve on the solo path. A solo gate for a per-unit stage then speaks for one unit, and writes one `GATE_APPROVED` with that `Unit`. When upstream approves per-unit stages together, the delta writes one `GATE_APPROVED` per unit stage, each with its own `Unit`, `Assessment Hash` and `Items`. That keeps `01`'s rule that one row speaks for one unit's stage.
+- **Fork work it adds**, which the delta lists nowhere yet, so Task 0 Step 3 adds both to `02`'s Fork delta and Task 0 Step 4 compares them with the fork's plan:
+  1. `teamGateContext` must stop rejecting `--unit` outside team mode (`aidlc-state.ts:5913-5925`).
+  2. Sensor firing must be scoped to the unit, because `fireGateSensors` takes no unit (`:3755-3760`).
+- Scenario 5 and the Interface contract rest on A. Without it, a solo intent on a units route never reaches done in Earnest.
 
-Recommendation: A. Without it, a solo intent on a units route never reaches done in Earnest. Scenario 5 and the Interface contract assume A.
+**Evidence (Spike F):**
+
+- **Class:** maintainer-only. The evidence prices A and adds a third option.
+- **Evidence:** E2 on Earnest's side: a solo row with no `Unit` approves no per-unit stage (E2a). A solo row with only `Unit` joins, with no `Gate Scope`, `Gate Stages` or `Attempt Generation`: E2b with the id-rule spelling today, and E2c with the directory spelling once answer 14 lands (P-E2c). So option A's rows need only the `Unit` field on top of what the solo path writes.
+- **Unlisted fork work under A:** the two pieces named in A above, the `--unit` rejection outside team mode and the unscoped sensor firing. Neither is in the plan's Interface contract or in `02`'s Fork delta.
+- **Recommended answer:** A, with its fork work priced. Accepted as recommended (DECIDED, user, 2026-11-25).
 
 ## Interface contract with the fork
 
@@ -324,7 +478,7 @@ The calls, in order:
 - **The gate leaves the checkout clean.**
   - The graph and the fixture copies live in pytest's temporary directories, not in the checkout.
   - `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` is identical before and after a gate run (Task 6).
-  - The gate never runs `bun install`. That is a precondition (answer 12).
+  - The gate never runs `bun install`, and needs none (answer 12).
 - **Fail, never skip.** A missing `EARNEST_AIDLC_FORK`, a path without `core/tools/aidlc.ts`, or no `bun` on `PATH` each call `pytest.fail` with a one-line message that names the cause. Neither the module nor its helper uses `pytest.skip`, `skipif` or `importorskip`.
 - **A scrubbed environment for every fork call** (F17). The fork never sees the caller's session, host settings or Git configuration.
 - **Read the fork's rows by content.** Never read them by order or timestamp: the fork writes wall-clock times, and the fixture's rows are dated 2026-09-26 (F17).
@@ -341,7 +495,7 @@ The calls, in order:
 - **`pass: false` arrives with exit 0.** A script that exits 1 would be read by AI-DLC as `PASSED script-error` (F5). The failing-sensor scenario asserts both the exit code and the value.
 - **The per-unit stage is named in full.** The per-unit sensor scenario asserts that the record holds a run header keyed `<record dir>/construction/u2-notice/functional-design`. A bare slug on the units variant makes `earnest check` exit 2, so a sensor that passed one would print `pass: false`, which the scenario's `pass true` catches. Run headers always carry a phase, so no header keyed by a bare slug can exist to check against.
 - **Earnest reads the fork's row.** After each approve, `earnest plan` shows the stage's approval as `current, human`. This end-to-end check proves that the field names and the `Unit` join agree.
-- **The second check at approve keeps the hash.** Before approve, gate-start rewrites `aidlc-state.md` and adds `<record dir>/.aidlc-engine/` and the shard. Answer 3's equality holds only if the hash leaves those paths out. `01` keeps the route and the approvals outside the hash. Task 5 Step 3 checks this on the real delta.
+- **The second check at approve keeps the hash.** Before approve, gate-start rewrites `aidlc-state.md` and adds `<record dir>/.aidlc-engine/` and the shard. Answer 3's equality holds only if the hash leaves those paths out. `01` keeps the route and the approvals outside the hash. E3d shows the hash leaves out a rewritten state file, a new shard and `.aidlc-engine/`, written by hand; Task 5 Step 3 checks this on the real delta.
 - **The fork checkout stays clean** (Task 6).
 
 ## Task order and the scenarios each turns green
@@ -409,11 +563,12 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
 - **Source, not packaged.** The gate runs the fork from source with a compiled graph. The fork's own tests run the packaged tree (F15).
 - **Direct transitions.** The gate drives approve through the direct transitions, with `AIDLC_ALLOW_DIRECT_STATE_TRANSITIONS=1`, a `HUMAN_TURN` row written by hand, and the reviewer gate turned off by `Review Override: none`. The orchestrated path and the session binding stay with the fork's tests.
 - **Paths this gate does not drive** (F16): the team per-unit gates, `unit-end`, `unit-merge` and `Approved By: automatic`. The fork's `t-gate-approved-assessment.test.ts` covers their emit sites.
-- **`unit-end` safety** depends on answer 13. Under option (c), a stage listed ahead of the unit's frontier reports its errors as notes.
+- **`unit-end` safety** (answer 13, option (c), decided). A stage listed ahead of the unit's frontier reports its errors as notes, passes, and never holds the gate (E8b).
+- **A dirty run header** (answer 1, decided). Neither the gate nor approve refuses it. A dirty header's `commit` is HEAD, which lacks the approved bytes, and `change_baseline` takes that `commit` as the baseline when the approval carries the header's hash (`plan.py:1435-1449`, `cli.py:281-292`), so the approved bytes then count as changed since the baseline. A dirty run also takes no coverage map (`cli.py:424`). The gate shows `dirty` beside the hash so the human sees it.
 - **Pins.**
   - Only CI pins `AIDLC_FORK_REF` and Bun 1.4.2. A local run uses whatever commit and Bun the maintainer has.
-  - The per-unit approve scenario rests on answer 17's option A, and on the `--unit` form of the Interface contract until the fork's plan confirms it (Task 0 Step 4).
-- **The approve check costs a run.** Under answer 3, each approve runs `earnest check --stage` once more.
+  - The per-unit approve scenario rests on answer 17's option A (decided), which needs fork work beyond the `--unit` argument, and on the `--unit` form of the Interface contract until the fork's plan confirms it (Task 0 Step 4).
+- **The approve check costs a run.** Under answer 3, each approve runs `earnest check --stage` once more. On a clean tree that run takes a coverage map: the target's tests under pytest-cov, up to 900 s (E9).
 
 ---
 
@@ -423,7 +578,13 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
 
 **Files:** Modify `docs/superpowers/plans/2026-11-20-aidlc-fork.md`, `docs/design/01-logic-design.md`, `docs/design/02-structural-design.md`, `docs/design/03-implementation-plan.md` and `docs/design/04-bdd-test-plan.md`.
 
-- [ ] **Step 1:** For each of the seventeen answers, replace PROPOSED with the maintainer's decision and its date. If answer 4, 13, 14, 15 or 17 has no decision, stop: Tasks 2 to 5 are built on them.
+- [x] **Step 1:** Record the seventeen decisions (DECIDED (user, 2026-11-25), each in its row above). Row 4 is option A and the rest follow:
+  - Row 1: neither the gate nor approve refuses a dirty tree; `dirty` shows beside the hash; the baseline cost is a known limit.
+  - Row 4: A, KEEP `nullrul/aidlc-workflows` and revise L3 in `02`. This goes against Spike F's recommendation of B and needs the 911-commit upstream sync first.
+  - Row 11: agents push feature branches and open pull requests on the fork after the pre-PR review, never to main, `--force-with-lease` only; the user merges.
+  - Row 13: (c), the fork fires `earnest` once per listed stage; the weaker guard is in Known limits.
+  - Row 17: A, `--unit <name>` on solo gate-start and approve, with the two pieces of fork work it needs.
+  - Rows 2, 3, 5 to 10, 12, 14 to 16: accepted as recommended.
 - [ ] **Step 2:** Write the M7 section of `04`, after M6's. It holds:
   - the feature path;
   - the fixture: `seeded-change` with the `fork` overlay, its units variant with the `fork-units` overlay, and a local fork checkout;
@@ -431,15 +592,17 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
   - the readings;
   - the Gherkin below, marked PROPOSED.
 
-  Replace the sentence "The scenarios of M7 and M8 are added here when each milestone's plan is written" so that it names M8 alone. Do the same for the Future directions bullet at line 1844, which names M7 and M8.
+  The two places that said M7's and M8's scenarios come "when each milestone's plan is written" were already reworded on this branch (M8 and M9 now have sections, so they name M7 alone): the sentence under the milestone table and the Future directions bullet, both found by `grep -n 'scenarios of M7'`. Line numbers have moved. When this section lands, reword both to say that M7's section is here. The milestone table's M7 row stays as it is.
 - [ ] **Step 3:** Resolve the thirteen rows with the decisions, each where it is written (`01`'s and `02`'s Open questions; an M2b row that only `03`'s M7 entry names is resolved there), and add rows 14 to 17 as resolved. Then make the edits the decisions call for:
   - `01`, lines 167-169 and 671, and `02`, line 200, for answer 14: each says a gate row's `Unit` is the unit's name by the id rule, and comes to say the unit's construction directory;
   - `04`'s unit Gherkin, for answer 14. Lines 766, 795 and 802 name the unit's directory (`u2-notice`, `u1-limiter`). In SC8's Examples (lines 782-790), the `unit` column's `u2` becomes `u2-notice`, `u2-notice` becomes `u2`, and `U2` becomes `U2-notice`; each row keeps its approval. In the rejection outline's Examples (lines 821-824), `u1` becomes `u1-limiter` and `u2` becomes `u2-notice`; `-` and `u9` stay. Line 700's `unit "u1"` is a unit-table id and stays. The maintainer's approval of answer 14 is the ratification `04`'s "Fixed for the loop" asks for;
   - `01`'s mapping table, for answers 6 and 7;
   - in `02`'s Fork delta, the base commit and the tree (answer 15), and the approve check in the `aidlc-state.ts` bullet (answer 3);
-  - if answer 13 is option (c), the new row in `01`'s Open questions;
+  - for answer 13, option (c): the new row in `01`'s Open questions;
+  - for answer 4, option A: revise L3 in `02` ("The AI-DLC fork is its own repository, downstream only") to say the fork is the GitHub fork `nullrul/aidlc-workflows`, downstream only through the per-clone `no-push` and `set-default` settings, and update the fork's name in `02`'s Fork delta and Future directions where they say standalone or mirror-pushed (`grep -n 'mirror\|standalone' docs/design/02-structural-design.md`);
+  - for answer 17, option A: add the two pieces of fork work to `02`'s Fork delta (`--unit` accepted outside team mode in `teamGateContext`, and unit-scoped sensor firing), and per-listed-stage firing for answer 13;
   - a link to this plan from M7's entry in `03`.
-- [ ] **Step 4:** Once the fork's plan exists, compare its interface with the Interface contract above. Record any difference in this plan before Task 3 starts: the `--unit` form, the sensor's JSON, and the shard name.
+- [ ] **Step 4:** Once the fork's plan exists, and the upstream sync of answer 4 has landed, record the synced sha and compare the plan's interface with the Interface contract above. Record any difference in this plan before Task 3 starts: the `--unit` form, the sensor's JSON, and the shard name.
 - [ ] **Step 5:** Run `LINT_FILE=<path> make lint-file` on each changed file and check the exit code with `rtk proxy`. Commit `docs: M7 aidlc_fork plan and gating answers`.
 
 The Gherkin for `04`, PROPOSED. Every finding count comes from Earnest's side of the Fork facts. The two last lines of each approve scenario reuse the shared steps `the coding agent runs earnest plan` and `"{stage}" has the approval "{approval}"` from `tests/conftest.py`.
@@ -722,12 +885,12 @@ def gate_approvals(repo: Path) -> list[Event]:
   - Run `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` and save the output.
   - Run `uv run python -c 'from pathlib import Path; import tempfile; from tests.fork import compile_graph, fork_checkout; r, b = fork_checkout(); print(compile_graph(r, b, Path(tempfile.mkdtemp())).graph.stat().st_size)'` from `packages/earnest/`.
   - Expected: a size above zero, and a second `git status --short --ignored` identical to the first.
-  - If the compile fails on a missing module, stop. Ask the maintainer to run `bun install --frozen-lockfile` in the checkout, which is answer 12's precondition. The agent does not run it. Then run the compile again.
+  - If the compile fails on a missing module, stop and record it: Spike F found no import outside `node:` and `bun:` under the fork's `core/`, so that would contradict answer 12. The agent does not run `bun install`; the maintainer decides whether to.
 - [ ] **Step 7:** Commit `test: aidlc_fork gate helper that fails without a fork checkout`.
 
 ### Task 2: `Unit` joins by unit directory
 
-Run this task only if answer 14 is approved as proposed. If the maintainer chooses the alternative, delete it and note that here.
+Answer 14 is decided as proposed (DECIDED, user, 2026-11-25), so this task runs.
 
 **Files:** Modify:
 
@@ -746,6 +909,31 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
 - Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647).
 - Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`. `_gate_keys`, `_generation` and `_voids` name the key `directory`, and all five docstrings say unit directory.
 
+**Starting diff.** Spike F prototyped the join in `_expand` (`plan.py:622`). It applies to `plan.py` at `ae4136c` (`git apply --check` exit 0, from the repository root), and with it the five runs of P-E1 and P-E2 exit 0 (answer 14):
+
+```diff
+--- a/packages/earnest/src/earnest/plan.py
++++ b/packages/earnest/src/earnest/plan.py
+@@ -640,7 +640,14 @@
+         for stage in per_unit
+     }
+     lanes = {unit.name: frozenset(_slug(stage) for stage in per_unit) for unit in joined}
+-    gates = [event for event in intent.events if event.name in {"GATE_APPROVED", "GATE_REJECTED"}]
++    by_directory = {unit.directory: unit.name for unit in joined}  # PROTOTYPE (spike F): a row's `Unit` is a directory
++    gates = [
++        replace(event, fields={**event.fields, "Unit": by_directory[event.fields["Unit"]]})
++        if event.fields.get("Unit") in by_directory
++        else event
++        for event in intent.events
++        if event.name in {"GATE_APPROVED", "GATE_REJECTED"}
++    ]
+     floors = {name: _generation(gates, name) for name in lanes}
+     approvals = {stage: approval for stage, approval in intent.approvals.items() if stage in route}
+     for key, stage in stage_ids.items():
+```
+
+The diff translates a row's directory to the unit's name where `gates` is built, and leaves `stage_ids`, `lanes` and the five helpers keyed by name. It also keeps the id-rule spelling joining (P-E1a), so Step 2's second test fails against it. Step 4 replaces the translation with directory keys, because answer 14 says the directory replaces the id-rule name. If the maintainer prefers the smaller change, in which both spellings join, the diff is the whole change to `plan.py`: drop Step 2's second test and Step 4's rekey, and keep Step 5's fixture rows.
+
 - [ ] **Step 1:** From `packages/earnest/`, run `grep -rn 'Unit' src/earnest/plan.py tests/ --include='*.py' --include='*.md' --include='*.feature'`. List in this task every hit that reads or writes a gate row's `Unit`; skip `Unit Progress`, `Unit Ownership` and unit-table ids. Correct the Files list if it misses one.
 - [ ] **Step 2:** Write the failing tests in `test_plan.py`:
   - `test_gate_row_joins_unit_by_directory`: a per-stage row with `Unit: u1-limiter` approves `construction/u1-limiter/functional-design`.
@@ -753,7 +941,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
   - `test_attempt_generation_counts_by_directory`: a generation-1 row with `Unit: u1-limiter` approves `u1-limiter`'s stage, and once a row with `Unit: u1-limiter` and `Attempt Generation: 2` follows, that approval no longer counts. The first half fails before Step 4.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
-- [ ] **Step 4:** In `plan.py`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`, and add `if unit.directory` to both comprehensions: `Unit.directory` is typed `str | None`, and `joined`'s filter at line 628 does not narrow it for `mypy --strict`. The two become:
+- [ ] **Step 4:** Apply the starting diff with `git apply` and run Step 3's command again: expect only the id-rule test to fail. Then finish the change in `plan.py`: restore the original `gates` line, drop `by_directory`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`, and add `if unit.directory` to both comprehensions: `Unit.directory` is typed `str | None`, and `joined`'s filter at line 628 does not narrow it for `mypy --strict`. The two become:
 
 ```python
     stage_ids = {
@@ -807,7 +995,7 @@ Run this task only if answer 14 is approved as proposed. If the maintainer choos
   - `earnest check --stage construction/u2-notice/functional-design` on `fork-units`. Expected: exit 0 and 0 results.
 
   If a count differs, stop. The Gherkin's counts change only through Task 0 and the maintainer.
-- [ ] **Step 6:** Copy the M7 Gherkin of `04` into `aidlc_fork.feature`, verbatim. Add `addopts = ["--ignore=tests/steps/test_aidlc_fork.py"]` to `[tool.pytest.ini_options]` in `packages/earnest/pyproject.toml`, so a bare run leaves the module out; naming its path still runs it.
+- [ ] **Step 6:** Copy the M7 Gherkin of `04` into `aidlc_fork.feature`, verbatim. Add `addopts = ["--ignore=tests/steps/test_aidlc_fork.py"]` to `[tool.pytest.ini_options]` in `packages/earnest/pyproject.toml`, so a bare run leaves the module out; naming its path still runs it. If M9's Task 3 landed first, `addopts` exists as a list: append this entry to it (the merged form is in answer 15's "`make test` stays self-contained" bullet) rather than writing a second key.
 - [ ] **Step 7:** Write `tests/steps/test_aidlc_fork.py`. Every step asserts on a fork call's exit code, and its message is the call's stderr:
 
 ```python
@@ -953,7 +1141,7 @@ test-aidlc-fork:
     needs: lint-python
     runs-on: ubuntu-latest
     env:
-      AIDLC_FORK_REPO: nullrul/aidlc-workflows  # answer 4 names the repository
+      AIDLC_FORK_REPO: nullrul/aidlc-workflows  # answer 4, option A: the GitHub fork is kept
       AIDLC_FORK_REF: 0000000000000000000000000000000000000000  # Task 5 sets the fork sha that holds the delta
     steps:
       - uses: actions/checkout@v4
@@ -969,8 +1157,6 @@ test-aidlc-fork:
         with:
           bun-version: '1.4.2'  # the fork's CI pins this version
       - uses: astral-sh/setup-uv@v5
-      - run: bun install --frozen-lockfile
-        working-directory: aidlc-fork
       - run: make -C packages/earnest install test-aidlc-fork
         env:
           EARNEST_AIDLC_FORK: ${{ github.workspace }}/aidlc-fork
@@ -984,11 +1170,11 @@ test-aidlc-fork:
 
 ### Task 5: Pin the fork, and turn the gate green
 
-Start this task only after the fork's plan has merged the delta on the fork's `main`.
+Start this task only after the fork's plan has synced the fork's `main` with `awslabs/aidlc-workflows` main (answer 4, option A) and merged the delta on the fork's `main`.
 
 **Files:** Modify `.github/workflows/ci.yml` (`AIDLC_FORK_REPO`, `AIDLC_FORK_REF`), and this plan, where the task records the pinned sha and its counts.
 
-- [ ] **Step 1:** Set `AIDLC_FORK_REF` to the full sha of the fork's `main` that holds the delta, and `AIDLC_FORK_REPO` to the repository of answer 4. In the local checkout, run `git -C "$EARNEST_AIDLC_FORK" fetch` and `git -C "$EARNEST_AIDLC_FORK" switch --detach <sha>`. This is the one change this plan makes in the fork checkout, and the maintainer approves it at this step.
+- [ ] **Step 1:** Set `AIDLC_FORK_REF` to the full sha of the fork's `main` that holds the delta, and `AIDLC_FORK_REPO` to `nullrul/aidlc-workflows` (answer 4). In the local checkout, run `git -C "$EARNEST_AIDLC_FORK" fetch` and `git -C "$EARNEST_AIDLC_FORK" switch --detach <sha>`. This is the one change this plan makes in the fork checkout, and the maintainer approves it at this step.
 - [ ] **Step 2:** In `packages/earnest/`, run `rtk proxy uv run pytest tests/steps/test_aidlc_fork.py; echo $?`. Expected: `0`, with 5 passed.
 - [ ] **Step 3:** Check that the hash holds through approve (Review Focus). In the third scenario's built repository, the `Assessment Hash` of the `STAGE_AWAITING_APPROVAL` row, of the `GATE_APPROVED` row, and of the final run header are equal. If they differ, stop. The hash takes in a path that gate-start writes, and that is a fault in the delta or in `01` for the maintainer, not something to fix in the test.
 - [ ] **Step 4:** Commit `ci: pin the aidlc_fork gate to fork <short sha>`, and push the branch only under Task 6's review.

@@ -1,0 +1,100 @@
+diff --color -ruN '--exclude=__pycache__' base/packages/earnest/tests/unit/test_openspec_layers.py design-c/packages/earnest/tests/unit/test_openspec_layers.py
+--- base/packages/earnest/tests/unit/test_openspec_layers.py	1970-01-01 00:00:00.000000000 +0000
++++ design-c/packages/earnest/tests/unit/test_openspec_layers.py	2026-11-25 15:25:07.339371019 +0000
+@@ -0,0 +1,96 @@
++"""Tests for OpenSpec copies of one requirement: main spec, in-flight delta and archive (spike C, issue #23)."""
++
++import pytest
++
++from earnest import adapters, structural
++from earnest.index import build_index
++
++
++MAIN = "openspec/specs/greeting/spec.md"
++DELTA = "openspec/changes/refine/specs/greeting/spec.md"
++OTHER = "openspec/changes/other/specs/greeting/spec.md"
++ARCHIVE = "openspec/changes/archive/2026-10-01-add/specs/greeting/spec.md"
++CODE = "src/greeting.py"
++
++
++def spec(heading, revision, section=None):
++    top = f"## {section} Requirements\n\n" if section else "## Requirements\n\n"
++    return f"{top}### Requirement: {heading}\n`req~{heading.lower().replace(' ', '-')}~{revision}`\n\nThe system shall x.\n"
++
++
++def run(files, tag=None):
++    sources = [adapters.source(path, text.encode()) for path, text in files.items()]
++    if tag:
++        sources.append(adapters.source(CODE, f"# [impl->req~{tag}]\n".encode()))
++    index = build_index(source for source in sources if source and not adapters.skipped(source.path, ()))
++    found = [(f.rule, f.path) for f in structural.check(index)]
++    # a spec with no `Covers:` line also raises orphaned and gap: only the code's links are under test
++    return index, [
++        (rule, path) for rule, path in found if rule in ("earnest/duplicate", "earnest/outdated") or path == CODE
++    ]
++
++
++@pytest.mark.parametrize(
++    ("path", "skipped"),
++    [
++        ("openspec/changes/archive/2026-10-01-x/specs/c/spec.md", True),
++        ("pkg/openspec/changes/archive/x/proposal.md", True),
++        ("openspec/changes/x/specs/c/spec.md", False),
++        ("openspec/specs/c/spec.md", False),
++        ("docs/changes/archive/x.md", False),
++        ("openspec/changes/archive", False),
++    ],
++)
++def test_only_files_below_the_openspec_archive_are_skipped(path, skipped):
++    assert adapters.skipped(path, ()) is skipped
++
++
++def test_a_modified_delta_overlays_the_main_copy_and_outdates_links_to_the_old_revision():
++    index, found = run({MAIN: spec("Greet", 1), DELTA: spec("Greet", 2, "MODIFIED")}, tag="greet~1")
++    assert str(index.defined[("req", "greet")].id) == "req~greet~2"
++    assert not [rule for rule, _ in found if rule == "earnest/duplicate"]
++    assert ("earnest/outdated", CODE) in found
++
++
++def test_the_result_does_not_depend_on_the_order_of_the_sources():
++    files = {MAIN: spec("Greet", 1), DELTA: spec("Greet", 2, "MODIFIED"), ARCHIVE: spec("Greet", 1, "ADDED")}
++    forward, _ = run(files)
++    backward, _ = run(dict(reversed(list(files.items()))))
++    assert forward.defined == backward.defined
++
++
++def test_a_delta_at_the_main_revision_is_no_duplicate_and_main_stands():
++    index, found = run({MAIN: spec("Greet", 1), DELTA: spec("Greet", 1, "MODIFIED")})
++    assert index.defined[("req", "greet")].path == MAIN
++    assert found == []
++
++
++def test_a_delta_behind_the_main_copy_is_outdated():
++    _, found = run({MAIN: spec("Greet", 3), DELTA: spec("Greet", 2, "MODIFIED")})
++    assert ("earnest/outdated", DELTA) in found
++
++
++def test_two_changes_that_define_one_id_are_duplicates():
++    _, found = run({MAIN: spec("Greet", 1), DELTA: spec("Greet", 2, "MODIFIED"), OTHER: spec("Greet", 2, "MODIFIED")})
++    assert ("earnest/duplicate", OTHER) in found
++
++
++def test_a_removed_heading_without_an_id_removes_the_main_requirement_from_the_definitions():
++    removed = "## REMOVED Requirements\n\n### Requirement: Greet\n**Reason**: gone.\n"
++    index, found = run({MAIN: spec("Greet", 1), DELTA: removed}, tag="greet~1")
++    assert ("req", "greet") not in index.defined
++    assert ("earnest/orphaned", CODE) in found
++
++
++def test_a_removed_block_that_keeps_its_id_line_is_no_duplicate():
++    removed = "## REMOVED Requirements\n\n### Requirement: Greet\n`req~greet~1`\n**Reason**: gone.\n"
++    index, found = run({MAIN: spec("Greet", 1), DELTA: removed})
++    assert ("req", "greet") not in index.defined
++    assert found == []
++
++
++def test_a_removed_block_with_no_main_copy_left_defines_nothing():
++    removed = "## REMOVED Requirements\n\n### Requirement: Greet\n`req~greet~1`\n**Reason**: gone.\n"
++    index, found = run({DELTA: removed})  # `openspec sync` already dropped the main copy
++    assert ("req", "greet") not in index.defined
++    assert found == []

@@ -1,0 +1,181 @@
+diff --color -ruN -x __pycache__ -x '*.pyc' earnest/packages/earnest/tests/unit/test_openspec.py earnest-copy/tests/unit/test_openspec.py
+--- earnest/packages/earnest/tests/unit/test_openspec.py	1970-01-01 00:00:00.000000000 +0000
++++ earnest-copy/tests/unit/test_openspec.py	2026-11-25 15:39:18.147747776 +0000
+@@ -0,0 +1,165 @@
++"""SPIKE D prototype tests: an OpenSpec change as an intent, its route, and the checkbox of each task."""
++
++import json
++import os
++import shutil
++import subprocess
++from pathlib import Path
++
++import pytest
++
++from earnest import adapters, openspec
++from earnest.index import build_index
++from tests.sarif import EARNEST, located, run_earnest, sarif_run, write
++
++
++CHANGE = "openspec/changes/greet"
++SPEC = """## ADDED Requirements
++
++### Requirement: Greeting text
++`req~greeting-text~1`
++
++The system SHALL return "Hello, <name>" for a visitor name.
++
++#### Scenario: Named visitor
++- **WHEN** the visitor name is "Ada"
++- **THEN** the greeting is "Hello, Ada"
++"""
++TASKS = """# Tasks
++
++## 1. Greeting
++
++`task~greet-text~1`
++Delivers: req~greeting-text~1
++- [x] 1.1 Implement greet() and verify tests/test_greet.py passes
++
++`task~greet-shout~1`
++Delivers: req~greeting-shout~1
++- [ ] 1.2 Add the shout option
++"""
++CODE = '# [impl->req~greeting-text~1]\ndef greet(name):\n    return "Hello, " + name\n'
++TEST = '# [utest->req~greeting-text~1]\ndef test_greet():\n    assert greet("Ada") == "Hello, Ada"\n'
++
++
++def _files() -> dict[str, str]:
++    return {
++        f"{CHANGE}/proposal.md": "## Why\n\nGreet.\n",
++        f"{CHANGE}/specs/greeting/spec.md": SPEC,
++        f"{CHANGE}/tasks.md": TASKS,
++        f"{CHANGE}/.openspec.yaml": "schema: spec-driven\n",
++        "openspec/changes/archive/2026-11-01-old/tasks.md": "- [x] 1.1 old\n",
++        "src/greet.py": CODE,
++        "tests/test_greet.py": TEST,
++    }
++
++
++@pytest.mark.parametrize(
++    ("paths", "expected"),
++    [
++        (["openspec/changes/a/tasks.md"], {"openspec/changes/a"}),
++        (["openspec/changes/archive/2026-x/tasks.md"], set()),
++        (["openspec/changes/.hidden/tasks.md"], set()),
++        (["openspec/changes/README.md"], set()),
++        (["pkg/openspec/changes/b/specs/x/spec.md"], {"pkg/openspec/changes/b"}),
++        (["openspec/changes/archive-notes/proposal.md"], {"openspec/changes/archive-notes"}),
++        (["openspec/specs/x/spec.md"], set()),
++    ],
++)
++def test_a_change_is_a_directory_under_changes_outside_archive_and_hidden_ones(paths, expected):
++    assert openspec.change_dirs(paths) == expected
++
++
++@pytest.mark.parametrize(
++    ("text", "expected"),
++    [
++        ("- [ ] a", (1, False)),
++        ("- [x] a", (1, True)),
++        ("* [X] a", (1, True)),
++        ("1. [ x] a", (1, True)),
++        ("  - [ ] 1.1.1 nested", (1, False)),
++        ("- [~] a", (1, False)),
++        ("- [] a", (1, False)),
++        ("- [x](link)", None),
++        ("- [Some doc](./a.md)", None),
++        ("plain text", None),
++    ],
++)
++def test_a_box_reads_as_upstream_counts_it(text, expected):
++    assert openspec.box([(1, text)]) == expected
++
++
++def test_an_artifact_glob_matches_nested_specs_only_inside_its_change():
++    specs = "specs/**/*.md"
++    assert openspec.matches(CHANGE, specs, f"{CHANGE}/specs/a/spec.md")
++    assert openspec.matches(CHANGE, specs, f"{CHANGE}/specs/a/b/spec.md")
++    assert not openspec.matches(CHANGE, specs, f"{CHANGE}/specs/a/notes.txt")
++    assert not openspec.matches(CHANGE, specs, "openspec/specs/a/spec.md")
++    assert not openspec.matches(CHANGE, "tasks.md", f"{CHANGE}/design/tasks.md")
++
++
++def test_a_change_directory_bookkeeping_is_never_scanned(tmp_path: Path):
++    write(tmp_path, f"{CHANGE}/audit/approvals.md", "`req~x~1`\n\nThe system shall x.\n")
++    write(tmp_path, f"{CHANGE}/tasks.md", TASKS)
++    scanned = adapters.scan(tmp_path, [f"{CHANGE}/audit/approvals.md", f"{CHANGE}/tasks.md"])
++    assert [each.path for each in scanned] == [f"{CHANGE}/tasks.md"]
++
++
++def test_ticking_a_box_leaves_the_task_body_hash_as_it_was():
++    def hashes(text):
++        found = adapters.source(f"{CHANGE}/tasks.md", text.encode())
++        return {str(item.id): item.body_hash for item in build_index([found]).defined.values()}
++
++    before, after = hashes(TASKS), hashes(TASKS.replace("- [ ] 1.2", "- [x] 1.2"))
++    assert before == after
++    assert hashes(TASKS.replace("Add the shout option", "Add the whisper option")) != before
++
++
++def test_plan_prints_the_change_as_an_intent_with_its_route_and_each_tasks_box(files_repo):
++    repo = files_repo(_files())
++    done = run_earnest(repo, "plan")
++    assert done.returncode == 0, done.stderr
++    lines = done.stderr.splitlines()
++    assert f"intent {CHANGE}" in lines
++    assert "intent openspec/changes/archive/2026-11-01-old" not in lines
++    for stage in ("proposal", "specs", "design", "tasks"):
++        assert any(line.startswith(f"  {stage}: not done, approval none") for line in lines)
++    assert "  task task~greet-text~1: not done, box [x]" in lines
++    assert "  task task~greet-shout~1: not done, box [ ]" in lines
++
++
++def test_a_checked_task_whose_requirement_is_below_evidenced_raises_the_finding_at_its_box(files_repo):
++    repo = files_repo(_files())
++    env = os.environ | {"EARNEST_OPENSPEC_APPROVAL": "artifact"}
++    done = subprocess.run([str(EARNEST), "check"], cwd=repo, env=env, capture_output=True, text=True, check=False)
++    results = [each for each in sarif_run(done.stdout)["results"] if each["ruleId"] == "earnest/checked-unevidenced"]
++    assert [located(each) for each in results] == [(f"{CHANGE}/tasks.md", 7)]
++    assert "`task~greet-text~1` is checked in tasks.md" in results[0]["message"]["text"]
++    assert "`req~greeting-text~1` is traced, not evidenced" in results[0]["message"]["text"]
++    assert not any("greet-shout" in each["message"]["text"] and "checked" in each["message"]["text"] for each in results)
++
++
++def test_check_stage_writes_the_run_header_and_the_body_baseline_for_a_change(files_repo):
++    repo = files_repo(_files())
++    done = run_earnest(repo, "check", "--stage", "tasks", "--intent", CHANGE)
++    assert done.returncode in {0, 1}, done.stderr
++    record = json.loads((repo / ".earnest/assessment.json").read_text())
++    assert list(record["runs"]) == [f"{CHANGE}/tasks"]
++    assert sorted(record["bodies"]) == ["task~greet-shout~1", "task~greet-text~1"]
++
++
++def test_a_missing_openspec_cli_stops_the_run_with_exit_two_when_the_route_comes_from_it(files_repo):
++    repo = files_repo(_files())
++    env = os.environ | {"EARNEST_OPENSPEC_ROUTE": "cli", "PATH": str(Path(shutil.which("git")).parent)}  # git, and no openspec
++    done = subprocess.run([str(EARNEST), "plan"], cwd=repo, env=env, capture_output=True, text=True, check=False)
++    assert done.returncode == 2
++    assert "openspec is not on PATH" in done.stderr
++
++
++def test_a_box_with_no_task_id_line_is_untracked_and_keeps_the_tasks_stage_open(files_repo):
++    files = _files() | {f"{CHANGE}/tasks.md": TASKS + "\n## 2. Docs\n\n- [x] 2.1 Update the README\n"}
++    repo = files_repo(files)
++    env = os.environ | {"EARNEST_OPENSPEC_APPROVAL": "artifact"}
++    done = subprocess.run([str(EARNEST), "check"], cwd=repo, env=env, capture_output=True, text=True, check=False)
++    found = [each for each in sarif_run(done.stdout)["results"] if each["ruleId"] == "earnest/untracked-box"]
++    assert [located(each) for each in found] == [(f"{CHANGE}/tasks.md", 15)]
++    assert "tasks: not done, approval current, openspec" in done.stderr
+diff --color -ruN -x __pycache__ -x '*.pyc' earnest/packages/earnest/tests/unit/test_reporter.py earnest-copy/tests/unit/test_reporter.py
+--- earnest/packages/earnest/tests/unit/test_reporter.py	2026-11-25 14:52:25.182915689 +0000
++++ earnest-copy/tests/unit/test_reporter.py	2026-11-25 15:38:42.437817189 +0000
+@@ -41,6 +41,8 @@
+         "earnest/override-expired": "warning",
+         "earnest/override-drift": "warning",
+         "earnest/evidence-failed": "error",
++        "earnest/checked-unevidenced": "warning",
++        "earnest/untracked-box": "warning",
+     }
+ 
+ 

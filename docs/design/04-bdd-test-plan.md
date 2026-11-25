@@ -46,9 +46,10 @@ milestone in `03`.
 | M5 `evidence_check` | `evidence_check.feature` | `test_evidence_check.py` | `seeded-change`, and its units variant | SC3 (in full), SC8 (done) |
 | M6 `calibration_gate` | `calibration_gate.feature` | `test_calibration_gate.py` | `calibration` | SC4 |
 | M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
-| M8 `typescript_evidence` | `typescript_evidence.feature` | `test_typescript_evidence.py` | a TypeScript fixture, named when M8 is next | SC3 for TypeScript |
+| M8 `typescript_evidence` | `typescript_evidence.feature` | `test_typescript_evidence.py` | `ts-evidence` | SC3 for TypeScript |
+| M9 `openspec_host` (ratified 2026-11-25, outside v1) | `openspec_host.feature` | `test_openspec_host.py` | `openspec-change` | SC1, SC2, SC3, SC5, SC8 (task status), SC9 (stage run header), SC10 (messages) |
 
-The scenarios of M7 and M8 are added here when each milestone's plan is written; M6's section is below.
+M7's scenarios are PROPOSED in its plan (merged in PR #18); the maintainer decided that plan's answers on 2026-11-25, so its Task 0 Step 2 can add them here; the sections of M6, M8 and M9 follow, those of M8 and M9 PROPOSED.
 
 ## How scenarios are written
 
@@ -1830,19 +1831,354 @@ Feature: Calibration gate
   share one record. The guard example "EARNEST_JUDGE is unset" fails today on
   argparse's two-line usage error, so the CLI must exit 2 with one line.
 
+## M8 `typescript_evidence`
+
+Status: the scenarios are PROPOSED. They rest on the gating answers of the task
+plan
+[2026-11-25-typescript-evidence.md](../superpowers/plans/2026-11-25-typescript-evidence.md),
+which the maintainer decided on 2026-11-25, and on a StrykerJS run of the drafted fixture
+that Task 2 Step 2 of that plan makes. The `evidenced 50%` and `remaining` rows
+rest on a DERIVED row of that plan's mutant table and are confirmed before the
+maintainer ratifies this text.
+
+- Feature: `packages/earnest/tests/features/typescript_evidence.feature`,
+  bound by `tests/steps/test_typescript_evidence.py`.
+- Fixture: `tests/fixtures/ts-evidence/`, plain files committed once on `main`
+  at test time, with the canned verdicts `evidence-verdicts.json`, which no
+  commit holds.
+- Success criteria asserted: SC3 for TypeScript. Readings: the Evidence rule
+  and D4 in `01`, and E1 of the M5 task plan.
+
+The step that names the Node tools fails, never skips, when one is missing.
+
+| Reading | Basis |
+| --- | --- |
+| A surviving StrykerJS mutant raises one `evidence-failed`, an error, per line that holds one, against each requirement the region's tags cover | the Evidence rule and the findings table in `01`; M5's reading |
+| A surviving mutant on a line outside every region raises nothing | the Evidence rule and D4: Earnest filters the tool's results by region |
+| `Survived` and `NoCoverage` surviving, `Killed`, `Timeout` and `CompileError` killed, `Ignored` skipped; any other status makes the run incomplete, exit 2 | M5's mapping of mutmut's statuses, carried over by the table of this plan |
+| Evidenced is judged with a passing result under a key that matches the tree; a plain `check` reads the key without running a tool | E1; Trace levels in `01` |
+| The key's `tool` for a TypeScript requirement is `stryker <version>`, so an upgrade of StrykerJS drops the requirement below evidenced until the check reruns | E1 |
+| An evidence run without StrykerJS, or one that gives no report, exits 2 with one line naming it; a plain `check` needs no Node tool | the Command surface of `01`: a check that fails to run exits 2 |
+
+### TypeScript evidence feature
+
+```gherkin
+Feature: TypeScript evidence
+  Against the stub model, the coding agent learns from the check which tagged
+  regions of a TypeScript repository hold a surviving StrykerJS mutant, and
+  which level each requirement reaches, with the same three separate
+  percentages as for Python (SC3). The feature runs Jest and StrykerJS from
+  the package's Node toolchain, and fails when they are missing.
+
+  Scenario: The evidence check reports a surviving StrykerJS mutant in a tagged region (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the SARIF log holds exactly these findings:
+      | rule                       | file                     | line | level   | position | stage |
+      | earnest/judge-uncalibrated | .earnest/assessment.json | 1    | warning | current  | -     |
+      | earnest/evidence-failed    | src/limits.ts            | 11   | error   | current  | -     |
+    And the check exits non-zero
+
+  Scenario: A surviving mutant outside every tagged region raises nothing (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the SARIF log holds no finding at "src/limits.ts" line 3
+    And the SARIF log holds an earnest/evidence-failed finding at "src/limits.ts" line 11
+
+  Scenario: Each requirement lands at exactly one trace level, with three percentages (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level     |
+      | req~limit-boundary~1 | judged    |
+      | req~remaining~1      | evidenced |
+    And the summary leads with "traced 100%, judged 100%, evidenced 50%; requirements: 2"
+
+  Scenario: After the evidence check, a plain check keeps the TypeScript requirement evidenced (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    And the coding agent has run earnest check --evidence
+    When the coding agent runs earnest check
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level     |
+      | req~limit-boundary~1 | traced    |
+      | req~remaining~1      | evidenced |
+    And the summary leads with "traced 100%, judged 50%, evidenced 50%; requirements: 2"
+
+  Scenario: An edit to the tested TypeScript drops the requirement below evidenced until the check reruns (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    And the coding agent has run earnest check --evidence
+    And the coding agent has an uncommitted edit to the TypeScript test of "req~remaining~1"
+    When the coding agent runs earnest check
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level  |
+      | req~limit-boundary~1 | traced |
+      | req~remaining~1      | traced |
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+
+  Scenario: Without --evidence the check needs no Node tool (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with no Node tools on the path
+    When the coding agent runs earnest check
+    Then the check exits zero
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+
+  Scenario: Without StrykerJS the evidence check exits 2 and names the tool (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with no Node tools on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the check exits with code 2, with empty stdout
+    And the one line on stderr names "StrykerJS"
+```
+
+## M9 `openspec_host`
+
+Status: the scenarios are PROPOSED. M9 is ratified as a second host and is OUTSIDE v1 (the maintainer's decision of 2026-11-25), so this file's count stays "nine in all". They rest on the gating answers of the
+task plan
+[2026-11-25-openspec-host.md](../superpowers/plans/2026-11-25-openspec-host.md),
+which the maintainer decided on 2026-11-25, including `SHALL` read as the exact
+keyword `shall` or `SHALL` with no `MUST`. The scenarios of the intent, the stage
+check, the overlay and the box rest on answers 6, 7, 8, 9 and 10 of that
+plan. Tables marked DERIVED are
+read from separate runs of the spike prototypes on the drafted fixture, and the
+plan's Task 9 Step 2 confirms them against the combined tree before the
+maintainer ratifies this text.
+
+- Feature: `packages/earnest/tests/features/openspec_host.feature`, bound by
+  `tests/steps/test_openspec_host.py`.
+- Fixture: `tests/fixtures/openspec-change/`, a synthetic lockout repository,
+  plain files committed once on `main` at test time. Its base holds
+  `docs/intent.md` (the tenet, goal and feature), `openspec/config.yaml`, one
+  main spec of two requirements, and two tagged functions and tests. Overlays
+  left out of the base commit, each committed on request by a step: `defects`
+  (two more requirements and a mistyped tag), `archive` (one archived change),
+  `change` (one change in flight, with a MODIFIED and an ADDED requirement and
+  a `tasks.md` of three boxes), `approved` (the maintainer's gate row that
+  approves the change's `specs` stage and names its two items) and `unbumped`
+  (a body edited at the same revision). `judge-verdicts.json` sits beside them
+  and is left out of the commit. Nothing in it comes from a real repository.
+- Success criteria asserted: SC1, SC2, SC3, SC5, SC8 (task status), SC9 (run
+  header), SC10 (messages). Readings: the Grammar and D2 of `01` (the keyword),
+  Adopting OpenSpec in `01` (ids, layers, the archive skip, a change as an
+  intent, the box), the Revision lifecycle, and the Findings table.
+
+The judge is the stub model wherever a scenario names it, so no network is
+reached. A scenario cannot remove its own Background, so the guard that a
+missing `openspec` CLI fails the feature, and never skips it, is tested at the
+unit tier (`tests/unit/test_node.py`), and the Background's step fails
+with the same one line.
+
+### What `openspec-change` seeds
+
+| Defect | File and line | Finding |
+| --- | --- | --- |
+| A tag names no requirement | `src/lockout.py:18` | `earnest/orphaned`, suggesting `req~lockout-message~1` |
+| A requirement of two sentences | `openspec/specs/lockout/spec.md:29`, its id line | `earnest/req-not-ears`, and two `earnest/gap` (no `impl`, no `utest`) |
+| A requirement no tag reaches | `openspec/specs/lockout/spec.md:39` | two `earnest/gap` |
+| Tags at the superseded revision | `src/lockout.py:6`, `tests/test_lockout.py:6`, with the `change` layer | `earnest/outdated` |
+| A requirement nothing implements | `openspec/changes/lockout-window/specs/lockout/spec.md:16`, with the `change` layer | two `earnest/gap` |
+| Boxes ticked on unevidenced requirements | `openspec/changes/lockout-window/tasks.md:5` and `:9`, with the `change` layer | `earnest/checked-unevidenced` |
+
+### Readings the M9 scenarios pin
+
+| Reading | Basis |
+| --- | --- |
+| The keyword is `shall` or `SHALL` and no other case; the five templates in the message stay lowercase | the scope of answer 1 of the plan (the recommended reading, open); D2 |
+| An id line sits directly under a `### Requirement:` heading, with `Covers:` below it; the `feat`, `goal` and `tenet` sit in `docs/intent.md` | answer 3 of the plan; S2 and S12 |
+| `openspec/changes/archive/` is not read, at any depth | answer 8; S6 |
+| A requirement in a change in flight at a higher revision supersedes its main copy, and links at the old revision are `outdated` (SC5) | answer 8; spike C's design C |
+| A change below the root `openspec/changes/` is an intent, and its stages are `proposal`, `specs`, `design` and `tasks`, in the route the CLI gives | answers 6, 7 and 11; spike D |
+| A stage's artifact existing counts as approval "by openspec", and a gate row overrides it | answer 6 |
+| A box is ticked by `x` or `X` alone, and a tick leaves the task's body hash as it was | answer 10; S10 |
+| A body hash is frozen only for an item that a counting `GATE_APPROVED` row names. An artifact approved "by openspec" names none, so `unbumped-change` fires only after the `approved` layer's row | answer 6; `next_bodies` and `_named` in `plan.py` |
+| A ticked box over a requirement below `evidenced` raises one `checked-unevidenced` at the box, a warning at the current stage, and only from a stage check of `tasks`; a plain `check` of the `change` state keeps its four findings | answer 10; T4; plan choice P8 |
+
+### OpenSpec host feature
+
+```gherkin
+Feature: OpenSpec host
+  The coding agent and the repo maintainer run earnest over an OpenSpec
+  repository: specs whose requirements carry earnest ids and the SHALL
+  keyword, a change in flight, and an archived change. The trace, the levels
+  and the plan come from the files, and OpenSpec's own strict validation
+  passes beside them (SC1, SC2, SC3, SC5, SC8, SC9). The feature runs the
+  pinned openspec CLI from the package's Node toolchain, and fails when it is
+  missing.
+
+  Background:
+    Given the repo maintainer's "openspec-change" repository, with the pinned OpenSpec CLI on the path
+
+  Scenario: An OpenSpec repository with earnest ids passes OpenSpec's strict validation and earnest's check (SC1, SC3)
+    When the coding agent runs openspec validate --all --strict
+    And the coding agent runs earnest check
+    Then the validation exits zero
+    And the check exits zero
+    And the SARIF log holds no finding
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+
+  Scenario: Two checks of an unchanged OpenSpec repository give identical SARIF (SC1)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check twice
+    Then both runs write the same SARIF log
+
+  Scenario: Each requirement lands at one trace level, with a located reason for each level it missed (SC3)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log gives each requirement one trace level:
+      | requirement               | level    |
+      | req~lock-after-failures~1 | traced   |
+      | req~lockout-audit~1       | untraced |
+      | req~lockout-message~1      | traced   |
+      | req~idle-timeout~1      | untraced |
+    And each untraced requirement has a located finding that names it
+    And the summary leads with "traced 50%, judged 0%, evidenced 0%; requirements: 4"
+
+  Scenario: A tag naming a missing requirement and a requirement no tag reaches appear at file and line (SC2)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule                 | file                           | line | level |
+      | earnest/orphaned     | src/lockout.py                 | 18   | error |
+      | earnest/req-not-ears | openspec/specs/lockout/spec.md | 29   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 29   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 29   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 39   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 39   | error |
+    And the orphaned finding suggests "req~lockout-message~1"
+    And the check exits non-zero
+
+  Scenario: A requirement of more than one sentence raises req-not-ears at its line, and SHALL is accepted (SC10)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds an earnest/req-not-ears finding at "openspec/specs/lockout/spec.md" line 29
+    And that finding names "req~lockout-audit~1", lists the five templates and says the keyword is `shall` or `SHALL`
+    And the SARIF log holds no finding at "openspec/specs/lockout/spec.md" line 9
+    And the SARIF log holds no finding at "openspec/specs/lockout/spec.md" line 19
+
+  Scenario: An archived change is not read (SC1)
+    Given the "archive" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds no finding
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+    And the check exits zero
+
+  Scenario: A change in flight supersedes the main copy, and tags at the old revision are flagged (SC5)
+    Given the "change" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule             | file                                                   | line | level |
+      | earnest/gap      | openspec/changes/lockout-window/specs/lockout/spec.md | 16   | error |
+      | earnest/gap      | openspec/changes/lockout-window/specs/lockout/spec.md | 16   | error |
+      | earnest/outdated | src/lockout.py                                         | 6    | error |
+      | earnest/outdated | tests/test_lockout.py                                  | 6    | error |
+    And the SARIF log holds no earnest/duplicate finding
+    And the SARIF log gives each requirement one trace level:
+      | requirement               | level    |
+      | req~lock-after-failures~2 | untraced |
+      | req~lockout-message~1      | traced   |
+      | req~lockout-reset~1       | untraced |
+    And the check exits non-zero
+
+  Scenario: A change in flight is an intent with its stages and their status (SC8)
+    Given the "change" layer is committed
+    When the coding agent runs earnest plan
+    Then the plan lists the intent "openspec/changes/lockout-window"
+    And the plan lists these stages in route order:
+      | stage    | status   | approval          |
+      | proposal | done     | current, openspec |
+      | specs    | not done | current, openspec |
+      | design   | done     | current, openspec |
+      | tasks    | not done | current, openspec |
+    And the frontier is "none"
+    And the plan exits zero
+
+  Scenario: A body edited without a new revision raises unbumped-change after the stage check (SC5, SC9)
+    Given the "change" layer is committed
+    And the coding agent has run earnest check --stage "specs" --intent "openspec/changes/lockout-window"
+    And the "approved" layer is committed
+    And the "unbumped" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds an earnest/unbumped-change finding at "openspec/changes/lockout-window/specs/lockout/spec.md" line 4
+    And the record holds a run header for "openspec/changes/lockout-window/specs"
+    And the check exits non-zero
+
+  Scenario: A ticked box whose requirement is below evidenced raises checked-unevidenced at the box (SC8)
+    Given the "change" layer is committed
+    When the coding agent runs earnest check --stage "tasks" --intent "openspec/changes/lockout-window"
+    Then the SARIF log holds an earnest/checked-unevidenced finding at "openspec/changes/lockout-window/tasks.md" line 5 with level warning
+    And the SARIF log holds an earnest/checked-unevidenced finding at "openspec/changes/lockout-window/tasks.md" line 9 with level warning
+    And the SARIF log holds no earnest/checked-unevidenced finding at "openspec/changes/lockout-window/tasks.md" line 13
+    And the plan lists these tasks:
+      | task                  | status   | box |
+      | task~lock-for-window~1 | not done | [x] |
+      | task~unlock-at-end~1   | not done | [x] |
+      | task~window-docs~1     | not done | [ ] |
+
+  Scenario: OpenSpec's apply instructions carry earnest's guidance (SC10)
+    Given the "change" layer is committed
+    When the coding agent runs openspec instructions apply --change "lockout-window" --json
+    Then the instructions exit zero
+    And the operation guidance names "earnest check --judge --evidence"
+    And the operation guidance sends the agent to "tasks.md"
+    And the operation guidance names "GATE_APPROVED"
+```
+
+### Notes for the M9 task plan
+
+- New steps are bound in `tests/steps/test_openspec_host.py`: the Background's
+  Given (it builds the base with `fixture_repo`, and calls `require_tools`, which
+  fails and never skips), the Givens that commit a named layer (with
+  `commit_on_main`) and run `earnest check --stage`,
+  the Whens that run `openspec validate` and `openspec instructions`, and the
+  Thens on the validation's exit, the orphaned suggestion, the keyword message,
+  the box column and the guidance lines.
+- Shared and reused, from `tests/conftest.py` and M2 to M5: the SARIF-table
+  step, "both runs write the same SARIF log", "the check exits non-zero" and
+  "exits zero", the summary step, "the plan lists these stages in route order:"
+  and "the plan lists these tasks:", and "the frontier is".
+- The scenarios hold only the columns they name: "the SARIF log holds exactly
+  these findings:" compares the columns a table gives, here `rule`, `file`,
+  `line` and `level`, so a table gives no `position` or `stage`.
+- Every scenario that runs `earnest plan` or `check --stage` for a change needs
+  the `openspec` CLI on the `PATH`. The unit tier reaches the same code with a
+  fake script, so the unit tests stay Node-free.
+- The `defects` table lists two `earnest/gap` rows at lines 29 and 39 each:
+  one for the missing `impl` cover and one for the missing `utest` cover.
+- Numbers measured on 2026-11-25: the `defects` state gives 6 findings and the
+  summary `traced 50%`; the `change` state gives 4 findings and `traced 33%`;
+  the base gives none and `traced 100%`; the `archive` state gives none, where
+  spike B's tree without the skip gives 2 `earnest/duplicate`. The intent's
+  stage rows and the two `checked-unevidenced` warnings come from the spike D
+  prototype on the same files, in a tree without the overlay, and are DERIVED.
+  The `change` state's four findings were measured without the intent of #22,
+  so Task 9 Step 2 also confirms that they stay four once the intent exists,
+  and that a plain `check` adds no `checked-unevidenced` to them (plan choice
+  P8: the rule comes from a stage check of `tasks`, so the exact four-row table
+  of the "supersedes" scenario holds at every task). The `approved` layer stands
+  for the gate row that the agent writes, through the guidance, after the human
+  approves (answer 6): it is what lets `unbumped-change` fire,
+  because an artifact approved "by openspec" names no item and a body hash is
+  frozen only for named items.
+
 ## Scope (v1)
 
 - One behavior feature per milestone of `03`, nine in all, with the scenarios
-  of M1, M2, M2b, M3, M4 and M5 in full.
+  of M1, M2, M2b, M3, M4, M5 and M6 in full, those of M8 PROPOSED, and those of
+  M7 held PROPOSED in its plan until its Task 0 writes them here. M9
+  `openspec_host` is outside v1 (decided 2026-11-25, with the ratification of
+  OpenSpec as a second host), and its PROPOSED scenarios sit below beside the nine.
 - Three test tiers under one runner, pytest, with pytest-bdd for the features.
 - Four fixture repositories, `broken-links`, `seeded-change`, `calibration`
   and `calibration-dev` (synthetic), each plain files with its history built
-  at test time, and a TypeScript fixture at M8.
+  at test time, and `ts-evidence` at M8. The synthetic `openspec-change` of M9
+  is a fifth, outside v1 with its milestone.
 
 ## Future directions
 
-- The scenarios of M7 and M8, each written here when its milestone's
-  plan is written.
+- The scenarios of M7, written here by Task 0 Step 2 of its plan (merged in PR #18); the maintainer decided its answers on 2026-11-25.
 - A coverage threshold for the package, when the maintainer sets one.
 
 ## Open questions

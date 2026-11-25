@@ -1,0 +1,553 @@
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/adapters/__init__.py earnest-copy/src/earnest/adapters/__init__.py
+--- earnest/packages/earnest/src/earnest/adapters/__init__.py	2026-11-25 14:52:25.172915705 +0000
++++ earnest-copy/src/earnest/adapters/__init__.py	2026-11-25 15:26:07.719260879 +0000
+@@ -3,6 +3,7 @@
+ from collections.abc import Callable, Collection, Iterable
+ from pathlib import Path, PurePosixPath
+ 
++from earnest import openspec
+ from earnest.adapters import gherkin, markdown, python, typescript
+ from earnest.index import COMMENT, GHERKIN, MARKDOWN, Line, Source, digest, split_lines
+ 
+@@ -75,7 +76,7 @@
+         OSError: a file cannot be read.
+     """
+     listed = list(paths)
+-    directories = record_directories(listed)
++    directories = record_directories(listed) | openspec.change_dirs(listed)
+     sources: list[Source] = []
+     for path in listed:
+         file = root / path
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/cli.py earnest-copy/src/earnest/cli.py
+--- earnest/packages/earnest/src/earnest/cli.py	2026-11-25 14:52:25.172915705 +0000
++++ earnest-copy/src/earnest/cli.py	2026-11-25 15:38:42.387817288 +0000
+@@ -159,6 +159,9 @@
+     files = git.work_tree_files(root)
+     sources = adapters.scan(root, files)
+     intents = [plan.intent(record) for record in plan.load(root, files)]
++    intents += plan.load_openspec(
++        root, files, os.environ.get("EARNEST_OPENSPEC_ROUTE", "files"), os.environ.get("EARNEST_OPENSPEC_APPROVAL", "shard")
++    )
+     record = reporter.read_record(root)
+     return _World(root, commit, sources, git.changes(root), record, (root / reporter.RECORD).exists(), intents)
+ 
+@@ -184,11 +187,19 @@
+     own = [found for each in plans for found in (*plan.plan_findings(each, index), *plan.approval_findings(each))]
+     derived = plan.place(plans, index, own)
+     checked = [*structural.check(index, produces=produces, frozen=frozen), *ears.findings(index)]
++    marks = plan.boxes(world.sources, index, built)
+     checked += asked
+     checked += failed
++    loose = plan.untracked(world.sources, built, marks)
++    checked += plan.checked_findings(plans, index, levels, marks)
++    checked += plan.untracked_findings(loose)
+     findings = [*plan.place(plans, index, checked), *derived]
+-    statuses = {each.intent.directory: plan.statuses(each, index, findings, levels) for each in plans}
+-    props = plan.properties(plans, statuses, index, levels) if world.intents else None
++    counts = {
++        each.intent.directory: {stage: sum(1 for held, name, _ in loose if held.directory == each.intent.directory and name == stage) for stage in each.intent.route}
++        for each in plans
++    }
++    statuses = {each.intent.directory: plan.statuses(each, index, findings, levels, counts[each.intent.directory]) for each in plans}
++    props = plan.properties(plans, statuses, index, levels, marks) if world.intents else None
+     held = world.record.bodies
+     unheld = sum(1 for item in index.defined.values() if _in_any(built, item.path) and str(item.id) not in held)
+     run = Run(
+@@ -259,7 +270,8 @@
+     """
+     if not world.intents:  # no plan, so no task to speak of: M1's output stays as it was
+         return analysis
+-    task, reason = plan.current_task(plan.plan_tasks(analysis.index, world.intents), world.intents, option)
++    marks = plan.boxes(world.sources, analysis.index, [each.intent for each in analysis.plans])
++    task, reason = plan.current_task(plan.plan_tasks(analysis.index, world.intents), world.intents, option, marks)
+     if task is None:
+         return _without_task_change(analysis, f"no current task, as {reason}")
+     base, missing = _baseline(world, analysis, task)
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/ears.py earnest-copy/src/earnest/ears.py
+--- earnest/packages/earnest/src/earnest/ears.py	2026-11-25 14:52:25.172915705 +0000
++++ earnest-copy/src/earnest/ears.py	2026-11-25 15:26:07.719260879 +0000
+@@ -26,7 +26,7 @@
+     rf"(?:Where (?P<where>{_CLAUSE}), )?"
+     rf"(?:(?<![^ ])[Ww]hile (?P<while>{_CLAUSE}), )?"
+     rf"(?:(?<![^ ])[Ww]hen (?P<when>{_CLAUSE}), |(?<![^ ])[Ii]f (?P<if>{_CLAUSE}), then )?"
+-    r"(?<![^ ])[Tt]he (?P<system>(?:(?! shall )[^,.!?]|[.!?](?! ))+) shall (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
++    r"(?<![^ ])[Tt]he (?P<system>(?:(?! (?:shall|SHALL) )[^,.!?]|[.!?](?! ))+) (?:shall|SHALL) (?P<response>[^.!?]*(?:[.!?](?! )[^.!?]*)*)\."
+ )
+ 
+ 
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/index.py earnest-copy/src/earnest/index.py
+--- earnest/packages/earnest/src/earnest/index.py	2026-11-25 14:52:25.172915705 +0000
++++ earnest-copy/src/earnest/index.py	2026-11-25 15:27:45.539078588 +0000
+@@ -338,7 +338,7 @@
+         keyed = [line for line in lines if line.number not in source.fenced]
+         needs, item_links, overrides, key_misses = _keys(source.path, item_id, keyed)
+         body = "\n".join(line.text for line in lines if line.number in source.fenced or _KEY.match(line.text) is None)
+-        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced), body, overrides))
++        items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced, item_id.type == "task"), body, overrides))
+         links.extend(item_links)
+         misses.extend(key_misses)
+     return items, links, misses
+@@ -374,7 +374,10 @@
+     return spans, misses
+ 
+ 
+-def _body_hash(lines: Iterable[Line], fenced: frozenset[int]) -> str:
++_BOX = re.compile(r"(\s*(?:[-*+]|\d{1,9}[.)])\s*\[)\s*[^\]\s]?\s*(\](?![(\[]))")  # a task line's box, any marker
++
++
++def _body_hash(lines: Iterable[Line], fenced: frozenset[int], boxes: bool = False) -> str:
+     """Return the digest of an item's body: its non-blank lines, less its key lines, joined by line feeds.
+ 
+     A fenced line is body even where it looks like a key line. Each line loses one carriage return before its line
+@@ -382,6 +385,8 @@
+     and an editor add at a line's end leaves the hash as it was.
+     """
+     stripped = [(line.number, line.text.removesuffix("\r").rstrip(" \t")) for line in lines]
++    if boxes:  # SPIKE D: ticking a task's box is progress, not a change of its body
++        stripped = [(number, _BOX.sub(r"\1 \2", text)) for number, text in stripped]
+     kept = [text for number, text in stripped if text and (number in fenced or _KEY.match(text) is None)]
+     return digest("\n".join(kept).encode("utf-8"))
+ 
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/openspec.py earnest-copy/src/earnest/openspec.py
+--- earnest/packages/earnest/src/earnest/openspec.py	1970-01-01 00:00:00.000000000 +0000
++++ earnest-copy/src/earnest/openspec.py	2026-11-25 15:25:15.069356921 +0000
+@@ -0,0 +1,112 @@
++"""OpenSpec host (SPIKE D prototype): a change under `openspec/changes/<id>/` as an intent, and `tasks.md` checkboxes.
++
++Not production code: it exists to settle what marks an intent, where its route comes from, and where a task's box is.
++"""
++
++import json
++import re
++import shutil
++import subprocess  # noqa: S404
++from collections.abc import Iterable, Sequence
++from dataclasses import dataclass
++from pathlib import PurePosixPath
++
++ARCHIVE = "archive"
++
++# Port of upstream's TASK_LINE_PATTERN (src/utils/task-progress.ts, v2.1.1): any list marker, a box holding at most one
++# non-space marker, only `x` or `X` is done, and a `[x](...)` or `[x][...]` link bullet is no box.
++TASK_LINE = re.compile(r"\s*(?:[-*+]|\d{1,9}[.)])\s*\[(?:\s*([^\]\s]?)\s*\](?![(\[])|\s+\])\s*(.*)")
++
++
++@dataclass(frozen=True)
++class Artifact:
++    """One artifact of a schema: its id, the glob its output matches (relative to the change), and what it needs."""
++
++    id: str
++    generates: str
++    requires: tuple[str, ...] = ()
++
++
++# Source 1: the built-in `spec-driven` schema as upstream's schemas/spec-driven/schema.yaml gives it (v2.1.1).
++SPEC_DRIVEN = (
++    Artifact("proposal", "proposal.md"),
++    Artifact("specs", "specs/**/*.md", ("proposal",)),
++    Artifact("design", "design.md", ("proposal",)),
++    Artifact("tasks", "tasks.md", ("specs", "design")),
++)
++
++
++def change_dirs(paths: Iterable[str]) -> frozenset[str]:
++    """Return the change directories among the listed paths: `<...>/openspec/changes/<id>` outside `archive/`.
++
++    Upstream's own rule (src/utils/item-discovery.ts getActiveChangeIds): every directory directly under
++    `openspec/changes/` except `archive` and the hidden ones. No marker file is needed.
++    """
++    found: set[str] = set()
++    for path in paths:
++        parts = PurePosixPath(path).parts
++        for at in range(len(parts) - 3):
++            if parts[at : at + 2] == ("openspec", "changes"):
++                name = parts[at + 2]
++                if name != ARCHIVE and not name.startswith("."):
++                    found.add("/".join(parts[: at + 3]))
++                break
++    return frozenset(found)
++
++
++def route_files() -> tuple[Artifact, ...]:
++    """Source 1: the route as a constant, whatever schema the change names."""
++    return SPEC_DRIVEN
++
++
++def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
++    """Source 2: the route from `openspec status --change <id> --json`: the schema name and its artifacts in order.
++
++    Raises:
++        RuntimeError: `openspec` is not on PATH or fails (the M9 feature must fail loud, see #26).
++    """
++    exe = shutil.which("openspec")
++    if exe is None:
++        msg = "openspec is not on PATH"
++        raise RuntimeError(msg)
++    name = PurePosixPath(directory).name
++    done = subprocess.run(  # noqa: S603
++        [exe, "status", "--change", name, "--json"], cwd=root, capture_output=True, text=True, check=False, timeout=60
++    )
++    if done.returncode != 0:
++        msg = f"openspec status failed for {name}: {done.stderr.strip()[:200]}"
++        raise RuntimeError(msg)
++    data = json.loads(done.stdout)
++    artifacts = tuple(
++        Artifact(each["id"], each["outputPath"], tuple(each["requires"])) for each in data["artifacts"]
++    )
++    return artifacts, data["schemaName"]
++
++
++def _glob(pattern: str) -> re.Pattern[str]:
++    out, at = "", 0
++    while at < len(pattern):
++        if pattern.startswith("**/", at):
++            out, at = out + "(?:.*/)?", at + 3
++        elif pattern.startswith("**", at):
++            out, at = out + ".*", at + 2
++        elif pattern[at] == "*":
++            out, at = out + "[^/]*", at + 1
++        else:
++            out, at = out + re.escape(pattern[at]), at + 1
++    return re.compile(out)
++
++
++def matches(directory: str, generates: str, path: str) -> bool:
++    """Return whether path is an output of the artifact that `generates` names, inside the change directory."""
++    prefix = directory + "/"
++    return path.startswith(prefix) and _glob(generates).fullmatch(path[len(prefix) :]) is not None
++
++
++def box(lines: Sequence[tuple[int, str]]) -> tuple[int, bool] | None:
++    """Return the line and state of the first checkbox among the (number, text) lines, or None: `x`/`X` is checked."""
++    for number, text in lines:
++        found = TASK_LINE.match(text)
++        if found:
++            return number, (found.group(1) or "").lower() == "x"
++    return None
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/plan.py earnest-copy/src/earnest/plan.py
+--- earnest/packages/earnest/src/earnest/plan.py	2026-11-25 14:52:25.172915705 +0000
++++ earnest-copy/src/earnest/plan.py	2026-11-25 15:42:42.167339143 +0000
+@@ -9,7 +9,7 @@
+ from pathlib import Path
+ from typing import Literal
+ 
+-from earnest import adapters, reporter, structural
++from earnest import adapters, openspec, reporter, structural
+ from earnest.git import Hunk
+ from earnest.index import ID_ENTRY, Id, Index, Item, Line, Source, split_lines
+ from earnest.index import digest as digest_of
+@@ -306,6 +306,7 @@
+     events: tuple[Event, ...] = ()  # the counting audit events
+     table: UnitTable | None = None  # the unit table, on a route that holds Units Generation
+     current: tuple[str, ...] = ()  # the state file's `Current Task` values
++    stage_files: Mapping[str, str] = field(default_factory=dict)  # OpenSpec: stage -> the glob of its artifact
+ 
+     @property
+     def units_route(self) -> bool:
+@@ -429,6 +430,136 @@
+     )
+ 
+ 
++def load_openspec(root: Path, files: Sequence[str], route: str = "files", approval: str = "shard") -> list[Intent]:
++    """Read each OpenSpec change among the listed files as an intent (SPIKE D).
++
++    route: `files` takes the spec-driven constant, `cli` asks `openspec status --json`. approval: `shard` takes only
++    `GATE_APPROVED` rows of `<change>/audit/*.md` (the AI-DLC shard format), `artifact` also counts an existing
++    artifact as approved by OpenSpec, with no item named.
++    """
++    listed = list(files)
++    found: list[Intent] = []
++    for directory in sorted(openspec.change_dirs(listed)):
++        try:
++            artifacts = openspec.route_files() if route == "files" else openspec.route_cli(directory, str(root))[0]
++        except RuntimeError as error:  # the CLI is missing or fails: the run cannot go on, exit 2
++            raise PlanError(str(error)) from error
++        order = tuple(each.id for each in artifacts)
++        audit = posixpath.join(directory, AUDIT)
++        shards = [path for path in listed if posixpath.dirname(path) == audit and path.endswith(".md")]
++        events = counting(sorted(event for shard in shards for event in _events(root, shard)), ())
++        gates = [event for event in events if event.name in {"GATE_APPROVED", "GATE_REJECTED"}]
++        approvals = {stage: held for stage in order if (held := _approval(stage, gates)) is not None}
++        if approval == "artifact":
++            for each in artifacts:
++                if each.id not in approvals and any(openspec.matches(directory, each.generates, path) for path in listed):
++                    approvals[each.id] = Approval(each.id, None, "openspec", None)
++        found.append(
++            Intent(
++                directory, "", (), order, approvals, _named(gates), (), executed=order, events=tuple(events),
++                stage_files={each.id: each.generates for each in artifacts},
++            )
++        )
++    return found
++
++
++@dataclass(frozen=True)
++class Box:
++    """A task's checkbox in `tasks.md`: where it sits, and whether it is checked (`x` or `X`, as upstream counts)."""
++
++    path: str
++    line: int
++    checked: bool
++
++
++_ITEM_END = re.compile(r" {0,3}(?:#{1,6}(?:[ \t]|$)|`[A-Za-z]+~)")  # an ATX heading or an id line ends the item above
++
++
++def boxes(sources: Sequence[Source], index: Index, intents: Sequence[Intent]) -> dict[str, Box]:
++    """Return each task item of an OpenSpec change that has a checkbox in its span, by id: the first box after its id line."""
++    by_path = {each.path: each for each in sources}
++    found: dict[str, Box] = {}
++    for item in index.defined.values():
++        holder = next((each for each in intents if each.stage_files and inside(each, item.path)), None)
++        source = by_path.get(item.path)
++        if item.id.type != "task" or holder is None or source is None:
++            continue
++        span: list[tuple[int, str]] = []
++        for line in source.lines:
++            if line.number <= item.line:
++                continue
++            if line.number not in source.fenced and _ITEM_END.match(line.text):
++                break
++            span.append((line.number, line.text))
++        if (box := openspec.box(span)) is not None:
++            found[str(item.id)] = Box(item.path, box[0], box[1])
++    return found
++
++
++def untracked(sources: Sequence[Source], intents: Sequence[Intent], marks: Mapping[str, Box]) -> list[tuple[Intent, str, Box]]:
++    """Return each checkbox of an OpenSpec task file that no `task` item claims: its intent, its stage and its place."""
++    claimed = {(box.path, box.line) for box in marks.values()}
++    found: list[tuple[Intent, str, Box]] = []
++    for source in sources:
++        holder = next((each for each in intents if each.stage_files and inside(each, source.path)), None)
++        stage = stage_of(holder, source.path) if holder is not None else None
++        if holder is None or stage != "tasks":
++            continue
++        for line in source.lines:
++            if line.number in source.fenced or (source.path, line.number) in claimed:
++                continue
++            if (box := openspec.box([(line.number, line.text)])) is not None:
++                found.append((holder, stage, Box(source.path, box[0], box[1])))
++    return found
++
++
++def untracked_findings(loose: Sequence[tuple[Intent, str, Box]]) -> list[Finding]:
++    """Return an `untracked-box` finding at each checkbox that no task item claims."""
++    return [
++        Finding(
++            box.path, box.line, "earnest/untracked-box", f"{box.path}:{box.line}",
++            "this checkbox has no task id line above it, so earnest cannot compute whether the task is done: write"
++            " a `task~<name>~1` id line and a `Delivers:` line for it, as the tasks above do",
++            stage=stage, intent=held.directory,
++        )
++        for held, stage, box in loose
++    ]
++
++
++def checked_findings(
++    plans: Sequence[Plan], index: Index, levels: Mapping[str, str], marks: Mapping[str, Box]
++) -> list[Finding]:
++    """Return a `checked-unevidenced` finding at the box of each checked task whose delivered `req` is below evidenced."""
++    found: list[Finding] = []
++    for current in plans:
++        for state in current.stages:
++            for item in state.items:
++                box = marks.get(str(item.id))
++                if item.id.type != "task" or box is None or not box.checked:
++                    continue
++                short = sorted(
++                    f"`{link.target}` is {levels.get(str(link.target), 'untraced')}"
++                    for link in index.links
++                    if link.key == "Delivers"
++                    and link.owner == item.id
++                    and link.target.type == "req"
++                    and levels.get(str(link.target)) != "evidenced"
++                )
++                if short:
++                    message = (
++                        f"`{item.id}` is checked in tasks.md, but {'; '.join(short)}, not evidenced: uncheck the box, or"
++                        " tag and test the requirement and run `earnest check --judge --evidence` until it is evidenced,"
++                        " then check the box"
++                    )
++                    found.append(
++                        Finding(
++                            box.path, box.line, "earnest/checked-unevidenced", str(item.id), message,
++                            stage=state.stage, intent=current.intent.directory,
++                        )
++                    )
++    return found
++
++
+ def route_findings(intent: Intent) -> list[Finding]:
+     """Return the route-mismatch findings: unrecorded skips, and Stage Progress that Earnest cannot read.
+ 
+@@ -486,7 +617,7 @@
+         stage: tuple(
+             item
+             for item in index.defined.values()
+-            if item.path.startswith(posixpath.join(intent.directory, stage) + "/")
++            if _holds(intent, stage, item.path)
+         )
+         for stage in intent.route
+     }
+@@ -829,6 +960,10 @@
+     "nfr-requirements": frozenset({"req"}),
+     "nfr-design": frozenset({"dsn"}),
+     "code-generation": frozenset({"task", "impl", "utest", "itest", "stest"}),
++    # OpenSpec spec-driven artifacts: the specs hold a feat per capability and its reqs, the tasks play Code Generation
++    "specs": frozenset({"feat", "req"}),
++    "design": frozenset({"dsn"}),
++    "tasks": frozenset({"task", "impl", "utest", "itest"}),  # no Build and Test stage, so no stest
+ }
+ _CODE_GENERATION = "code-generation"
+ _BUILD_AND_TEST = "build-and-test"
+@@ -860,9 +995,14 @@
+ 
+ def stage_of(intent: Intent, path: str) -> str | None:
+     """Return the route stage whose path holds the file at path, or None."""
+-    return next(
+-        (stage for stage in intent.route if path.startswith(posixpath.join(intent.directory, stage) + "/")), None
+-    )
++    return next((stage for stage in intent.route if _holds(intent, stage, path)), None)
++
++
++def _holds(intent: Intent, stage: str, path: str) -> bool:
++    """Return whether the file at path is an artifact of the stage: under its directory, or the OpenSpec glob's match."""
++    if intent.stage_files:
++        return openspec.matches(intent.directory, intent.stage_files[stage], path)
++    return path.startswith(posixpath.join(intent.directory, stage) + "/")
+ 
+ 
+ def in_tree(intents: Sequence[Intent], path: str) -> bool:
+@@ -933,7 +1073,7 @@
+ 
+ 
+ def statuses(
+-    plan: Plan, index: Index, findings: Sequence[Finding], levels: Mapping[str, str]
++    plan: Plan, index: Index, findings: Sequence[Finding], levels: Mapping[str, str], loose: Mapping[str, int] | None = None
+ ) -> dict[str, StageStatus]:
+     """Return each stage's computed status from the graph: no error against it, its tasks done, a current approval."""
+     stest = len({str(link.target) for link in index.links if link.type == "stest"})
+@@ -947,6 +1087,7 @@
+             if found.intent == plan.intent.directory and found.stage == state.stage and found.level == "error"
+         )
+         open_tasks = sum(1 for item in state.items if item.id.type == "task" and not task_done(item, index, levels))
++        open_tasks += (loose or {}).get(state.stage, 0)  # OpenSpec boxes with no task id line
+         if _slug(state.stage) == _BUILD_AND_TEST:
+             open_tasks += stest  # an `stest` passes only at evidence, which M2 has none of
+         done = errors == 0 and open_tasks == 0 and state.state == "current"
+@@ -956,7 +1097,8 @@
+ 
+ def plan_findings(plan: Plan, index: Index) -> list[Finding]:
+     """Return the findings the plan itself raises: `unplanned`, `cycle` and `route-mismatch`."""
+-    return [*_unplanned(plan, index), *_cycle_findings(plan, index), *route_findings(plan.intent), *plan.join]
++    route = [] if plan.intent.stage_files else route_findings(plan.intent)
++    return [*_unplanned(plan, index), *_cycle_findings(plan, index), *route, *plan.join]
+ 
+ 
+ def approval_findings(plan: Plan) -> list[Finding]:
+@@ -1019,6 +1161,7 @@
+     statuses_by_intent: Mapping[str, Mapping[str, StageStatus]],
+     index: Index,
+     levels: Mapping[str, str],
++    marks: Mapping[str, "Box"] | None = None,
+ ) -> dict[str, object]:
+     """Return `properties.plan`: one entry per plan, in directory order, with its stages, frontier and tasks."""
+     entries: list[dict[str, object]] = []
+@@ -1027,6 +1170,7 @@
+         tasks = sorted(
+             (
+                 {"id": str(item.id), "status": "done" if task_done(item, index, levels) else "not done"}
++                | ({"box": "x" if marks[str(item.id)].checked else " "} if marks and str(item.id) in marks else {})
+                 for state in current.stages
+                 for item in state.items
+                 if item.id.type == "task"
+@@ -1079,7 +1223,7 @@
+     On a route that holds Units Generation it counts against the Code Generation of the lowest-named unit with a valid
+     row that delivers the requirement, else of the lowest-named unit with a valid row, else against Units Generation.
+     """
+-    first = next((each for each in plan.intent.executed if _slug(each) == _CODE_GENERATION), None)
++    first = next((each for each in plan.intent.executed if _slug(each) in {_CODE_GENERATION, "tasks"}), None)
+     if first is None:
+         return []
+     delivered = {
+@@ -1405,7 +1549,7 @@
+ 
+ 
+ def current_task(
+-    tasks: Sequence[Item], intents: Sequence[Intent], option: str | None
++    tasks: Sequence[Item], intents: Sequence[Intent], option: str | None, boxes: Mapping[str, "Box"] | None = None
+ ) -> tuple[Item | None, str | None]:
+     """Return the current task, or None with the reason there is none.
+ 
+@@ -1424,7 +1568,7 @@
+         return found, None
+     marks = [(current, value) for current in intents for value in current.current]
+     if not marks:
+-        return None, "no state file names one"
++        return _in_flight(tasks, intents, boxes or {})
+     if len(marks) > 1:
+         return None, "several Current Task lines name one"
+     ((holder, value),) = marks
+@@ -1432,6 +1576,17 @@
+     return (found, None) if found is not None else (None, f"`{value}` names no task of its intent")
+ 
+ 
++def _in_flight(tasks: Sequence[Item], intents: Sequence[Intent], boxes: Mapping[str, "Box"]) -> tuple[Item | None, str | None]:
++    """Return the first unchecked task, in file order, of the one OpenSpec change that has an unchecked task."""
++    pending = [task for task in tasks if (box := boxes.get(str(task.id))) is not None and not box.checked]
++    holders = {each.directory for each in intents if each.stage_files for task in pending if inside(each, task.path)}
++    if len(holders) > 1:
++        return None, f"several changes have an unchecked task ({', '.join(sorted(holders))}): name one with --task"
++    if not pending:
++        return None, "no state file names one, and no OpenSpec task is unchecked"
++    return min(pending, key=lambda task: (task.path, task.line)), None
++
++
+ def change_baseline(intent: Intent, runs: Mapping[str, RunHeader]) -> str | None:
+     """Return the change baseline of an intent: the commit of its last approved stage check, or None.
+ 
+diff --color -ruN -x __pycache__ -x '*.pyc' -x .venv -x .git -x .mypy_cache -x .ruff_cache -x .pytest_cache earnest/packages/earnest/src/earnest/reporter.py earnest-copy/src/earnest/reporter.py
+--- earnest/packages/earnest/src/earnest/reporter.py	2026-11-25 14:52:25.172915705 +0000
++++ earnest-copy/src/earnest/reporter.py	2026-11-25 15:38:42.387817288 +0000
+@@ -12,6 +12,7 @@
+ 
+ 
+ RuleId = Literal[
++    "earnest/checked-unevidenced",
+     "earnest/cycle",
+     "earnest/duplicate",
+     "earnest/evidence-failed",
+@@ -30,10 +31,12 @@
+     "earnest/route-mismatch",
+     "earnest/unbumped-change",
+     "earnest/unplanned",
++    "earnest/untracked-box",
+     "earnest/unwanted",
+ ]
+ Position = Literal["behind", "current", "ahead"]
+ RULES: dict[RuleId, str] = {
++    "earnest/checked-unevidenced": "warning",
+     "earnest/cycle": "error",
+     "earnest/duplicate": "error",
+     "earnest/evidence-failed": "error",
+@@ -52,6 +55,7 @@
+     "earnest/route-mismatch": "error",
+     "earnest/unbumped-change": "error",
+     "earnest/unplanned": "warning",
++    "earnest/untracked-box": "warning",
+     "earnest/unwanted": "warning",
+ }
+ LEVELS = ("untraced", "traced", "judged", "evidenced")
+@@ -270,7 +274,10 @@
+         approval = f"{stage['approval']}, {by}" if by else stage["approval"]
+         lines.append(f"  {stage['stage']}: {stage['status']}, approval {approval}")
+     lines.append(f"  frontier: {entry['frontier'] or 'none'}")
+-    lines.extend(f"  task {task['id']}: {task['status']}" for task in entry["tasks"])
++    lines.extend(
++        f"  task {task['id']}: {task['status']}" + (f", box [{task['box']}]" if "box" in task else "")
++        for task in entry["tasks"]
++    )
+     lines.extend(
+         f"  unit {unit['id']}: {unit['status']}, directory {unit['directory'] or 'none'},"
+         f" frontier {unit['frontier'] or 'none'}"
