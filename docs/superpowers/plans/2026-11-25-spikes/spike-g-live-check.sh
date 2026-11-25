@@ -40,9 +40,12 @@ real_run, seen = subprocess.run, {}
 
 def timed(argv, **kw):
     start = time.monotonic()
-    done = real_run(argv, **kw)
-    seen.update(argv=argv, env=sorted(kw["env"]), wall=time.monotonic() - start, done=done)
-    return done
+    seen.update(argv=argv, env=sorted(kw["env"]))  # recorded first, so a timeout or OSError still leaves the call
+    try:
+        seen["done"] = real_run(argv, **kw)
+        return seen["done"]
+    finally:
+        seen["wall"] = time.monotonic() - start
 
 
 subprocess.run = timed  # judge calls subprocess.run once per question, so this sees that one call
@@ -56,12 +59,15 @@ else:
     print(f"verdict    {verdict}\nmaintainer {maintainer}\nmatch      {verdict.result == maintainer.result}")
     status = 0
 
-if "done" not in seen:
+if "argv" not in seen:
     print("no claude call was made")
     sys.exit(2)
-done = seen["done"]
 shown = ["<schema>" if arg.startswith("{") else arg for arg in seen["argv"]]
 print(f"argv     {shown}\nenv names {seen['env']}")
+if "done" not in seen:
+    print(f"claude did not return (timeout or exec failure) wall={seen['wall']:.1f}s")
+    sys.exit(status)
+done = seen["done"]
 print(f"claude exit={done.returncode} wall={seen['wall']:.1f}s stdout={len(done.stdout)}B stderr={len(done.stderr)}B")
 (out / "claude-stdout.json").write_text(done.stdout)
 (out / "claude-stderr.txt").write_text(done.stderr)

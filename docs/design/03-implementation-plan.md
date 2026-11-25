@@ -44,8 +44,8 @@ M6 continues the judge branch. Evidence has its own milestone so that M6 waits
 on the judge alone, and the out-of-task check and impact have theirs so that M2
 carries only the record, the stage engine and the Region rule. M8 follows M5
 and adds TypeScript evidence through StrykerJS and Jest; it is part of v1.
-M9 follows M5 too. It hosts OpenSpec as a second delivery method, and stays proposed, outside v1,
-until the maintainer ratifies the scope change through #19. M8 and M9 depend on each other for
+M9 follows M5 too. It hosts OpenSpec as a second delivery method, ratified on 2026-11-25 through
+#19, and stays outside v1. M8 and M9 depend on each other for
 nothing but one Node toolchain (#36 and #26), which lands once, in whichever milestone
 goes first.
 
@@ -377,7 +377,7 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   carry earnest's guidance.
 - Depends on: M5. It shares one Node toolchain with M8 and waits on neither.
 - Exit behavior: on the synthetic `openspec-change` fixture, `openspec validate
-  --all --strict` passes and two `check` runs give identical SARIF. Each
+--all --strict` passes and two `check` runs give identical SARIF. Each
   requirement lands at exactly one level, with a located reason for every level
   it missed. A tag naming a missing requirement and a requirement no tag
   reaches both appear at file and line. A MODIFIED requirement changed without

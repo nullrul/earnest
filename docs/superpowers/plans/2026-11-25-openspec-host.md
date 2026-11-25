@@ -43,23 +43,23 @@ Along the way the feature also pins what #20 to #25 each settle: a change as an 
 
 Sources: `/tmp/earnest-swarm/spike-{a,b,c,d,e}/REPORT.md`, with the patches, logs and scratch repositories beside them. All spikes ran at earnest `ae4136c`. The spikes pinned OpenSpec 2.1.1 (`0c737dc`), and C also read the 2.2.0 source (`f1cd852`). The patches that Tasks 4 to 7 build on are copied to `docs/superpowers/plans/2026-11-25-spikes/` (synthetic and upstream-OpenSpec content only; see its README), and each of those tasks names the hunks it takes and inlines the short code. The rest of `/tmp` does not survive and is cited only as the place a fact was measured.
 
-| # | Fact | Evidence |
-| --- | --- | --- |
-| S1 | A plain OpenSpec repository gives `earnest check` rc 0 with `requirements: 0`: a silent false green. Upstream's own source gives rc 1 from 7 `near-miss` errors on `[~]` in `.ts` comments. | spike A, Findings |
-| S2 | Option A ids (#20) pass `openspec validate --strict`, survive `show --json` and archive, and a MODIFIED block carries its bumped id. The id line must come first under `### Requirement:`. A `feat` needs `Needs: req` and a tenet and goal chain to reach no finding. | spike A, `out/`, probe p4c |
-| S3 | OpenSpec's validator needs `SHALL`, case-sensitive, and earnest parses only `shall`. On OpenSpec's own repository, 318 requirements: 0 parse today, 246 with the one-constant change. Of the other 72, spike B counts 37 multi-sentence bodies, which stay `req-not-ears`; spike A counts 36 that open with a bare subject (`OpenSpec shall`), 33 multi-sentence and 3 other, so the first two counts overlap by 4. `MUST` adds nothing (0 of 318). | spike B, `corpus.py`; spike A, Findings |
-| S4 | The exact keyword `(?:shall\|SHALL)` is right. `re.IGNORECASE` loosens `Where`, `When` and `The`; normalising `SHALL` to `shall` rewrites the sentence the judge reads and hashes. Changing only the final match leaves the `(?! shall )` lookahead blind to `SHALL`, and the response span comes out wrong (`retry` for `reply that clients SHALL retry`). | spike B, `variants/` |
-| S5 | A stage is a directory prefix (`stage_of`), but OpenSpec artifacts are flat files, so every stage has `items: []` until a stage-to-glob mapping exists. `openspec status --json` is a DAG, not a linear route. `PRODUCES` is keyed by AI-DLC slugs. `--stage` and `--intent` on a change directory exit 2: there is no record directory. | spike A, #22 |
-| S6 | Identity is (type, name), and the first definer in sorted path order wins. A delta and its main spec collide (`duplicate`), and the winner depends on the change id. After `openspec archive` there are 6 duplicates, because `skipped()` knows only AI-DLC paths. On OpenSpec's corpus 299 of 318 main requirements have an archive copy, and one has 14. | spike A and C |
-| S7 | Upstream applies a delta in the order RENAMED, REMOVED, MODIFIED, ADDED. MODIFIED replaces the whole block, id line included. Requirement names match exactly and case-sensitively. There is no cross-change conflict check. `archive` writes the merged specs, then moves the change to `changes/archive/YYYY-MM-DD-<id>`. | spike C, `specs-apply.ts` |
-| S8 | Design C (skip `archive/`; a delta at a higher revision overlays main; REMOVED headings drop the main id) passes 1068 tests with no existing test changed, leaves 0 corpus duplicates (base 393), and is clean on the in-flight, early-sync and after-archive cases. Design A (overlay and skip) leaves 4 false gaps and a dirty early-sync. Design B (projection by heading) costs +196/-19 lines and gives a false duplicate on early-sync. | spike C, matrix |
-| S9 | A change directory is each directory directly under `openspec/changes/` except `archive` and dot-names, as upstream's `getActiveChangeIds` has it. The route comes from `openspec status --change <id> --json`: a forked schema that adds `review` gave 5 stages from the CLI and 4 from a constant. A missing CLI is `PlanError`, exit 2, with no silent fallback. | spike D, findings 1 and 3 |
-| S10 | `tasks.md` layout L2: the id line and `Delivers:` go directly above the checkbox. Ids after the box caused near-misses and hashed the wrong item. Done means `x` or `X` only; a Python port of upstream's `TASK_LINE_PATTERN` has 0 mismatches over 2,633 tasks. A tick changes the body hash and raises `unbumped-change`, so the body hash must ignore the box. | spike D, findings 5 to 7 |
-| S11 | Without ids a box is `untracked`, and without a rule it left `tasks: done` vacuously true. Upstream's own repository gives 154 `untracked-box` findings. With several changes in flight there is no current task. | spike D, findings 10 and 11 |
-| S12 | `openspec archive --yes` with open boxes still exits 0: OpenSpec's task gate is advisory. Strict validation fails text above a delta's first `##`, and a Purpose under 50 characters. | spike D, Gotchas |
-| S13 | `operations.apply.guidance` in `openspec/config.yaml` surfaces as `operationGuidance` in `openspec instructions apply --json`. `apply --json` omits ids, so the guidance must point the agent at `tasks.md`. A default `openspec init` writes skills to `~/.agents/skills`, outside the repository; `init --tools claude --scope project --no-animation` stays inside it. | spike A (#25, #26); spike D, finding 5 |
-| S14 | One `package.json` and lockfile give `jest`, `stryker` and `openspec` in `node_modules/.bin`; Node must be 22.20.0 or later (OpenSpec's `engines`); CI's `lint-docs` pins Node 20. The lockfile pins 633 packages; `npx` pins 6. | spike E |
-| S15 | Not run by any spike: a real `openspec archive`, `validate` of REMOVED and RENAMED deltas in an earnest fixture, namespaced change folders, `openspec sync`, custom task files, a real judge, and OpenSpec 2.2.0 against the prototypes. | the reports' "Not checked" |
+| #   | Fact                                                                                                                                                                                                                                                                                                                                                                                                                                                | Evidence                                |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| S1  | A plain OpenSpec repository gives `earnest check` rc 0 with `requirements: 0`: a silent false green. Upstream's own source gives rc 1 from 7 `near-miss` errors on `[~]` in `.ts` comments.                                                                                                                                                                                                                                                         | spike A, Findings                       |
+| S2  | Option A ids (#20) pass `openspec validate --strict`, survive `show --json` and archive, and a MODIFIED block carries its bumped id. The id line must come first under `### Requirement:`. A `feat` needs `Needs: req` and a tenet and goal chain to reach no finding.                                                                                                                                                                              | spike A, `out/`, probe p4c              |
+| S3  | OpenSpec's validator needs `SHALL`, case-sensitive, and earnest parses only `shall`. On OpenSpec's own repository, 318 requirements: 0 parse today, 246 with the one-constant change. Of the other 72, spike B counts 37 multi-sentence bodies, which stay `req-not-ears`; spike A counts 36 that open with a bare subject (`OpenSpec shall`), 33 multi-sentence and 3 other, so the first two counts overlap by 4. `MUST` adds nothing (0 of 318). | spike B, `corpus.py`; spike A, Findings |
+| S4  | The exact keyword `(?:shall\|SHALL)` is right. `re.IGNORECASE` loosens `Where`, `When` and `The`; normalising `SHALL` to `shall` rewrites the sentence the judge reads and hashes. Changing only the final match leaves the `(?! shall )` lookahead blind to `SHALL`, and the response span comes out wrong (`retry` for `reply that clients SHALL retry`).                                                                                         | spike B, `variants/`                    |
+| S5  | A stage is a directory prefix (`stage_of`), but OpenSpec artifacts are flat files, so every stage has `items: []` until a stage-to-glob mapping exists. `openspec status --json` is a DAG, not a linear route. `PRODUCES` is keyed by AI-DLC slugs. `--stage` and `--intent` on a change directory exit 2: there is no record directory.                                                                                                            | spike A, #22                            |
+| S6  | Identity is (type, name), and the first definer in sorted path order wins. A delta and its main spec collide (`duplicate`), and the winner depends on the change id. After `openspec archive` there are 6 duplicates, because `skipped()` knows only AI-DLC paths. On OpenSpec's corpus 299 of 318 main requirements have an archive copy, and one has 14.                                                                                          | spike A and C                           |
+| S7  | Upstream applies a delta in the order RENAMED, REMOVED, MODIFIED, ADDED. MODIFIED replaces the whole block, id line included. Requirement names match exactly and case-sensitively. There is no cross-change conflict check. `archive` writes the merged specs, then moves the change to `changes/archive/YYYY-MM-DD-<id>`.                                                                                                                         | spike C, `specs-apply.ts`               |
+| S8  | Design C (skip `archive/`; a delta at a higher revision overlays main; REMOVED headings drop the main id) passes 1068 tests with no existing test changed, leaves 0 corpus duplicates (base 393), and is clean on the in-flight, early-sync and after-archive cases. Design A (overlay and skip) leaves 4 false gaps and a dirty early-sync. Design B (projection by heading) costs +196/-19 lines and gives a false duplicate on early-sync.       | spike C, matrix                         |
+| S9  | A change directory is each directory directly under `openspec/changes/` except `archive` and dot-names, as upstream's `getActiveChangeIds` has it. The route comes from `openspec status --change <id> --json`: a forked schema that adds `review` gave 5 stages from the CLI and 4 from a constant. A missing CLI is `PlanError`, exit 2, with no silent fallback.                                                                                 | spike D, findings 1 and 3               |
+| S10 | `tasks.md` layout L2: the id line and `Delivers:` go directly above the checkbox. Ids after the box caused near-misses and hashed the wrong item. Done means `x` or `X` only; a Python port of upstream's `TASK_LINE_PATTERN` has 0 mismatches over 2,633 tasks. A tick changes the body hash and raises `unbumped-change`, so the body hash must ignore the box.                                                                                   | spike D, findings 5 to 7                |
+| S11 | Without ids a box is `untracked`, and without a rule it left `tasks: done` vacuously true. Upstream's own repository gives 154 `untracked-box` findings. With several changes in flight there is no current task.                                                                                                                                                                                                                                   | spike D, findings 10 and 11             |
+| S12 | `openspec archive --yes` with open boxes still exits 0: OpenSpec's task gate is advisory. Strict validation fails text above a delta's first `##`, and a Purpose under 50 characters.                                                                                                                                                                                                                                                               | spike D, Gotchas                        |
+| S13 | `operations.apply.guidance` in `openspec/config.yaml` surfaces as `operationGuidance` in `openspec instructions apply --json`. `apply --json` omits ids, so the guidance must point the agent at `tasks.md`. A default `openspec init` writes skills to `~/.agents/skills`, outside the repository; `init --tools claude --scope project --no-animation` stays inside it.                                                                           | spike A (#25, #26); spike D, finding 5  |
+| S14 | One `package.json` and lockfile give `jest`, `stryker` and `openspec` in `node_modules/.bin`; Node must be 22.20.0 or later (OpenSpec's `engines`); CI's `lint-docs` pins Node 20. The lockfile pins 633 packages; `npx` pins 6.                                                                                                                                                                                                                    | spike E                                 |
+| S15 | Not run by any spike: a real `openspec archive`, `validate` of REMOVED and RENAMED deltas in an earnest fixture, namespaced change folders, `openspec sync`, custom task files, a real judge, and OpenSpec 2.2.0 against the prototypes.                                                                                                                                                                                                            | the reports' "Not checked"              |
 
 ## Real-world run: `nullrul/apartment-twin` (2026-11-25)
 
@@ -67,34 +67,34 @@ Approved by the maintainer. A read-only blobless clone lives in `/tmp/earnest-sw
 
 What the repository holds under `openspec/`, by count: 29 files; 7 main specs with 125 requirement headings; 2 changes in flight (28 ADDED and 9 MODIFIED headings in the first, 7 and 7 in the second; 82 of 82 and 0 of 6 boxes ticked); 0 archived changes. That is 176 requirement blocks and 160 distinct (capability, name) definitions. All 176 contain `SHALL` and none contains `MUST`. No file carries an earnest id or tag.
 
-| # | Run (exit code captured with `$?`; R1 and R2 under `rtk proxy`) | Exit | Result |
-| --- | --- | --- | --- |
-| R1 | current `earnest check` | 0 | `requirements: 0`, 0 findings. A silent false green (S1). |
-| R2 | current `earnest plan` | 0 | `no plan` |
-| R3 | `openspec validate --all --strict` (2.1.1) | 1 | 8 of 9 items pass. The one that fails raises 4 WARNINGs of the requirement-length rule (500 characters); another raises 3 INFOs. |
-| R4 | spike D prototype `plan`, default approvals | 0 | 2 intents of 4 stages; both at frontier `proposal`. |
-| R5 | the same with `EARNEST_OPENSPEC_APPROVAL=artifact` | 0 | One intent reaches frontier none, with `tasks` the only stage not done. The other stays at frontier `design`: it has a `tasks.md` and no `design.md`, and `openspec status` calls its `tasks` done and its `design` ready. |
-| R6 | the same prototype's `check` | 0 | 88 `untracked-box` notes (82 and 6), and `no current task` (two changes in flight). |
-| R7 | `check --stage specs`, then `--stage tasks`, on a working copy | 0, 0 | `specs`: 0 findings and an assessment hash. `tasks`: 82 `untracked-box` warnings. |
-| R8 | ids injected on all 176 blocks of a copy (`m9/scripts/inject_real.py`, MODIFIED at revision 2), `check` by variant | 1 each | base: `duplicate` 16. Spike C designs A and C: 7. Design B: 0. Design C plus the stacked-change extension of Q8: 0. All carry `gap` 320 and `orphaned` 160, which the missing `feat` chain causes and no variant touches. |
-| R9 | the same copy, spike B's `SHALL` | 1 | `req-not-ears` 160 down to 104: 56 of 160 definitions parse. |
-| R10 | the same ids in the real files, then `openspec validate --all --strict` | 1 | 4 of 9 items fail, against 1 before: the id line pushed 7 more requirement texts over 500 characters. |
-| R11 | `feat` line under `## ADDED Requirements` in a delta that adds a new capability, strict validate | 1 | a new WARNING of the text-before-the-first-requirement rule. |
-| R12 | design C twice on the same copy | 1, 1 | the SARIF files are byte-identical. |
+| #   | Run (exit code captured with `$?`; R1 and R2 under `rtk proxy`)                                                    | Exit   | Result                                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1  | current `earnest check`                                                                                            | 0      | `requirements: 0`, 0 findings. A silent false green (S1).                                                                                                                                                                  |
+| R2  | current `earnest plan`                                                                                             | 0      | `no plan`                                                                                                                                                                                                                  |
+| R3  | `openspec validate --all --strict` (2.1.1)                                                                         | 1      | 8 of 9 items pass. The one that fails raises 4 WARNINGs of the requirement-length rule (500 characters); another raises 3 INFOs.                                                                                           |
+| R4  | spike D prototype `plan`, default approvals                                                                        | 0      | 2 intents of 4 stages; both at frontier `proposal`.                                                                                                                                                                        |
+| R5  | the same with `EARNEST_OPENSPEC_APPROVAL=artifact`                                                                 | 0      | One intent reaches frontier none, with `tasks` the only stage not done. The other stays at frontier `design`: it has a `tasks.md` and no `design.md`, and `openspec status` calls its `tasks` done and its `design` ready. |
+| R6  | the same prototype's `check`                                                                                       | 0      | 88 `untracked-box` notes (82 and 6), and `no current task` (two changes in flight).                                                                                                                                        |
+| R7  | `check --stage specs`, then `--stage tasks`, on a working copy                                                     | 0, 0   | `specs`: 0 findings and an assessment hash. `tasks`: 82 `untracked-box` warnings.                                                                                                                                          |
+| R8  | ids injected on all 176 blocks of a copy (`m9/scripts/inject_real.py`, MODIFIED at revision 2), `check` by variant | 1 each | base: `duplicate` 16. Spike C designs A and C: 7. Design B: 0. Design C plus the stacked-change extension of Q8: 0. All carry `gap` 320 and `orphaned` 160, which the missing `feat` chain causes and no variant touches.  |
+| R9  | the same copy, spike B's `SHALL`                                                                                   | 1      | `req-not-ears` 160 down to 104: 56 of 160 definitions parse.                                                                                                                                                               |
+| R10 | the same ids in the real files, then `openspec validate --all --strict`                                            | 1      | 4 of 9 items fail, against 1 before: the id line pushed 7 more requirement texts over 500 characters.                                                                                                                      |
+| R11 | `feat` line under `## ADDED Requirements` in a delta that adds a new capability, strict validate                   | 1      | a new WARNING of the text-before-the-first-requirement rule.                                                                                                                                                               |
+| R12 | design C twice on the same copy                                                                                    | 1, 1   | the SARIF files are byte-identical.                                                                                                                                                                                        |
 
 Of the 176 requirement blocks, 60 parse as one EARS sentence once `SHALL` is accepted; 98 are multi-sentence, 14 open with a bare subject, and 4 are other. The residual 7 `duplicate` findings of design C (R8) are 7 requirements that both changes in flight define.
 
 ### Where the real repository contradicts a spike
 
-| # | Spike said | The repository shows | What this plan does |
-| --- | --- | --- | --- |
-| X1 | C: two changes defining one id stay `duplicate` (C's decision 4); design C recommended. | Two changes in flight define 7 requirements between them, so stacked changes are real here. Design C raises 7 false `duplicate` errors for them (R8). | Q8 recommends a two-line extension: among delta copies the higher revision wins, and only an equal revision is a duplicate. Measured: 7 down to 0, with spike C's 14 layer tests and the rest of the 1068-test suite unchanged except one test that reads `docs/demo` from the copy. |
-| X2 | A: option A ids pass `validate --strict`. | An id line costs about 30 characters of the 500 that strict allows: 7 of 176 blocks cross the limit, and 3 of 7 main specs flip from pass to fail (R10). | Q3 records it. The fixture keeps bodies short, and Task 3 asserts strict on the fixture. |
-| X3 | A and B: `SHALL` is the blocker (246 of 318 parse after the change). | 98 of 176 blocks are multi-sentence: case is not the dominant blocker here (R9). | Q1's acceptance of `SHALL` stands. Q2 asks the question the change leaves open. |
-| X4 | A: each `spec.md` gets a `feat~<capability>~1` line. | 5 of 9 capabilities in flight here exist only in a delta, with no main spec to hold the line, and a `feat` line in a delta fails strict (R11). | Answer 3's recommendation: `feat` ids live in `docs/intent.md`. |
-| X5 | D: the route's frontier is the first stage not done. | One change has a `tasks.md` and no `design.md`, so its frontier is `design` and every later finding of it is downgraded to a note (R5). | Q7 recommends treating a skipped stage as passed. |
-| X6 | D: the current task is the first unchecked box of the single change in flight. | There are two changes in flight, and one has all 82 boxes ticked yet is not archived. The prototype finds no current task (R6). | Q10 recommends counting only changes that still hold an unchecked box. |
-| X7 | C: `archive/` is skipped, and "after archive" is clean. | This repository has no archived change, so the skip is unexercised; its stack (R3) is what `openspec archive` would reorder. | Task 4 tests the skip on a fixture, and the exit gate holds an archived change. |
+| #   | Spike said                                                                              | The repository shows                                                                                                                                     | What this plan does                                                                                                                                                                                                                                                                  |
+| --- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| X1  | C: two changes defining one id stay `duplicate` (C's decision 4); design C recommended. | Two changes in flight define 7 requirements between them, so stacked changes are real here. Design C raises 7 false `duplicate` errors for them (R8).    | Q8 recommends a two-line extension: among delta copies the higher revision wins, and only an equal revision is a duplicate. Measured: 7 down to 0, with spike C's 14 layer tests and the rest of the 1068-test suite unchanged except one test that reads `docs/demo` from the copy. |
+| X2  | A: option A ids pass `validate --strict`.                                               | An id line costs about 30 characters of the 500 that strict allows: 7 of 176 blocks cross the limit, and 3 of 7 main specs flip from pass to fail (R10). | Q3 records it. The fixture keeps bodies short, and Task 3 asserts strict on the fixture.                                                                                                                                                                                             |
+| X3  | A and B: `SHALL` is the blocker (246 of 318 parse after the change).                    | 98 of 176 blocks are multi-sentence: case is not the dominant blocker here (R9).                                                                         | Q1's acceptance of `SHALL` stands. Q2 asks the question the change leaves open.                                                                                                                                                                                                      |
+| X4  | A: each `spec.md` gets a `feat~<capability>~1` line.                                    | 5 of 9 capabilities in flight here exist only in a delta, with no main spec to hold the line, and a `feat` line in a delta fails strict (R11).           | Answer 3's recommendation: `feat` ids live in `docs/intent.md`.                                                                                                                                                                                                                      |
+| X5  | D: the route's frontier is the first stage not done.                                    | One change has a `tasks.md` and no `design.md`, so its frontier is `design` and every later finding of it is downgraded to a note (R5).                  | Q7 recommends treating a skipped stage as passed.                                                                                                                                                                                                                                    |
+| X6  | D: the current task is the first unchecked box of the single change in flight.          | There are two changes in flight, and one has all 82 boxes ticked yet is not archived. The prototype finds no current task (R6).                          | Q10 recommends counting only changes that still hold an unchecked box.                                                                                                                                                                                                               |
+| X7  | C: `archive/` is skipped, and "after archive" is clean.                                 | This repository has no archived change, so the skip is unexercised; its stack (R3) is what `openspec archive` would reorder.                             | Task 4 tests the skip on a fixture, and the exit gate holds an archived change.                                                                                                                                                                                                      |
 
 ## Gating open questions
 
@@ -269,13 +269,13 @@ Issues #26 and #36 ask one question, and M8's plan owns the recipe (its "Shared 
 - the `.gitignore` lines of M8 (`.stryker-tmp/`, `reports/mutation/`) and the `**/node_modules/**` ignore of `.markdownlint-cli2.jsonc`, which M9 does not add to;
 - `packages/earnest/tests/node.py`, the one helper that finds the Node tools and fails, never skips.
 
-| Piece | M8 | M9 (#26) |
-| --- | --- | --- |
-| devDependencies | `@stryker-mutator/core`, `@stryker-mutator/jest-runner`, `jest`, `ts-jest`, `typescript`, `@types/jest` | `@fission-ai/openspec` |
-| `node-check` | one generic target: prints Node and each manifest tool's installed version, and exits 2 naming each tool that is missing or off its pin | the same target, with no line of its own |
-| Environment | `export OPENSPEC_TELEMETRY := 0` in the Makefile, written by M8 Task 1 from the start | none to add |
-| Python helper | `tests/node.py`: `tools_path`, `require_tools(*names)`, `without_node_tools` | `openspec_env(home)`, added to the same file, and `require_tools("openspec")` |
-| Done when | `make test` and CI run the TypeScript feature | `make test` and CI print the pinned `openspec --version`, and a missing CLI fails the M9 feature |
+| Piece           | M8                                                                                                                                      | M9 (#26)                                                                                         |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| devDependencies | `@stryker-mutator/core`, `@stryker-mutator/jest-runner`, `jest`, `ts-jest`, `typescript`, `@types/jest`                                 | `@fission-ai/openspec`                                                                           |
+| `node-check`    | one generic target: prints Node and each manifest tool's installed version, and exits 2 naming each tool that is missing or off its pin | the same target, with no line of its own                                                         |
+| Environment     | `export OPENSPEC_TELEMETRY := 0` in the Makefile, written by M8 Task 1 from the start                                                   | none to add                                                                                      |
+| Python helper   | `tests/node.py`: `tools_path`, `require_tools(*names)`, `without_node_tools`                                                            | `openspec_env(home)`, added to the same file, and `require_tools("openspec")`                    |
+| Done when       | `make test` and CI run the TypeScript feature                                                                                           | `make test` and CI print the pinned `openspec --version`, and a missing CLI fails the M9 feature |
 
 Order. Whichever milestone lands first creates the files, by M8 Task 1's recipe. The second adds its devDependencies and regenerates the lock with the package manager's lock-only command (`pnpm install --lockfile-only` or `npm install --package-lock-only`), and never hand-merges a lockfile. Task 2 says what to do in each order. The OpenSpec version has one owner: answer 12 of this plan (M8's question 4 asks only when the pin enters the manifest). #26's done-when also asks that it reference the decision M8's Task 0 records; that comment on the issue is a GitHub write, so the maintainer approves it.
 
@@ -283,16 +283,16 @@ Order. Whichever milestone lands first creates the files, by M8 Task 1's recipe.
 
 Everything earnest takes from OpenSpec is one of these surfaces. Each was run by a spike or by the real-world run, and the pin makes them stable until a deliberate bump.
 
-| Surface | What earnest reads | Where |
-| --- | --- | --- |
-| `openspec --version` | the pin, compared with `package.json` | `node-check` |
-| `openspec status --change <id> --json` | `schemaName`, and per artifact `id`, `outputPath`, `requires` and `status` (`done`, `ready`, `blocked`) | `openspec.route_cli` (Task 5) |
-| `openspec validate --all --strict [--json]` | exit code; per item `valid` and `issues` (`level`, `message`) | `tests/integration/test_openspec_ids.py`, the feature |
-| `openspec instructions apply --change <id> --json` | `operationGuidance` | the feature (Task 8) |
-| `openspec list --json` | `completedTasks` and `totalTasks` per change, as a cross-check of earnest's own box count | Task 7's unit test |
-| `openspec/config.yaml` | `operations.apply.guidance` and `operations.archive.guidance`, as text the CLI echoes | `integrations/openspec/` |
-| The upstream task line | `TASK_LINE_PATTERN` of `src/utils/task-progress.ts`: any list marker, one non-space marker in the box, only `x` or `X` is done, and `[x](...)` or `[x][...]` is a link, not a box | `openspec.TASK_LINE` (Task 7) |
-| The archive path | `openspec/changes/archive/YYYY-MM-DD-<id>/`, fixed relative to the store root | `adapters.skipped` (Task 4) |
+| Surface                                            | What earnest reads                                                                                                                                                                | Where                                                 |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `openspec --version`                               | the pin, compared with `package.json`                                                                                                                                             | `node-check`                                          |
+| `openspec status --change <id> --json`             | `schemaName`, and per artifact `id`, `outputPath`, `requires` and `status` (`done`, `ready`, `blocked`)                                                                           | `openspec.route_cli` (Task 5)                         |
+| `openspec validate --all --strict [--json]`        | exit code; per item `valid` and `issues` (`level`, `message`)                                                                                                                     | `tests/integration/test_openspec_ids.py`, the feature |
+| `openspec instructions apply --change <id> --json` | `operationGuidance`                                                                                                                                                               | the feature (Task 8)                                  |
+| `openspec list --json`                             | `completedTasks` and `totalTasks` per change, as a cross-check of earnest's own box count                                                                                         | Task 7's unit test                                    |
+| `openspec/config.yaml`                             | `operations.apply.guidance` and `operations.archive.guidance`, as text the CLI echoes                                                                                             | `integrations/openspec/`                              |
+| The upstream task line                             | `TASK_LINE_PATTERN` of `src/utils/task-progress.ts`: any list marker, one non-space marker in the box, only `x` or `X` is done, and `[x](...)` or `[x][...]` is a link, not a box | `openspec.TASK_LINE` (Task 7)                         |
+| The archive path                                   | `openspec/changes/archive/YYYY-MM-DD-<id>/`, fixed relative to the store root                                                                                                     | `adapters.skipped` (Task 4)                           |
 
 The environment of every call sets `OPENSPEC_TELEMETRY=0` and keeps OpenSpec's configuration and data directories out of the user's home: the tests give the CLI `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_CACHE_HOME` under `tmp_path`. Spike A found those variables break `mise` shims, so the tests set them for the `openspec` call only.
 
@@ -313,77 +313,86 @@ These are this plan's own readings, open to the maintainer's objection when revi
 
 A synthetic lockout repository. Plain files, committed once on `main` at test time by `tests/conftest.py` (L6), with the overlays below left out of the base commit through `_OVERLAYS`. Drafted and run on 2026-11-25 against the spike prototypes (see "What was measured"), so the line numbers below are real; the findings tables in `04` are DERIVED from those runs, and Task 9 Step 2 confirms them against the combined tree.
 
-| Path | Holds | Layer |
-| --- | --- | --- |
-| `docs/intent.md` | `tenet~safe-accounts~1`, `goal~stop-guessing~1`, `feat~lockout~1` | base |
-| `openspec/config.yaml` | `schema: spec-driven` (Task 8 adds the guidance) | base |
-| `openspec/specs/lockout/spec.md` | two requirements: lines 1 to 26 of the file below | base |
-| `src/lockout.py`, `tests/test_lockout.py` | two tagged functions and two tagged tests | base |
-| `defects/openspec/specs/lockout/spec.md`, `defects/src/lockout.py` | the full files below: two more requirements, and a mistyped tag | overlay `defects` |
-| `archive/openspec/changes/archive/2026-11-01-add-lockout/` | `proposal.md`, `specs/lockout/spec.md` (an `ADDED` block of the first two requirements at revision 1), `tasks.md` | overlay `archive` |
-| `change/openspec/changes/lockout-window/` | `.openspec.yaml`, `proposal.md`, `design.md`, `specs/lockout/spec.md`, `tasks.md` | overlay `change` |
-| `approved/openspec/changes/lockout-window/audit/fixture-approvals.md` | one `GATE_APPROVED` row for `specs` that names its two items (below) | overlay `approved` |
-| `unbumped/openspec/changes/lockout-window/specs/lockout/spec.md` | the delta with the first requirement's body edited and its revision left at 2 | overlay `unbumped` |
-| `judge-verdicts.json` | canned stub verdicts for `lockout-message` and `lock-after-failures`, as in `seeded-change` | package only |
+| Path                                                                  | Holds                                                                                                             | Layer              |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `docs/intent.md`                                                      | `tenet~safe-accounts~1`, `goal~stop-guessing~1`, `feat~lockout~1`                                                 | base               |
+| `openspec/config.yaml`                                                | `schema: spec-driven` (Task 8 adds the guidance)                                                                  | base               |
+| `openspec/specs/lockout/spec.md`                                      | two requirements: lines 1 to 26 of the file below                                                                 | base               |
+| `src/lockout.py`, `tests/test_lockout.py`                             | two tagged functions and two tagged tests                                                                         | base               |
+| `defects/openspec/specs/lockout/spec.md`, `defects/src/lockout.py`    | the full files below: two more requirements, and a mistyped tag                                                   | overlay `defects`  |
+| `archive/openspec/changes/archive/2026-11-01-add-lockout/`            | `proposal.md`, `specs/lockout/spec.md` (an `ADDED` block of the first two requirements at revision 1), `tasks.md` | overlay `archive`  |
+| `change/openspec/changes/lockout-window/`                             | `.openspec.yaml`, `proposal.md`, `design.md`, `specs/lockout/spec.md`, `tasks.md`                                 | overlay `change`   |
+| `approved/openspec/changes/lockout-window/audit/fixture-approvals.md` | one `GATE_APPROVED` row for `specs` that names its two items (below)                                              | overlay `approved` |
+| `unbumped/openspec/changes/lockout-window/specs/lockout/spec.md`      | the delta with the first requirement's body edited and its revision left at 2                                     | overlay `unbumped` |
+| `judge-verdicts.json`                                                 | canned stub verdicts for `lockout-message` and `lock-after-failures`, as in `seeded-change`                       | package only       |
 
 The main spec, defects state (the base is its first 26 lines). Line 32 holds two sentences, and line 42 has no tag:
 
 `openspec/specs/lockout/spec.md`:
 
-````markdown
+```markdown
 # lockout Specification
 
 ## Purpose
+
 Lock an account that sees repeated failed logins, and tell its member.
 
 ## Requirements
 
 ### Requirement: Lock after failures
+
 `req~lock-after-failures~1`
 Covers: feat~lockout~1
 
 When a member fails to log in three times, the system SHALL lock the account.
 
 #### Scenario: Third failure
+
 - **WHEN** a member fails to log in three times
 - **THEN** the account is locked
 
 ### Requirement: Lockout message
+
 `req~lockout-message~1`
 Covers: feat~lockout~1
 
 When an account is locked, the system SHALL send the member a notice.
 
 #### Scenario: Notice sent
+
 - **WHEN** an account is locked
 - **THEN** the member receives a notice
 
 ### Requirement: Lockout audit
+
 `req~lockout-audit~1`
 Covers: feat~lockout~1
 
 The system SHALL record each lockout in the audit log. The record names the member and the time.
 
 #### Scenario: Audit entry
+
 - **WHEN** an account is locked
 - **THEN** the audit log holds an entry
 
 ### Requirement: Idle timeout
+
 `req~idle-timeout~1`
 Covers: feat~lockout~1
 
 While a session is idle, the system SHALL expire it after ten minutes.
 
 #### Scenario: Idle session
+
 - **WHEN** a session is idle for ten minutes
 - **THEN** it expires
-````
+```
 
 The source, defects state (the base is its first 16 lines). Line 18 mistypes `lockout-message`:
 
 `src/lockout.py`:
 
-````python
+```python
 """SYNTHETIC lockout rules."""
 
 FAILURE_LIMIT = 3
@@ -405,13 +414,13 @@ def notice(member: str) -> str:
 def unlock(member: str) -> str:
     """Unlock a member."""
     return f"{member}: unlocked"
-````
+```
 
 The base tests (`tests/test_lockout.py`):
 
 `tests/test_lockout.py`:
 
-````python
+```python
 """SYNTHETIC lockout tests."""
 
 from src.lockout import is_locked, notice
@@ -426,13 +435,13 @@ def test_the_third_failure_locks():
 # [utest->req~lockout-message~1]
 def test_the_notice_names_the_member():
     assert "ada" in notice("ada")
-````
+```
 
 The chain, `docs/intent.md`:
 
 `docs/intent.md`:
 
-````markdown
+```markdown
 # Intent
 
 `tenet~safe-accounts~1`
@@ -451,57 +460,64 @@ Covers: goal~stop-guessing~1
 Needs: req
 
 Repeated failed logins lock the account.
-````
+```
 
 The in-flight change's delta, `change/openspec/changes/lockout-window/specs/lockout/spec.md`. Its MODIFIED block takes revision 2 and its ADDED block adds a requirement that nothing implements yet:
 
 `openspec/changes/lockout-window/specs/lockout/spec.md`:
 
-````markdown
+```markdown
 ## MODIFIED Requirements
 
 ### Requirement: Lock after failures
+
 `req~lock-after-failures~2`
 Covers: feat~lockout~1
 
 When a member fails to log in three times, the system SHALL lock the account for the lockout window.
 
 #### Scenario: Third failure
+
 - **WHEN** a member fails to log in three times
 - **THEN** the account is locked for the window
 
 ## ADDED Requirements
 
 ### Requirement: Lockout reset
+
 `req~lockout-reset~1`
 Covers: feat~lockout~1
 
 When the lockout window ends, the system SHALL unlock the account.
 
 #### Scenario: Window ends
+
 - **WHEN** the lockout window ends
 - **THEN** the account is unlocked
-````
+```
 
 Its `tasks.md` (L2 layout: the id line and `Delivers:` directly above the box). Boxes sit at lines 5, 9 and 13:
 
 `openspec/changes/lockout-window/tasks.md`:
 
-````markdown
+```markdown
 ## 1. Lock window
 
 `task~lock-for-window~1`
 Delivers: req~lock-after-failures~2
+
 - [x] 1.1 Lock the account for the window
 
 `task~unlock-at-end~1`
 Delivers: req~lockout-reset~1
+
 - [x] 1.2 Unlock the account when the window ends
 
 `task~window-docs~1`
 Delivers: req~lockout-reset~1
+
 - [ ] 1.3 Document the window
-````
+```
 
 `proposal.md` holds `## Why` and `## What Changes` (3 lines each); `design.md` holds `## Context` and `## Decisions` (2 lines each); `.openspec.yaml` holds `schema: spec-driven`. The archived change is the same two requirements at revision 1 under `## ADDED Requirements`, with `tasks.md` of one ticked box, so that without the skip every one of its ids is a `duplicate` of the main copy.
 
@@ -509,8 +525,9 @@ The `approved` overlay is the approval of the `specs` stage with its two items n
 
 `approved/openspec/changes/lockout-window/audit/fixture-approvals.md`:
 
-````markdown
+```markdown
 ## Gate Approved
+
 **Timestamp**: 2026-11-25T10:00:00Z
 **Event**: GATE_APPROVED
 **Stage**: specs
@@ -519,15 +536,15 @@ The `approved` overlay is the approval of the `specs` stage with its two items n
 **Items**: req~lock-after-failures~2, req~lockout-reset~1
 **Approved By**: human
 ---
-````
+```
 
 **Seeded defects**, each at a known file and line, in the `defects` state:
 
-| Defect | File and line | Finding |
-| --- | --- | --- |
-| A tag names no requirement | `src/lockout.py:18` | `orphaned`, with "did you mean `req~lockout-message~1`?" |
-| A requirement of two sentences | `openspec/specs/lockout/spec.md:29` (its id line) | `req-not-ears`, and 2 `gap` (no `impl`, no `utest`) |
-| A requirement no tag reaches | `openspec/specs/lockout/spec.md:39` | 2 `gap`, and the requirement lands untraced |
+| Defect                         | File and line                                     | Finding                                                  |
+| ------------------------------ | ------------------------------------------------- | -------------------------------------------------------- |
+| A tag names no requirement     | `src/lockout.py:18`                               | `orphaned`, with "did you mean `req~lockout-message~1`?" |
+| A requirement of two sentences | `openspec/specs/lockout/spec.md:29` (its id line) | `req-not-ears`, and 2 `gap` (no `impl`, no `utest`)      |
+| A requirement no tag reaches   | `openspec/specs/lockout/spec.md:39`               | 2 `gap`, and the requirement lands untraced              |
 
 **What was measured (2026-11-25).** The fixture was run in all its layers at once, against a scratch tree that combines spike B's `SHALL` patch with spike C's design C and the stacked-change extension: exit 1, 10 findings (`gap` 6, `orphaned` 1, `outdated` 2, `req-not-ears` 1) and no `duplicate`. The `outdated` findings sit at `src/lockout.py:6` and `tests/test_lockout.py:6`, because the delta's `lock-after-failures~2` overlays the main copy. Run on its own, the unmodified earnest gives 16 findings on the same tree, 3 of them `duplicate` and 1 `predated`, because of the archive, and spike D's prototype printed the intent and the two `checked-unevidenced` findings at `tasks.md:5` and `tasks.md:9` from a plain `check`. Plan choice P8 limits that rule to `--stage tasks`, so a plain `check` of the `change` state keeps the 4 findings above. The `approved` layer was not run: spike D's finding 6 ran the same freeze with an explicit row. `openspec validate --all --strict` exits 0, `openspec status --change lockout-window --json` reports all four artifacts done, and `openspec list --json` reports 2 of 3 tasks. No tree holding all four prototypes together was built: Task 9 Step 2 builds it by the tasks and confirms the DERIVED rows.
 
@@ -552,7 +569,7 @@ The `approved` overlay is the approval of the `specs` stage with its two items n
 - **Fail, not skip.** `tests/unit/test_node.py` (written by M8 Task 2 Step 3, or by Task 2 here if M9 lands first) asserts `pytest.fail.Exception` for a missing Node and for a missing tool.
 - **The bare run stays Node-free.** `addopts` leaves the step module and `tests/integration/test_openspec_ids.py` out until Task 9 (P5), and no test of the unit tier runs the real CLI.
 - **`unbumped-change` rests on an approval row.** The scenario commits the `approved` overlay before the edit; the artifact's own approval "by openspec" names no item and freezes nothing. In use the row is written by the agent after the human approves (answer 6).
-- **The overlay does not depend on order.** The result is the same for the sources in any order (spike C's test), and an equal revision across two changes is still `duplicate`, so the stacked-change reading never hides a missing bump.
+- **The overlay does not depend on order.** The result is the same for the sources in any order (spike C's test), and an equal revision across two changes is still `duplicate`. A delta never hides a duplicate among the main copies, and a stale delta is compared with the main copy, not with the winner, so the stacked-change reading never hides a missing bump.
 - **Two rules about where `openspec/` is.** The archive skip applies at any depth (Task 4); a change is an intent only below a root `openspec/changes/` (answer 11). A fixture of this repository that holds its own `openspec/` must not become an intent of this repository, which Task 5's `earnest check` run on the repository root checks.
 - **A tick is not an edit, a changed title is.** The task body hash ignores the box and nothing else.
 - **No CLI for non-OpenSpec repositories.** `earnest check` and `plan` on the existing fixtures never call `openspec`. A test runs the whole suite with no `openspec` on `PATH`.
@@ -563,35 +580,35 @@ The `approved` overlay is the approval of the `specs` stage with its two items n
 
 The scenario titles are PROPOSED, and Task 0 writes them into `04`. They map to the exit behavior of `03` and to the done-when of the issues:
 
-| Scenario | Done when of |
-| --- | --- |
-| "An OpenSpec repository with earnest ids passes OpenSpec's strict validation and earnest's check" | #20, #27 |
-| "Two checks of an unchanged OpenSpec repository give identical SARIF" | #27 (SC1) |
-| "Each requirement lands at one trace level, with a located reason for each level it missed" | #27 (SC3) |
-| "A tag naming a missing requirement and a requirement no tag reaches appear at file and line" | #27 (SC2) |
-| "A requirement of more than one sentence raises req-not-ears at its line, and SHALL is accepted" | #21, #27 |
-| "An archived change is not read" | #23 |
-| "A change in flight supersedes the main copy, and tags at the old revision are flagged" | #23 (SC5) |
-| "A change in flight is an intent with its stages and their status" | #22 |
-| "A body edited without a new revision raises unbumped-change after the stage check" | #22, #27 |
-| "A ticked box whose requirement is below evidenced raises checked-unevidenced at the box" | #24 |
-| "OpenSpec's apply instructions carry earnest's guidance" | #25 |
+| Scenario                                                                                          | Done when of |
+| ------------------------------------------------------------------------------------------------- | ------------ |
+| "An OpenSpec repository with earnest ids passes OpenSpec's strict validation and earnest's check" | #20, #27     |
+| "Two checks of an unchanged OpenSpec repository give identical SARIF"                             | #27 (SC1)    |
+| "Each requirement lands at one trace level, with a located reason for each level it missed"       | #27 (SC3)    |
+| "A tag naming a missing requirement and a requirement no tag reaches appear at file and line"     | #27 (SC2)    |
+| "A requirement of more than one sentence raises req-not-ears at its line, and SHALL is accepted"  | #21, #27     |
+| "An archived change is not read"                                                                  | #23          |
+| "A change in flight supersedes the main copy, and tags at the old revision are flagged"           | #23 (SC5)    |
+| "A change in flight is an intent with its stages and their status"                                | #22          |
+| "A body edited without a new revision raises unbumped-change after the stage check"               | #22, #27     |
+| "A ticked box whose requirement is below evidenced raises checked-unevidenced at the box"         | #24          |
+| "OpenSpec's apply instructions carry earnest's guidance"                                          | #25          |
 
 The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/test_node.py`, because a scenario cannot remove its own Background.
 
-| Task | Issue | Content | Depends on | Answers | Scenarios green after it |
-| --- | --- | --- | --- | --- | --- |
-| 0 | #19 | The docs commit: decisions, `04`'s M9 section is already drafted, rows of `00`, `01`, `02`, `03` | the maintainer | all | none |
-| 1 | #21 | `SHALL` in `ears.py`, with tests and the `01` Grammar and D2 edits | none | 1 | none (unit tier) |
-| 2 | #26 | The shared Node toolchain by M8 Task 1's recipe, with the pinned CLI, and `tests/node.py` | Task 0 Step 1 (answer 12 and M8's six); M8 Task 1 if it landed | 12 | none |
-| 3 | #20 | The fixture's base and `defects` layers, ids and the chain, the gate red | 1, 2 | 3, 4 | scenarios 1 to 5 |
-| 4 | #23 | `openspec/changes/archive/` skipped | 3 | 8 | "An archived change is not read" |
-| 5 | #22 | A change as an intent: route, stage mapping, approvals, record | 3, 4 | 5, 6, 7, 11 | scenarios 8 and 9 |
-| 6 | #23 | Delta overlay and stacked changes | 4 | 8 | "A change in flight supersedes the main copy" |
-| 7 | #24 | `tasks.md` boxes, the two rules, the current task | 5, 6 | 10 | the `checked-unevidenced` scenario |
-| 8 | #25 | The guidance snippet and its scenario | 2, 5 | 13 | the apply-instructions scenario |
-| 9 | #27 | The exit gate: all 11 green, the two `addopts` entries removed, CI, lint, the pre-PR review | 6, 7, 8 | none new | all 11 |
-| 10 | #23 | Deferred, outside the exit path: REMOVED handling | 6 | 9 | none |
+| Task | Issue | Content                                                                                          | Depends on                                                     | Answers     | Scenarios green after it                      |
+| ---- | ----- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- | ----------- | --------------------------------------------- |
+| 0    | #19   | The docs commit: decisions, `04`'s M9 section is already drafted, rows of `00`, `01`, `02`, `03` | the maintainer                                                 | all         | none                                          |
+| 1    | #21   | `SHALL` in `ears.py`, with tests and the `01` Grammar and D2 edits                               | none                                                           | 1           | none (unit tier)                              |
+| 2    | #26   | The shared Node toolchain by M8 Task 1's recipe, with the pinned CLI, and `tests/node.py`        | Task 0 Step 1 (answer 12 and M8's six); M8 Task 1 if it landed | 12          | none                                          |
+| 3    | #20   | The fixture's base and `defects` layers, ids and the chain, the gate red                         | 1, 2                                                           | 3, 4        | scenarios 1 to 5                              |
+| 4    | #23   | `openspec/changes/archive/` skipped                                                              | 3                                                              | 8           | "An archived change is not read"              |
+| 5    | #22   | A change as an intent: route, stage mapping, approvals, record                                   | 3, 4                                                           | 5, 6, 7, 11 | scenarios 8 and 9                             |
+| 6    | #23   | Delta overlay and stacked changes                                                                | 4                                                              | 8           | "A change in flight supersedes the main copy" |
+| 7    | #24   | `tasks.md` boxes, the two rules, the current task                                                | 5, 6                                                           | 10          | the `checked-unevidenced` scenario            |
+| 8    | #25   | The guidance snippet and its scenario                                                            | 2, 5                                                           | 13          | the apply-instructions scenario               |
+| 9    | #27   | The exit gate: all 11 green, the two `addopts` entries removed, CI, lint, the pre-PR review      | 6, 7, 8                                                        | none new    | all 11                                        |
+| 10   | #23   | Deferred, outside the exit path: REMOVED handling                                                | 6                                                              | 9           | none                                          |
 
 Order. Task 1 needs no wait (answer 1 is accepted) and runs beside Task 0. Task 2 waits for Task 0 Step 1, because it builds on answer 12 and on M8's six answers. Tasks 6 and 7 both edit `index.py` (6 the layer overlay, 7 `_body_hash`) and run one after the other, 6 then 7. Task 8 needs only the `change` overlay that Task 5 writes, so it may run beside Tasks 6 and 7. Task 10 is not on the exit path: Task 9 does not wait for it.
 
@@ -599,28 +616,28 @@ Order. Task 1 needs no wait (answer 1 is accepted) and runs beside Task 0. Task 
 
 ## File Structure
 
-| Path | Responsibility | Task |
-| --- | --- | --- |
-| `docs/superpowers/plans/2026-11-25-openspec-host.md` | this plan: the decisions (Task 0), then each task's counts and notes | 0 to 9 |
-| `docs/design/00-project-intent.md`, `01-logic-design.md`, `02-structural-design.md`, `03-implementation-plan.md`, `04-bdd-test-plan.md` | the ratification, "Adopting OpenSpec", the module rows, M9 in `03`, `04`'s M9 section | 0, 1 |
-| `packages/earnest/src/earnest/ears.py` | `_SHALL`, the message suffix | 1 |
-| `packages/earnest/tests/unit/test_ears.py`, `tests/unit/test_judge.py` | the `SHALL` rows and the judge's span | 1 |
-| `packages/earnest/package.json`, the lockfile, `.nvmrc`, `.npmrc` | the toolchain by M8 Task 1's recipe, with `@fission-ai/openspec` at the pin (shared with M8) | 2 |
-| `packages/earnest/Makefile`, `.github/workflows/ci.yml`, `.gitignore`, `.markdownlint-cli2.jsonc`, `CLAUDE.md` | `node-install`, `node-check`, the CI Node steps, the ignores, the Build section (M8 Task 1's recipe) | 2, 9 |
-| `packages/earnest/tests/node.py`, `tests/unit/test_node.py` | the one helper: find the Node tools, `openspec_env`, fail not skip (M8 Task 2 Step 3 owns the file) | 2 |
-| `packages/earnest/tests/fixtures/openspec-change/` | the base and the overlays `defects`, `archive`, `change`, `approved`, `unbumped`, and `judge-verdicts.json` | 3 to 8 |
-| `packages/earnest/tests/conftest.py` | the overlay names `defects`, `archive`, `approved` and `unbumped` added to `_OVERLAYS` (`change` and `judge-verdicts.json` are there already); no new builder, the steps use `fixture_repo` and `commit_on_main` | 3 |
-| `packages/earnest/tests/integration/test_openspec_ids.py` | the tests that run the real CLI: strict validation and `check` on the base and `defects` layers, and `openspec list` against the box count; left out of a bare run by `addopts` until Task 9 | 3, 7 |
-| `packages/earnest/tests/features/openspec_host.feature` | the 11 scenarios, copied verbatim from `04` | 3 |
-| `packages/earnest/tests/steps/test_openspec_host.py` | the steps; the exit command | 3 to 9 |
-| `packages/earnest/pyproject.toml` | M9's two `--ignore` entries in `addopts` (merged with M7's), added and then removed | 3, 9 |
-| `packages/earnest/src/earnest/adapters/__init__.py` | `skipped` for the archive, `layer`, the change directories as record directories | 4, 5, 6 |
-| `packages/earnest/src/earnest/openspec.py` | `change_dirs`, `route_cli`, `matches`, `TASK_LINE`, `box` | 5, 7 |
-| `packages/earnest/src/earnest/plan.py`, `cli.py` | `Intent.stage_files`, `_holds`, the OpenSpec loader, the boxes, the messages that name `aidlc-state.md`; in `cli.py` also the `--stage tasks` scope of `checked-unevidenced` (P8) | 5, 7 |
-| `packages/earnest/src/earnest/index.py`, `structural.py` | the layer overlay and `_duplicates` (Task 6), `_body_hash` (Task 7); `Removal`, `Item.heading`, `Item.section`, `Index.removed` and the REMOVED branches of `defined`, `_duplicates` and `_links` (Task 10) | 6, 7, 10 |
-| `packages/earnest/src/earnest/reporter.py` | `earnest/checked-unevidenced`, `earnest/untracked-box`, `earnest/no-requirements` in `RULES` | 5, 7 |
-| `packages/earnest/tests/unit/test_openspec_layers.py`, `tests/unit/test_openspec.py` | skip, layers (REMOVED in Task 10); change directories, route, boxes | 4 to 7, 10 |
-| `integrations/openspec/` | `config.snippet.yaml` and `README.md` | 8 |
+| Path                                                                                                                                    | Responsibility                                                                                                                                                                                                   | Task       |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `docs/superpowers/plans/2026-11-25-openspec-host.md`                                                                                    | this plan: the decisions (Task 0), then each task's counts and notes                                                                                                                                             | 0 to 9     |
+| `docs/design/00-project-intent.md`, `01-logic-design.md`, `02-structural-design.md`, `03-implementation-plan.md`, `04-bdd-test-plan.md` | the ratification, "Adopting OpenSpec", the module rows, M9 in `03`, `04`'s M9 section                                                                                                                            | 0, 1       |
+| `packages/earnest/src/earnest/ears.py`                                                                                                  | `_SHALL`, the message suffix                                                                                                                                                                                     | 1          |
+| `packages/earnest/tests/unit/test_ears.py`, `tests/unit/test_judge.py`                                                                  | the `SHALL` rows and the judge's span                                                                                                                                                                            | 1          |
+| `packages/earnest/package.json`, the lockfile, `.nvmrc`, `.npmrc`                                                                       | the toolchain by M8 Task 1's recipe, with `@fission-ai/openspec` at the pin (shared with M8)                                                                                                                     | 2          |
+| `packages/earnest/Makefile`, `.github/workflows/ci.yml`, `.gitignore`, `.markdownlint-cli2.jsonc`, `CLAUDE.md`                          | `node-install`, `node-check`, the CI Node steps, the ignores, the Build section (M8 Task 1's recipe)                                                                                                             | 2, 9       |
+| `packages/earnest/tests/node.py`, `tests/unit/test_node.py`                                                                             | the one helper: find the Node tools, `openspec_env`, fail not skip (M8 Task 2 Step 3 owns the file)                                                                                                              | 2          |
+| `packages/earnest/tests/fixtures/openspec-change/`                                                                                      | the base and the overlays `defects`, `archive`, `change`, `approved`, `unbumped`, and `judge-verdicts.json`                                                                                                      | 3 to 8     |
+| `packages/earnest/tests/conftest.py`                                                                                                    | the overlay names `defects`, `archive`, `approved` and `unbumped` added to `_OVERLAYS` (`change` and `judge-verdicts.json` are there already); no new builder, the steps use `fixture_repo` and `commit_on_main` | 3          |
+| `packages/earnest/tests/integration/test_openspec_ids.py`                                                                               | the tests that run the real CLI: strict validation and `check` on the base and `defects` layers, and `openspec list` against the box count; left out of a bare run by `addopts` until Task 9                     | 3, 7       |
+| `packages/earnest/tests/features/openspec_host.feature`                                                                                 | the 11 scenarios, copied verbatim from `04`                                                                                                                                                                      | 3          |
+| `packages/earnest/tests/steps/test_openspec_host.py`                                                                                    | the steps; the exit command                                                                                                                                                                                      | 3 to 9     |
+| `packages/earnest/pyproject.toml`                                                                                                       | M9's two `--ignore` entries in `addopts` (merged with M7's), added and then removed                                                                                                                              | 3, 9       |
+| `packages/earnest/src/earnest/adapters/__init__.py`                                                                                     | `skipped` for the archive, `layer`, the change directories as record directories                                                                                                                                 | 4, 5, 6    |
+| `packages/earnest/src/earnest/openspec.py`                                                                                              | `change_dirs`, `route_cli`, `matches`, `TASK_LINE`, `box`                                                                                                                                                        | 5, 7       |
+| `packages/earnest/src/earnest/plan.py`, `cli.py`                                                                                        | `Intent.stage_files`, `_holds`, the OpenSpec loader, the boxes, the messages that name `aidlc-state.md`; in `cli.py` also the `--stage tasks` scope of `checked-unevidenced` (P8)                                | 5, 7       |
+| `packages/earnest/src/earnest/index.py`, `structural.py`                                                                                | the layer overlay and `_duplicates` (Task 6), `_body_hash` (Task 7); `Removal`, `Item.heading`, `Item.section`, `Index.removed` and the REMOVED branches of `defined`, `_duplicates` and `_links` (Task 10)      | 6, 7, 10   |
+| `packages/earnest/src/earnest/reporter.py`                                                                                              | `earnest/checked-unevidenced`, `earnest/untracked-box`, `earnest/no-requirements` in `RULES`                                                                                                                     | 5, 7       |
+| `packages/earnest/tests/unit/test_openspec_layers.py`, `tests/unit/test_openspec.py`                                                    | skip, layers (REMOVED in Task 10); change directories, route, boxes                                                                                                                                              | 4 to 7, 10 |
+| `integrations/openspec/`                                                                                                                | `config.snippet.yaml` and `README.md`                                                                                                                                                                            | 8          |
 
 ## Known limits
 
@@ -715,7 +732,7 @@ def test_a_sentence_keeps_the_keyword_case_it_was_written_in():
     assert sentence.text == "When the word SHALL is typed, the system SHALL echo it."
 ```
 
-  Add these rows to the list of `test_a_body_that_is_not_one_ears_sentence_does_not_parse`: `"The system MUST log in."`, `"The system Shall log in."`, `"The system sHALL log in."`, `"THE SYSTEM SHALL LOG IN."`, `"WHEN a member logs in, the system SHALL greet them."`, `"The system SHALL log in. The system SHALL log out."`, `"When a member logs in the system SHALL greet them."`, `"The system SHALLOW log in."`. Add `assert "`shall` or `SHALL`" in found.message` to `test_req_not_ears_sits_at_the_id_line_and_lists_the_five_templates_in_order`. In `test_judge.py`, add `test_a_requirement_written_with_shall_in_capitals_is_asked_with_its_clause_spans`: the `REQS` of that module with `the system shall greet them` replaced by `the system SHALL greet them`; assert `question_text` holds `Requirement: When a member logs in, the system SHALL greet them.\nClauses:\n` and `\nwhen: a member logs in\nresponse: greet them\nCode regions:\n`.
+Add these rows to the list of `test_a_body_that_is_not_one_ears_sentence_does_not_parse`: `"The system MUST log in."`, `"The system Shall log in."`, `"The system sHALL log in."`, `"THE SYSTEM SHALL LOG IN."`, `"WHEN a member logs in, the system SHALL greet them."`, `"The system SHALL log in. The system SHALL log out."`, `"When a member logs in the system SHALL greet them."`, `"The system SHALLOW log in."`. Add `assert "`shall`or`SHALL`" in found.message` to `test_req_not_ears_sits_at_the_id_line_and_lists_the_five_templates_in_order`. In `test_judge.py`, add `test_a_requirement_written_with_shall_in_capitals_is_asked_with_its_clause_spans`: the `REQS` of that module with `the system shall greet them` replaced by `the system SHALL greet them`; assert `question_text` holds `Requirement: When a member logs in, the system SHALL greet them.\nClauses:\n` and `\nwhen: a member logs in\nresponse: greet them\nCode regions:\n`.
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_ears.py tests/unit/test_judge.py -q; echo $?`. Expected: the `SHALL` rows and the message and judge tests fail, and a non-zero code.
 - [ ] **Step 4:** In `ears.py` add the constant above `_EARS` and use it in the two places the regex names the keyword. A change to the match alone leaves the lookahead blind to `SHALL` (S4):
@@ -731,7 +748,7 @@ _EARS = re.compile(
 )
 ```
 
-  The `parse` docstring says "a `shall` or `SHALL` with no system before it". The message in `findings` ends with the suffix "(the keyword is `shall` or `SHALL`)" after the templates, as one more string in the f-string's parentheses. `TEMPLATES` stays as it is.
+The `parse` docstring says "a `shall` or `SHALL` with no system before it". The message in `findings` ends with the suffix "(the keyword is `shall` or `SHALL`)" after the templates, as one more string in the f-string's parentheses. `TEMPLATES` stays as it is.
 
 - [ ] **Step 5:** Run Step 3's command, then `rtk proxy uv run mypy --strict src/; echo $?`, `rtk proxy uv run ruff check src/ tests/; echo $?`, `rtk proxy uv run ruff format --check src/ tests/; echo $?`, `rtk proxy uv run vulture; echo $?` and the regression run. Expected: `0` from each, at Step 1's count plus 21 (7 and 4 parametrized rows, 1 test, 8 rows, 1 judge test; the message assertion adds none).
 - [ ] **Step 6:** The docs, from `recommended-docs.patch`. The maintainer decided on 2026-11-25 that the scope is the exact keyword, no `MUST` (answer 1, A), and ratified M9 (answer 14), so the `01` edits below carry no PROPOSED mark; the wording of D2's Decision, Alternatives and Rationale sentences and of the Grammar line is still this plan's, for him to read in the commit. In `01`: the Grammar line becomes `"the" , system , ( "shall" | "SHALL" ) , response , "." ;`; after "those spans are what the judge asks about." add "The keyword is `shall` or `SHALL`, so a body written the OpenSpec way parses; any other case (`Shall`) and `MUST` are not the keyword, and every other word keeps its case rule. The parse keeps the case the author wrote, so the judge reads the sentence as the file has it."; the findings-table row for `earnest/req-not-ears` ends "the message lists the five templates and says the keyword is `shall` or `SHALL`"; D2's Decision gains "The message adds that the keyword is `shall` or `SHALL`.", its Alternatives "read the keyword in any letter case.", and its Rationale "The keyword takes `SHALL` as well as `shall` because OpenSpec's validator requires `SHALL` in that exact case, and no other case, so one body satisfies both tools; `MUST` stays out until a corpus needs it." In `04`: the table row 19 of the M4 `seeded-change` list reads "not EARS: no `shall` or `SHALL`; `req-not-ears` at line 17"; the Messages bullet says the message "lists the five templates of D2 in that order, and says the keyword is `shall` or `SHALL`"; the unit-tier bullet starts "each EARS template with `shall` and with `SHALL`, and its spans, a keyword in another case or `MUST` (not EARS), a body broken over lines, ...". Find each place with `grep -n`, since line numbers have moved. The five templates in D2 and in `04`'s scenario table stay lowercase.
@@ -754,6 +771,7 @@ M8's plan owns both pieces: its Task 1 is the one recipe for the toolchain (mani
   - `test_the_environment_turns_telemetry_off_and_keeps_openspec_out_of_home` (`OPENSPEC_TELEMETRY=0`, `DO_NOT_TRACK=1`, `CI=1`, `NO_COLOR=1`, and the three `XDG_*` paths below the given directory).
 
   If M8 Task 2 Step 3 has landed, `tests/node.py` and its tests exist: add only `openspec_env` and the third test. If not, create the file with `PACKAGE`, `tools_path`, `require_tools` and `openspec_env` as that step gives them, and leave `without_node_tools` and its test to M8's Task 2.
+
 - [ ] **Step 5:** Run `rtk proxy uv run pytest tests/unit/test_node.py -q; echo $?`: red before the helper, `0` after. Then `rtk proxy make -C packages/earnest node-install; echo $?` (`0`) and `rtk proxy make -C packages/earnest node-check; echo $?` (a line `@fission-ai/openspec 2.1.1`, `0`). The negative control asserts the message, since `make` exits 2 for any failed recipe and the code alone would pass for another cause: `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent 2>&1 | grep -c "@fission-ai/openspec is missing: run make node-install"` prints `1`. Run `yamllint -c .yamllint.yml .github/workflows/ci.yml; echo $?` (`0`).
 - [ ] **Step 6:** `CLAUDE.md`'s Build section (M8 Task 6 Step 4 words the Node line) also says that the M9 feature runs the pinned `openspec` and needs Node 22.20 or later. Run the regression run, then commit `chore: pin the openspec CLI with the package's Node toolchain`.
 
@@ -815,7 +833,7 @@ def _under(parts: tuple[str, ...], marker: tuple[str, ...]) -> bool:
     return any(parts[at : at + len(marker)] == marker for at in range(len(parts) - len(marker)))
 ```
 
-  and `skipped` returns `_under(parts, _ARCHIVE) or any(...)`, the existing expression. The skip is at any depth on purpose: the archive's paths are fixed relative to a store root that may sit below the repository root (S7), unlike a change directory (answer 11).
+and `skipped` returns `_under(parts, _ARCHIVE) or any(...)`, the existing expression. The skip is at any depth on purpose: the archive's paths are fixed relative to a store root that may sit below the repository root (S7), unlike a change directory (answer 11).
 
 - [ ] **Step 4:** Run Step 2's command again: expect `0`.
 - [ ] **Step 5:** Run `rtk proxy uv run mypy --strict src/; echo $?`, ruff, vulture and the regression run. Expected `0`, at the recorded count plus 7 and 1.
@@ -830,7 +848,7 @@ def _under(parts: tuple[str, ...], marker: tuple[str, ...]) -> bool:
 Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-src.patch`, +265/-18 over 7 files, whose `openspec.py` hunk is the 112-line module, and `spike-d-prototype-tests.patch`, 25 tests). Take its hunks for `adapters/__init__.py`, `openspec.py` and the loader, `stage_files` and `PRODUCES` rows of `plan.py`. Leave the rest for Task 7 (`index.py`, the box hunks of `plan.py` and `cli.py`, the two rules in `reporter.py`), and drop the `EARNEST_OPENSPEC_ROUTE` and `EARNEST_OPENSPEC_APPROVAL` variables of `cli.py`, which are spike devices. The module is inlined in Step 4. Three changes from the prototype, each an answer: `change_dirs` matches below the root only (answer 11); the default approval is the hybrid (answer 6, no environment variable); a stage with no artifact before a later artifact is skipped (answer 7). The prototype's `RuntimeError` for a missing CLI becomes `PlanError`, which `cli.py` already turns into exit 2.
 
 - [ ] **Step 1:** Run `rtk proxy uv run pytest -q; echo $?` with no `openspec` on `PATH` and record the count: the suite must need no Node here, and it still must not after this task.
-- [ ] **Step 2:** Write the failing tests in `tests/unit/test_openspec.py`, with a fake `openspec` script in `tmp_path` that prints a canned `status --json` for `spec-driven` and appends each call to a log:
+- [ ] **Step 2:** Write the failing tests in `tests/unit/test_openspec.py`, with a fake `openspec` script in `tmp_path` that prints a canned `status --json` for `spec-driven` and appends each call, with its `OPENSPEC_TELEMETRY`, to a log:
   - `test_a_change_is_a_directory_below_the_root_changes_outside_archive_and_hidden_ones`, rows: `openspec/changes/a/proposal.md` gives `{"openspec/changes/a"}`; `openspec/changes/archive/x/proposal.md`, `openspec/changes/.hidden/p.md`, `pkg/openspec/changes/a/p.md` (answer 11) and `openspec/specs/x/spec.md` give none;
   - `test_an_artifact_glob_matches_nested_specs_only_inside_its_change`;
   - `test_a_change_directory_bookkeeping_is_never_scanned` (`<change>/audit/` and `.earnest/`);
@@ -840,12 +858,16 @@ Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-sr
   - `test_a_body_edit_raises_unbumped_change_only_after_a_gate_row_names_the_item` (answer 6: with the artifact's approval alone, a body edited at the same revision raises none; with a `GATE_APPROVED` row whose `Items` names the item, it raises one);
   - `test_a_missing_openspec_cli_stops_the_run_with_exit_two` (empty `PATH`; one line on stderr naming `openspec`; empty stdout);
   - `test_an_unreadable_route_answer_stops_the_run_with_exit_two` (a fake CLI that prints text that is not JSON, or JSON with no `artifacts`);
+  - `test_a_failing_openspec_cli_stops_the_run_with_exit_two` (a fake CLI that exits 1 and writes its cause on stderr: exit 2, and the one line on stderr holds the cause);
+  - `test_an_openspec_cli_that_does_not_answer_in_time_stops_the_run_with_exit_two` (a fake CLI that sleeps, with `openspec._TIMEOUT` patched to a fraction of a second);
+  - `test_an_openspec_that_cannot_start_stops_the_run_with_exit_two` (an executable `openspec` on `PATH` whose shebang names no interpreter, so `subprocess.run` raises `OSError`: exit 2, no traceback);
+  - `test_the_call_environment_turns_telemetry_off` (the fake logs `OPENSPEC_TELEMETRY` with each call, and the log holds `0`);
   - `test_check_stage_writes_the_run_header_and_the_body_baseline_for_a_change`;
   - `test_no_openspec_call_is_made_for_a_repository_with_no_change` (the log stays empty on the AI-DLC fixtures);
   - `test_a_repository_with_openspec_and_no_requirement_raises_no_requirements` (answer 5, option B; drop if A or C).
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_openspec.py -q; echo $?`. Expected: all fail on the missing module, non-zero.
-- [ ] **Step 4:** Write `src/earnest/openspec.py`. It is the prototype's module with the three changes above, a timeout and an unreadable answer turned into `RuntimeError`, `status` read into `Artifact.status`, and `OPENSPEC_TELEMETRY=0` in the call's environment. Step 3's tests check it; Task 7 adds `TASK_LINE` and `box` to it:
+- [ ] **Step 4:** Write `src/earnest/openspec.py`. It is the prototype's module with the three changes above, a timeout, a failed start and an unreadable answer turned into `RuntimeError`, `status` read into `Artifact.status`, and `OPENSPEC_TELEMETRY=0` in the call's environment. Step 3's tests check it; Task 7 adds `TASK_LINE` and `box` to it:
 
 ```python
 """The OpenSpec host: a change below `openspec/changes/<id>/` as an intent, and its route from the CLI."""
@@ -861,6 +883,7 @@ from pathlib import PurePosixPath
 
 ARCHIVE = "archive"
 _ROOT = ("openspec", "changes")
+_TIMEOUT = 60  # seconds
 
 
 @dataclass(frozen=True)
@@ -889,7 +912,7 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
     """Return the artifacts and the schema name of `openspec status --change <id> --json`, run at `root`.
 
     Raises:
-        RuntimeError: `openspec` is not on PATH, fails, does not answer in 60 s, or answers no route (#26: fail loud).
+        RuntimeError: `openspec` is not on PATH, cannot start, fails, does not answer in time, or answers no route (#26: fail loud).
     """
     exe = shutil.which("openspec")
     if exe is None:
@@ -900,10 +923,10 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
     try:
         done = subprocess.run(  # noqa: S603
             [exe, "status", "--change", name, "--json"],
-            cwd=root, capture_output=True, text=True, check=False, timeout=60, env=env,
+            cwd=root, capture_output=True, text=True, check=False, timeout=_TIMEOUT, env=env,
         )
-    except subprocess.TimeoutExpired as error:
-        msg = f"openspec status did not answer for {name} in 60 s"
+    except (OSError, subprocess.SubprocessError) as error:  # a timeout, or a start that failed
+        msg = f"openspec status could not run for {name}: {error}"
         raise RuntimeError(msg) from error
     if done.returncode != 0:
         msg = f"openspec status failed for {name}: {done.stderr.strip()[:200]}"
@@ -940,7 +963,7 @@ def matches(directory: str, generates: str, path: str) -> bool:
     return path.startswith(prefix) and _glob(generates).fullmatch(path[len(prefix) :]) is not None
 ```
 
-  The other hunks come from the patch. `plan.py`: `Intent` gains `stage_files: Mapping[str, str] = {}` (stage slug to glob relative to the change); `_holds()` in `build()` and `stage_of()` use it when it is set; `PRODUCES` gains the OpenSpec rows (`specs`: `feat` and `req`; `design`: `dsn`; `tasks`: `task`, `impl`, `utest`, `itest`; `proposal`: none; no `stest`); `load_openspec` builds the `Intent` from a change directory, reusing `parse_audit`, `_approval` and `_named` for the `<change>/audit/*.md` rows, giving each existing artifact the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and wrapping `route_cli`'s `RuntimeError` in `PlanError("earnest needs the openspec CLI to read the route of <change>: <cause>")`; the frontier skips a stage whose glob matches nothing while a later stage's matches (answer 7); `route_findings` (`route-mismatch`) is not run for an OpenSpec intent. `adapters/__init__.py`: `scan` adds each change directory to the record directories, so `<change>/audit/` and `.earnest/` stay bookkeeping. `cli._read` lists change directories beside the state files; the messages of `find_intent` that name `aidlc-state.md` also name `openspec/changes/<id>/`. If answer 5 is B, `cli.py` adds `earnest/no-requirements` (a warning, `RULES` in `reporter.py`) at `openspec/config.yaml` line 1, or at the first main spec's line 1, when `openspec/` holds a main spec, the index holds no `req`, and the message says to write an id line under each heading.
+The other hunks come from the patch. `plan.py`: `Intent` gains `stage_files: Mapping[str, str] = {}` (stage slug to glob relative to the change); `_holds()` in `build()` and `stage_of()` use it when it is set; `PRODUCES` gains the OpenSpec rows (`specs`: `feat` and `req`; `design`: `dsn`; `tasks`: `task`, `impl`, `utest`, `itest`; `proposal`: none; no `stest`); `load_openspec` builds the `Intent` from a change directory, reusing `parse_audit`, `_approval` and `_named` for the `<change>/audit/*.md` rows, giving each existing artifact the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and wrapping `route_cli`'s `RuntimeError` in `PlanError("earnest needs the openspec CLI to read the route of <change>: <cause>")`; the frontier skips a stage whose glob matches nothing while a later stage's matches (answer 7); `route_findings` (`route-mismatch`) is not run for an OpenSpec intent. `adapters/__init__.py`: `scan` adds each change directory to the record directories, so `<change>/audit/` and `.earnest/` stay bookkeeping. `cli._read` lists change directories beside the state files; the messages of `find_intent` that name `aidlc-state.md` also name `openspec/changes/<id>/`. If answer 5 is B, `cli.py` adds `earnest/no-requirements` (a warning, `RULES` in `reporter.py`) at `openspec/config.yaml` line 1, or at the first main spec's line 1, when `openspec/` holds a main spec, the index holds no `req`, and the message says to write an id line under each heading.
 
 - [ ] **Step 5:** Run Step 3's command: expect `0`. Then add the overlays and bind scenarios 8 and 9. `change/` holds the change of the Fixture section; `approved/` holds the gate row of the Fixture section, which scenario 9 commits after its stage check (the "approved" layer step is the one that commits any layer); `unbumped/` holds the delta with the first requirement's body edited ("...for the lockout window, which starts at the third failure.") and its revision left at 2. Run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "intent or unbumped" -q; echo $?`: expect `0`. Add `test_the_change_approved_and_unbumped_layers_pass_strict_validation` to `tests/integration/test_openspec_ids.py` and run it by path: expect `0`. No spike ran `openspec validate` over an `audit/` directory inside a change (S15), so if OpenSpec rejects it, stop and tell the maintainer; do not move the row without that answer.
 - [ ] **Step 6:** The repository-level check: `rtk proxy uv run --project packages/earnest earnest check 2>&1 >/dev/null | grep -c '^intent '` equals Step 6 of Task 3's count (the fixture's `openspec/` is not at the root). Then the regression run, `mypy --strict`, ruff and vulture: expect `0`, at the Step 1 count plus this task's tests.
@@ -962,7 +985,9 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`.
   - `test_a_delta_at_the_main_revision_is_no_duplicate_and_main_stands`;
   - `test_a_delta_behind_the_main_copy_is_outdated`;
   - `test_two_changes_that_define_one_id_at_one_revision_are_duplicates`;
-  - `test_a_change_stacked_on_another_overlays_it_at_a_higher_revision_and_is_no_duplicate` (answer 8, option B: an ADDED copy at revision 1 in one change and a MODIFIED copy at revision 2 in another give no finding, and the id resolves to revision 2).
+  - `test_a_change_stacked_on_another_overlays_it_at_a_higher_revision_and_is_no_duplicate` (answer 8, option B: an ADDED copy at revision 1 in one change and a MODIFIED copy at revision 2 in another give no finding, and the id resolves to revision 2);
+  - `test_two_main_copies_stay_duplicate_while_a_delta_overlays_them` (two main specs define `req~x~1` and a change holds `req~x~2`: the second main copy is still `duplicate`, against the first main copy);
+  - `test_a_delta_behind_main_stays_outdated_when_another_change_stacks_above_it` (main at revision 2, change A holds revision 1, change B holds revision 3: A's copy is `outdated`, against the main copy).
 
 - [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: fail, non-zero.
 - [ ] **Step 3:** Implement, from the patch:
@@ -979,24 +1004,32 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`.
   ```
 
   with `_overlay(item)` returning `(item.id.revision, item.layer != DELTA)`, so main wins a tie against a delta, and an earlier-sorted delta wins a tie against a later one. The `item.layer == DELTA` clause is the extension: without it a stacked change's copy is compared with nothing.
-  - `structural.py`: `_duplicates` gains the layer branch. A delta copy that sits behind the main copy yields `earnest/outdated` and nothing else; in the same layer it yields `duplicate` unless the item is a delta copy behind another delta copy, which is the base of a stacked change, so the function reads:
+  - `structural.py`: `_duplicates` gains the layer branch, and compares each copy with the copy of its own layer, never with the overlay winner alone. A main copy other than the first main copy yields `duplicate`, whatever delta overlays them. A delta copy that sits behind the main copy yields `earnest/outdated` against the main copy, whichever delta wins. A delta copy that is not behind main yields `duplicate` only against a delta winner at its own revision (a delta copy behind the winner is the base of a stacked change), so the function reads:
 
   ```python
   def _duplicates(index: Index) -> Iterator[Finding]:
+      mains: dict[tuple[str, str], Item] = {}
+      for item in index.items:
+          if item.layer == MAIN:
+              mains.setdefault(item.id.key, item)  # the copy that every other main copy is compared with
       for item in index.items:
           first = index.defined[item.id.key]
-          if item.layer != first.layer:  # a delta copy overlays its main copy: no duplicate, but it may be stale
-              if item.layer == DELTA and item.id.revision < first.id.revision:
-                  message = f"`{item.id}` is behind `{first.id}` in {first.path}:{first.line}: rebase the change onto it"
-                  yield Finding(item.path, item.line, "earnest/outdated", str(item.id), message)
-          elif item != first and not (item.layer == DELTA and item.id.revision < first.id.revision):  # a stacked base
+          if item.layer == MAIN:
+              main = mains[item.id.key]
+              if item != main:
+                  message = f"`{item.id}` is already defined at {main.path}:{main.line}: give one of them another name"
+                  yield Finding(item.path, item.line, "earnest/duplicate", str(item.id), message)
+          elif (main := mains.get(item.id.key)) is not None and item.id.revision < main.id.revision:
+              message = f"`{item.id}` is behind `{main.id}` in {main.path}:{main.line}: rebase the change onto it"
+              yield Finding(item.path, item.line, "earnest/outdated", str(item.id), message)
+          elif first.layer == DELTA and item != first and item.id.revision == first.id.revision:  # not a stacked base
               message = f"`{item.id}` is already defined at {first.path}:{first.line}: give one of them another name"
               yield Finding(item.path, item.line, "earnest/duplicate", str(item.id), message)
   ```
 
 - [ ] **Step 4:** Run Step 2's command: expect `0`. Then bind scenario 7 and run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "supersedes" -q; echo $?`: expect `0`, with `outdated` at `src/lockout.py:6` and `tests/test_lockout.py:6` and no `duplicate`.
 - [ ] **Step 5:** The stacked-change check against the real repository stays outside this repository's commits. If the maintainer approves it again, run `m9/scripts/matrix.sh` on a fresh injected copy and record only the count of `duplicate` (7 down to 0, R8). Otherwise cite R8.
-- [ ] **Step 6:** `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 6 and 1. The order-independence test is the check for the order of sources.
+- [ ] **Step 6:** `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 8 and 1. The order-independence test is the check for the order of sources.
 - [ ] **Step 7:** Commit `feat: a requirement in a change in flight overlays its main copy, and a stacked change its base`.
 
 **Done when** (#23): on the fixture, with a main spec, an in-flight MODIFIED delta and an archived change, there is no `duplicate`, the items linked to the superseded revision are flagged (SC5), and two runs give identical SARIF.
@@ -1053,7 +1086,7 @@ Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-sr
   ```
 
   (Keep the function's docstring, and its two lines before `kept`, as they are.) `plan.py`: `Box`, `boxes`, `checked_findings`, `untracked` and `current_task`. A box with no `task` id line directly above it is untracked. `cli.py`: `_analyse` takes the `--stage` text, and runs `plan.checked_findings` only when it names the intent's `tasks` stage (P8), so a plain `check` and `plan` raise none; `untracked_findings` runs in every check. `reporter.py`: `RULES` gains `earnest/checked-unevidenced` and `earnest/untracked-box`, both `warning`, and the plan line gains the suffix `, box [x]` or `, box [ ]`. The messages are written for the agent (T6):
-  - `checked-unevidenced`: ``<task> is checked in tasks.md, but <req> is <level>, not evidenced: uncheck the box, or tag and test the requirement until earnest check --judge --evidence reports it evidenced``;
+  - `checked-unevidenced`: `<task> is checked in tasks.md, but <req> is <level>, not evidenced: uncheck the box, or tag and test the requirement until earnest check --judge --evidence reports it evidenced`;
   - `untracked-box`: "this checkbox has no task id line above it, so earnest cannot compute whether the task is done: write a `` `task~<name>~1` `` line and `Delivers: req~<name>~<n>` directly above it".
 
 - [ ] **Step 4:** Run Step 2's command: expect `0`. Bind the scenario of Task 7 and run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "ticked" -q; echo $?`: expect `0`, with the two warnings at `tasks.md:5` and `tasks.md:9` of the change. Then run `-k "supersedes"` again: expect `0`, with the same four findings and no `checked-unevidenced` (P8).
@@ -1084,7 +1117,7 @@ operations:
       - Run earnest check --judge --evidence before archiving, and archive only when it reports no error.
 ```
 
-  The first line sends the agent to `tasks.md` because `apply --json` omits ids (S13).
+The first line sends the agent to `tasks.md` because `apply --json` omits ids (S13).
 
 - [ ] **Step 3:** `integrations/openspec/README.md` says what the snippet does, how to install it (merge the `operations` block into `openspec/config.yaml`; never run `openspec install`), that the guidance is advisory (S12: OpenSpec's archive gate does not stop an open box), that the agent, not earnest, writes the `GATE_APPROVED` rows after the human approves (answer 6) and what the row holds, and that nothing checks the human approved first, that the `feat`, `goal` and `tenet` live in `docs/intent.md`, and the pin. Check it with `LINT_FILE=integrations/openspec/README.md make lint-file`. The snippet is a YAML file: `yamllint -c .yamllint.yml integrations/openspec/config.snippet.yaml; echo $?` exits 0.
 - [ ] **Step 4:** Run Step 1's command: expect `0`. Run the fixture's strict validation (Task 3's integration test): expect `0`.
@@ -1117,7 +1150,7 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
   - `test_a_removed_block_with_no_main_copy_left_defines_nothing`;
   - `test_a_tag_on_a_requirement_a_change_removes_is_orphaned_and_names_the_heading` (answer 9).
 - [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: the four fail, non-zero.
-- [ ] **Step 3:** Implement, from the patch: `Item.heading` (the `### Requirement:` heading above the id line) and `Item.section` (the first word of the second-level heading above it: `ADDED`, `MODIFIED`, `REMOVED` or `RENAMED`); `Removal(name, path, line)` for a heading under `## REMOVED Requirements`, with `Index.removals` and `Index.removed`; `_spans` and `_retitle` track the heading and the section. In `Index.defined`, add the two lines that Task 6 left out: `if item.section == "REMOVED": continue` at the top of the loop, and `return {key: item for key, item in found.items() if key not in self.removed}`. `_duplicates` skips a REMOVED item and a tombstone (`if first is None or item.section == "REMOVED": continue`). `_links` yields `orphaned` for a link whose target is in `index.removed`, with the message ``<id> is removed at <path>:<line>: remove this tag with the code it marks`` (the placeholders are the item's id and its removal's file and line).
+- [ ] **Step 3:** Implement, from the patch: `Item.heading` (the `### Requirement:` heading above the id line) and `Item.section` (the first word of the second-level heading above it: `ADDED`, `MODIFIED`, `REMOVED` or `RENAMED`); `Removal(name, path, line)` for a heading under `## REMOVED Requirements`, with `Index.removals` and `Index.removed`; `_spans` and `_retitle` track the heading and the section. In `Index.defined`, add the two lines that Task 6 left out: `if item.section == "REMOVED": continue` at the top of the loop, and `return {key: item for key, item in found.items() if key not in self.removed}`. `_duplicates` skips a REMOVED item and a tombstone (`if first is None or item.section == "REMOVED": continue`). `_links` yields `orphaned` for a link whose target is in `index.removed`, with the message `<id> is removed at <path>:<line>: remove this tag with the code it marks` (the placeholders are the item's id and its removal's file and line).
 - [ ] **Step 4:** Run Step 2's command: expect `0`. Then `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 4.
 - [ ] **Step 5:** Commit `feat: a requirement that a change removes defines nothing, and a tag on it is orphaned`.
 
