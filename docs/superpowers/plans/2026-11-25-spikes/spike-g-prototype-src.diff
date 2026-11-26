@@ -25,7 +25,7 @@
  
  
 +# `claude-code:<model>`: the verdict comes from `claude -p`, logged in as the user. Only these variables reach it, so no
-+# ANTHROPIC_API_KEY, CLAUDE_CODE_USE_* or CLAUDE_CODE_* of the calling session can change who is billed or what is loaded.
++# ANTHROPIC_API_KEY or other CLAUDE_CODE_* (CLAUDE_CODE_OAUTH_TOKEN, the login, is passed on purpose) of the calling session changes who is billed.
 +_CLAUDE_ENV = (
 +    "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN",
 +    "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
