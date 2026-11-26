@@ -371,7 +371,7 @@ The alternative is for the fork to map upstream's name to the id-rule name at it
 
 - **Class:** settled by code. E1, E2 and the prototype ran Earnest's side.
 - **Evidence:** upstream's unit name is the construction directory: `core/knowledge/aidlc-shared/verification.md:23` ("Unit name (its construction directory)"), `core/aidlc-common/stages/inception/units-generation.md:104`, and `aidlc-state.ts:6380`, which joins it into `construction/<unit>/`. `teamGateFields` writes it as `Unit` (`:6525`). E1b: a gate row with `Unit: u1-limiter` approves nothing today. The run exits 0, `u1-limiter/functional-design` stays "not done, approval none", and no finding names the row, so the failure is silent. E1a, the id-rule spelling, approves it.
-- **Starting diff:** a 7-line prototype in `_expand` (`plan.py:622`) makes the directory join, and is Task 2's starting diff. With it, the five runs of P-E1 and P-E2 exit 0.
+- **Starting code:** `_expand` (`plan.py:622`) written with the directory join, as Task 2 gives it. With it, the five runs of P-E1 and P-E2 exit 0.
 - **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
 
 ### 15. The fork commit the gate pins, and CI (new, from F2 and F18)
@@ -901,30 +901,46 @@ Answer 14 is decided as proposed (DECIDED, user, 2026-11-25), so this task runs.
 - Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647).
 - Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`. `_gate_keys`, `_generation` and `_voids` name the key `directory`, and all five docstrings say unit directory.
 
-**Starting diff.** Spike F prototyped the join in `_expand` (`plan.py:622`). It applies to `plan.py` at `ae4136c` (`git apply --check` exit 0, from the repository root), and with it the five runs of P-E1 and P-E2 exit 0 (answer 14):
+**Starting code.** Spike F prototyped the join in `_expand` (`plan.py:622`). `_expand` reads as follows after the change:
 
-```diff
---- a/packages/earnest/src/earnest/plan.py
-+++ b/packages/earnest/src/earnest/plan.py
-@@ -640,7 +640,14 @@
-         for stage in per_unit
-     }
-     lanes = {unit.name: frozenset(_slug(stage) for stage in per_unit) for unit in joined}
--    gates = [event for event in intent.events if event.name in {"GATE_APPROVED", "GATE_REJECTED"}]
-+    by_directory = {unit.directory: unit.name for unit in joined}  # PROTOTYPE (spike F): a row's `Unit` is a directory
-+    gates = [
-+        replace(event, fields={**event.fields, "Unit": by_directory[event.fields["Unit"]]})
-+        if event.fields.get("Unit") in by_directory
-+        else event
-+        for event in intent.events
-+        if event.name in {"GATE_APPROVED", "GATE_REJECTED"}
-+    ]
-     floors = {name: _generation(gates, name) for name in lanes}
-     approvals = {stage: approval for stage, approval in intent.approvals.items() if stage in route}
-     for key, stage in stage_ids.items():
+```python
+def _expand(intent: Intent, units: Sequence[Unit]) -> Intent:
+    """Return the intent with each per-unit stage once per joined unit, in unit order, as `<phase>/<directory>/<slug>`.
+
+    Its approvals add those of the per-unit stages, which only unit-scoped gate rows give, and its named items add the
+    items those rows froze.
+    """
+    joined = [unit for unit in units if unit.directory]
+    per_unit = [stage for stage in intent.executed if _slug(stage) in FOR_EACH]
+    route = tuple(
+        expanded
+        for stage in intent.executed
+        for expanded in (
+            [f"{_phase_of(stage)}/{unit.directory}/{_slug(stage)}" for unit in joined] if stage in per_unit else [stage]
+        )
+    )
+    stage_ids = {
+        (unit.directory, _slug(stage)): f"{_phase_of(stage)}/{unit.directory}/{_slug(stage)}"
+        for unit in joined
+        if unit.directory  # narrows the type; joined already holds only units with one
+        for stage in per_unit
+    }
+    lanes = {unit.directory: frozenset(_slug(stage) for stage in per_unit) for unit in joined if unit.directory}
+    gates = [event for event in intent.events if event.name in {"GATE_APPROVED", "GATE_REJECTED"}]
+    floors = {directory: _generation(gates, directory) for directory in lanes}
+    approvals = {stage: approval for stage, approval in intent.approvals.items() if stage in route}
+    for key, stage in stage_ids.items():
+        found = _unit_approval(key, gates, lanes, floors, stage_ids)
+        if found is not None:
+            approvals[stage] = found
+    slugs = {_slug(stage) for stage in per_unit}
+    plain = [event for event in gates if not _team(event) and event.fields.get("Stage") not in slugs]
+    return replace(
+        intent, route=route, approvals=approvals, named_items=_named(plain) | _unit_named(gates, lanes, floors)
+    )
 ```
 
-The diff translates a row's directory to the unit's name where `gates` is built, and leaves `stage_ids`, `lanes` and the five helpers keyed by name. It also keeps the id-rule spelling joining (P-E1a), so Step 2's second test fails against it. Step 4 replaces the translation with directory keys, because answer 14 says the directory replaces the id-rule name. If the maintainer prefers the smaller change, in which both spellings join, the diff is the whole change to `plan.py`: drop Step 2's second test and Step 4's rekey, and keep Step 5's fixture rows.
+Starting code keys `stage_ids`, `lanes` and `floors` by directory, because answer 14 says the directory replaces the id-rule name, so a row with the id-rule spelling joins nothing (P-E1a is dropped). The five runs of P-E1 and P-E2 exit 0 with it (spike F, answer 14).
 
 - [ ] **Step 1:** From `packages/earnest/`, run `grep -rn 'Unit' src/earnest/plan.py tests/ --include='*.py' --include='*.md' --include='*.feature'`. List in this task every hit that reads or writes a gate row's `Unit`; skip `Unit Progress`, `Unit Ownership` and unit-table ids. Correct the Files list if it misses one.
 - [ ] **Step 2:** Write the failing tests in `test_plan.py`:
@@ -933,19 +949,7 @@ The diff translates a row's directory to the unit's name where `gates` is built,
   - `test_attempt_generation_counts_by_directory`: a generation-1 row with `Unit: u1-limiter` approves `u1-limiter`'s stage, and once a row with `Unit: u1-limiter` and `Attempt Generation: 2` follows, that approval no longer counts. The first half fails before Step 4.
   - `test_rejection_voids_by_directory`: a `GATE_REJECTED` row with `Unit: u2-notice` voids only `u2-notice`'s stage.
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_plan.py -k "directory or id_rule"; echo $?`. Expected: the four tests fail, and a non-zero code.
-- [ ] **Step 4:** Apply the starting diff with `git apply` and run Step 3's command again: expect only the id-rule test to fail. Then finish the change in `plan.py`: restore the original `gates` line, drop `by_directory`, change the keys at lines 638 and 642 from `unit.name` to `unit.directory`, and add `if unit.directory` to both comprehensions: `Unit.directory` is typed `str | None`, and `joined`'s filter at line 628 does not narrow it for `mypy --strict`. The two become:
-
-```python
-    stage_ids = {
-        (unit.directory, _slug(stage)): f"{_phase_of(stage)}/{unit.directory}/{_slug(stage)}"
-        for unit in joined
-        if unit.directory  # narrows the type; joined already holds only units with one
-        for stage in per_unit
-    }
-    lanes = {unit.directory: frozenset(_slug(stage) for stage in per_unit) for unit in joined if unit.directory}
-```
-
-  Rename `name` to `directory` in the `floors` comprehension (line 644) and in the parameters and locals of `_gate_keys`, `_generation` and `_voids`. Make their docstrings, and those of `_unit_approval` and `_unit_named`, say unit directory where they say unit name (for example `_gate_keys`, line 667). `Unit.name`'s docstring (line 343) drops the gate row's `Unit`, and the `directory` field gets the comment `# the unit table's directory, which a gate row's Unit carries`. No logic changes beyond the two comprehensions.
+- [ ] **Step 4:** Write `_expand` as given in Starting code, then run Step 3's command again: expect every Step 2 test to pass, the id-rule test included, since Starting code already joins by unit directory. Then rename `name` to `directory` in the parameters and locals of `_gate_keys`, `_generation` and `_voids`. Make their docstrings, and those of `_unit_approval` and `_unit_named`, say unit directory where they say unit name (for example `_gate_keys`, line 667). `Unit.name`'s docstring (line 343) drops the gate row's `Unit`, and the `directory` field gets the comment `# the unit table's directory, which a gate row's Unit carries`. No logic changes beyond `_expand`.
 
 - [ ] **Step 5:** Change every row Step 1 listed:
   - in the fixture shard, line 30's `**Unit**: u1` becomes `**Unit**: u1-limiter`;

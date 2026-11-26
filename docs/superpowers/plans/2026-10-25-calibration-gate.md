@@ -197,7 +197,7 @@ These scenario names are PROPOSED in the M6 section of `04`, which Task 0 wrote.
 | `tests/unit/test_judge.py`, `tests/unit/test_cli.py`, `tests/integration/test_calibration_gate.py`                                                                                                                                    | each task's tests                                                                                                                                                                           | 3-5     |
 | `src/earnest/judge/__init__.py`, `src/earnest/cli.py`, `pyproject.toml`, `uv.lock`, `tests/unit/test_judge_anthropic.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge.py`                                                        | Task 7's model, its root, and its dependency                                                                                                                                                | 7       |
 | `src/earnest/judge/__init__.py`, `src/earnest/cli.py` (`_keep_calibration`), `tests/unit/test_judge_claude_code.py`, `tests/conftest.py`, `tests/unit/test_impact.py`, `tests/unit/test_cli.py`, `tests/unit/test_judge_anthropic.py` | Task 7b's model with its harness in the id, `_decode` and `_bound`, the two `load_model` messages, `fake_executable`                                                                        | 7b      |
-| `docs/superpowers/plans/2026-11-25-spikes/spike-g-*`                                                                                                                                                                                  | spike G's source diff, tests and live-check script, kept as reference                                                                                                                       | 7b      |
+| `docs/superpowers/plans/2026-11-25-spikes/spike-g-live-check.sh`                                                                                                                                                                      | spike G's live-check script, kept as reference                                                                                                                                              | 7b      |
 | `docs/demo/m6-calibrate.md`, `.claude/skills/verify-earnest/features/judge.md`, `docs/design/01-logic-design.md`                                                                                                                      | the new unset-model message, and the harness in the id and the provider paragraph                                                                                                           | 7b      |
 
 `reporter.py` keeps its `Record.calibration` field and its `write_record`, and it needs no change. Outside the package, only Task 0's docs and the demo files `docs/demo/m6-calibrate.sh` and `docs/demo/m6-calibrate.md` change. Before Task 1, the branch also carries a test-tree fix in `tests/conftest.py`, so that fixture copies leave bytecode out; Task 2 builds on it.
@@ -676,7 +676,7 @@ What the real run needs:
 
 ### Task 7b: The `claude-code:` model, through Claude Code on Bedrock
 
-DECIDED (user, 2026-11-25): the SC4 run uses no `ANTHROPIC_API_KEY`. The judge calls Claude through Claude Code, `claude -p`, and the run happens on this host, where Claude Code authenticates to Amazon Bedrock. A passing `claude-code:` calibration SATISFIES SC4. Spike G prototyped the backend on 2026-11-25 in a scratch copy of earnest at `ae4136c`: 88 lines in `judge/__init__.py`, 29 tests against a fake `claude` on `PATH` (29 passed; `ruff check`, `ruff format --check`, `mypy --strict` and `vulture` are clean on that copy, checked again 2026-11-25), and two real calls that both failed at the provider (Change 1 and Step 5 say why). The spike's files are kept in [2026-11-25-spikes/](2026-11-25-spikes/README.md). This task takes its design with three changes, marked below. Gating answer 3 stands (Opus 5.5, effort `high`, `prompt.txt` as M4 wrote it); only the transport differs, so the model id differs. An earlier draft put a `harness` member on `Model`; that draft was built in a scratch copy on 2026-11-25 (the full suite ran 1,108 passed and 1 failed, the demo-transcript test of `test_judge.py`, which reads `docs/`, absent from the scratch copy; `mypy --strict` and `vulture` clean). The id-based design below replaces it, changes far less, and has not been built: Step 3's counts are its proof. No model was called.
+DECIDED (user, 2026-11-25): the SC4 run uses no `ANTHROPIC_API_KEY`. The judge calls Claude through Claude Code, `claude -p`, and the run happens on this host, where Claude Code authenticates to Amazon Bedrock. A passing `claude-code:` calibration SATISFIES SC4. Spike G prototyped the backend on 2026-11-25 in a scratch copy of earnest at `ae4136c`: 88 lines in `judge/__init__.py`, 29 tests against a fake `claude` on `PATH` (29 passed; `ruff check`, `ruff format --check`, `mypy --strict` and `vulture` are clean on that copy, checked again 2026-11-25), and two real calls that both failed at the provider (Change 1 and Step 5 say why). The live-check script is kept in [2026-11-25-spikes/](2026-11-25-spikes/README.md). This task takes its design with three changes, marked below. Gating answer 3 stands (Opus 5.5, effort `high`, `prompt.txt` as M4 wrote it); only the transport differs, so the model id differs. An earlier draft put a `harness` member on `Model`; that draft was built in a scratch copy on 2026-11-25 (the full suite ran 1,108 passed and 1 failed, the demo-transcript test of `test_judge.py`, which reads `docs/`, absent from the scratch copy; `mypy --strict` and `vulture` clean). The id-based design below replaces it, changes far less, and has not been built: Step 3's counts are its proof. No model was called.
 
 #### Design
 
@@ -730,42 +730,418 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
 - `_decode(id, asked, read)`: `try: return _verdict(_from_line_one(read()))`, and on `(ValueError, TypeError, KeyError, RecursionError)` raise `JudgeError` `the model {id} gave a malformed answer to {asked}: {error}`. `read` is a zero-argument callable (`lambda: json.loads(text)` for `Claude`, `lambda: reply["structured_output"]` for `ClaudeCode`), because both parse steps raise the errors the helper catches; a parsed payload would raise outside its `try`.
 - `_bound(kind, id, asked, name, answered)`: when `answered != [name]`, raise `JudgeError` `the model {id} answered {asked} as {names}: set EARNEST_JUDGE={kind}:{that}`, where `names` is the sorted answerers joined by commas (or `no model`) and `that` is the one answerer, else `<that id>`. For `Claude` (`kind` `anthropic`, `answered` `[reply.model]`) the text equals today's message, which `test_judge_anthropic.py` pins; for `ClaudeCode` (`answered` the sorted keys of `modelUsage`) a single wrong key now names itself in the message, as Step 5 says.
 
-**Files:** Create `packages/earnest/tests/unit/test_judge_claude_code.py` (from the spike) and `docs/superpowers/plans/2026-11-25-spikes/spike-g-live-check.sh` (already written with this plan); Modify `packages/earnest/src/earnest/judge/__init__.py` (the model, `_decode`, `_bound`, `load_model`'s two messages and docstring), `packages/earnest/src/earnest/cli.py` (`_keep_calibration` only), `packages/earnest/tests/conftest.py` (`fake_executable`, hoisted from `fake_python`; the first plan to land does the hoist, and a later one uses it) and `packages/earnest/tests/unit/test_impact.py` (`fake_python` goes; its callers call `fake_executable`); Test `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/unit/test_judge_anthropic.py` (one message pattern, and its existing tests are the proof of `_decode` and `_bound`); Doc `docs/demo/m6-calibrate.md`, `.claude/skills/verify-earnest/features/judge.md`, `docs/design/01-logic-design.md`. `pyproject.toml` and `uv.lock` do not change: `os`, `shutil`, `subprocess` and `tempfile` are standard library.
+**Files:** Create `packages/earnest/tests/unit/test_judge_claude_code.py` (Step 1 lists it) and `docs/superpowers/plans/2026-11-25-spikes/spike-g-live-check.sh` (already written with this plan); Modify `packages/earnest/src/earnest/judge/__init__.py` (the model, `_decode`, `_bound`, `load_model`'s two messages and docstring), `packages/earnest/src/earnest/cli.py` (`_keep_calibration` only), `packages/earnest/tests/conftest.py` (`fake_executable`, hoisted from `fake_python`; the first plan to land does the hoist, and a later one uses it) and `packages/earnest/tests/unit/test_impact.py` (`fake_python` goes; its callers call `fake_executable`); Test `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/unit/test_judge_anthropic.py` (one message pattern, and its existing tests are the proof of `_decode` and `_bound`); Doc `docs/demo/m6-calibrate.md`, `.claude/skills/verify-earnest/features/judge.md`, `docs/design/01-logic-design.md`. `pyproject.toml` and `uv.lock` do not change: `os`, `shutil`, `subprocess` and `tempfile` are standard library.
 
 **Interfaces:**
 
 - Consumes: `load_model(value, root)`, `question_text`, `_SCHEMA`, `_verdict`, `_from_line_one`, `MAX_TOKENS`, `JudgeError`, and `digest` and `canonical` (already imported from `earnest.reporter`).
 - Produces: `@dataclass(frozen=True) class ClaudeCode` with `id` (the harness-bearing id above), `model` (the bare name, for `--model` and the `modelUsage` check), `root`, `claude` (the executable's path) and `ask(question) -> Verdict`; `_claude_code(value, root)`, which finds `claude` with `shutil.which`, runs `claude --version` (30 seconds, the same environment) and builds the id; `_claude_env()`, the allowlisted environment that the version call and `ask` share; `_decode` and `_bound` above; the constants `_CLAUDE_ENV`, `_CLAUDE_PIN`, `_CLAUDE_SYSTEM`, `_CLAUDE_FLAGS`, `_CLAUDE_TIMEOUT` and `_CLAUDE_VERSION_TIMEOUT`; a `load_model` branch for `claude-code:<name>` beside `anthropic:`.
 
-**Spike artifacts:**
+**Spike artifact:**
 
-| File in [2026-11-25-spikes/](2026-11-25-spikes/README.md) | What it is                                                                                                                                                                                                    |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spike-g-prototype-src.diff`                              | the +88 lines of `judge/__init__.py`: `ClaudeCode`, `_claude_code`, the constants and the `load_model` branch; apply with `git apply -p1` from the repository root; it predates the id-based harness (README) |
-| `spike-g-prototype-tests.diff`                            | `tests/unit/test_judge_claude_code.py`, 29 tests, a fake `claude` on `PATH`; no login, no network                                                                                                             |
-| `spike-g-live-check.sh`                                   | the one-call live check of Step 5, adapted from the spike's `drive.py`: it saves no record, makes one call and prints what the 20-call run depends on                                                         |
+| File in [2026-11-25-spikes/](2026-11-25-spikes/README.md) | What it is                                                                                                                                            |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `spike-g-live-check.sh`                                   | the one-call live check of Step 5, adapted from the spike's `drive.py`: it saves no record, makes one call and prints what the 20-call run depends on |
 
-- [ ] **Step 1 [agent]:** Tests first. From the repository root run `git apply -p1 docs/superpowers/plans/2026-11-25-spikes/spike-g-prototype-tests.diff`, then change the new test file:
-  - **The fake is `fake_executable`.** Hoist `fake_python` (`tests/unit/test_impact.py:91-95`) into `tests/conftest.py` as `fake_executable(directory, name, script)`: it writes `#!/bin/sh` and the script to `directory/name`, marks it executable and returns the path as a string. `test_impact.py` imports it, and its five uses of `fake_python` (lines 99, 105, 111, 119 and 764) call `fake_executable(tmp_path, "python", script)`; if another plan has landed the hoist first, use it and skip this part. Replace the spike's hand-written fixture (`FAKE.format(python=sys.executable)`, `write_text`, `chmod`) with the Python body of `FAKE`, without its shebang, written to `bin/fake_claude.py`, and `fake_executable(folder, "claude", f'exec "{sys.executable}" "{folder}/fake_claude.py" "$@"')`; the body finds `spec.json` and `record.json` beside itself, as now.
-  - **The fake answers `--version`.** In the body, before `record.json` is written: `if sys.argv[1:] == ["--version"]: print(spec.get("version", "claude 9.9.9 (fake)")); sys.exit(spec.get("version_exit", 0))`. `FakeClaude.says` gains `version` and `version_exit` keywords, and `ran()` still reports the last question's run.
-  - **The command.** In `test_the_question_goes_in_on_stdin_and_the_command_line_isolates_claude`, replace `--restricted` in the set with `argv[argv.index("--setting-sources") + 1] == "user"` and `"--restricted" not in argv`.
-  - **The environment.** In `test_only_allowlisted_variables_reach_claude`, take `CLAUDE_CODE_USE_BEDROCK` and `AWS_REGION` out of `forbidden`, add `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL` and `CLAUDE_CODE_OAUTH_TOKEN`, and drop its OAuth assertion. Add a parametrized `test_a_bedrock_variable_reaches_claude` over the twelve variables of the table (`CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `ANTHROPIC_BEDROCK_REGION_PREFIX`, `AWS_PROFILE`, `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `AWS_EC2_METADATA_DISABLED`): each set to a marker reaches `claude` unchanged. Add `test_the_allowlist_is_exactly_the_documented_set`: `set(judge._CLAUDE_ENV)` equals the base variables plus those twelve, so an addition needs a test and a row.
-  - **The constructor.** `test_a_claude_that_cannot_be_executed_cannot_run` builds `ClaudeCode(id, model, root, claude)`, with the id and the name.
-  - **The id.** In `test_a_claude_code_value_loads_a_model_whose_id_is_the_value`, `loaded.id` starts `"claude-code:claude-opus-5-5@claude 9.9.9 (fake); flags sha256:"` and ends in 64 hex digits, and `loaded.model == "claude-opus-5-5"`. Add `test_a_new_claude_changes_the_id` (`says(version="claude 9.9.10 (fake)")`); `test_a_changed_flag_or_pin_changes_the_id` (monkeypatch `_CLAUDE_FLAGS` with one more flag: the id changes and the argv the fake records carries that flag; then `_CLAUDE_PIN`); `test_the_command_line_is_exactly_the_flags_the_id_hashes` (on the fake's record, `argv[:3] == ["-p", "--model", <name>]` and `argv[3:] == list(judge._CLAUDE_FLAGS)`, and the `--system-prompt` and `--json-schema` values equal `_CLAUDE_SYSTEM` and `json.dumps(_SCHEMA)`, so a flag `ask` adds outside `_CLAUDE_FLAGS` fails the test instead of escaping the digest); parametrized `test_a_claude_without_a_version_cannot_start` matching `cannot start`, over four rows: `version_exit=1`; an empty version; a `--version` that sleeps (the fake sleeps when the spec says so) with `judge._CLAUDE_VERSION_TIMEOUT` monkeypatched to a fraction of a second, so `subprocess.TimeoutExpired` must surface as `JudgeError`; and a `claude` on `PATH` whose shebang names no interpreter, so the version call raises `OSError`; `test_a_claude_upgrade_voids_a_calibration`: a slot whose `model` is the loaded model's `id` is `calibrated` for it, and after `says(version="claude 9.9.10 (fake)")` and a second `load_model` it is not.
+- [ ] **Step 1 [agent]:** Tests first. Hoist `fake_python` (`tests/unit/test_impact.py:91-95`) into `tests/conftest.py` as `fake_executable(directory, name, script)`: it writes `#!/bin/sh` and the script to `directory/name`, marks it executable and returns the path as a string. `test_impact.py` imports it, and its five uses of `fake_python` (lines 99, 105, 111, 119 and 764) call `fake_executable(tmp_path, "python", script)`; if another plan has landed the hoist first, use it and skip this part. Then create `packages/earnest/tests/unit/test_judge_claude_code.py`. It needs no login, no network and no real `claude`: a fake `claude` on `PATH` records how it was run and prints what a test says. The fake's Python body sits beside its `sh` wrapper in `bin/` and finds `spec.json` and `record.json` beside itself; it answers `--version` before it writes the record, so `ran()` reports the last question's run. Spike G measured this file (29 tests, all passing); the listing is that file adapted to `fake_executable`, `--setting-sources user`, the Bedrock allowlist and the harness-bearing id:
+
+  ```python
+  """Unit tests for the `claude-code:` judge model, with a fake `claude` on PATH: no test needs a login or the network.
+
+  The success reply follows the documented `--output-format json` result (structured_output, modelUsage); the failure
+  reply is the shape `claude` printed on the spike's host when the provider refused the call.
+  """
+
+  import json
+  import os
+  import re
+  import sys
+  from pathlib import Path
+
+  import pytest
+
+  from earnest import judge
+  from tests.conftest import fake_executable
+  from tests.unit.test_judge_anthropic import VERDICT, question
+
+  NAME = "claude-opus-5-5"
+  MODEL = f"claude-code:{NAME}"
+  FAKE = """\
+  import json, os, sys, time
+
+  here = os.path.dirname(os.path.abspath(__file__))
+  spec = json.load(open(os.path.join(here, "spec.json")))
+  if sys.argv[1:] == ["--version"]:
+      time.sleep(spec["version_sleep"])
+      print(spec["version"])
+      sys.exit(spec["version_exit"])
+  record = {"argv": sys.argv[1:], "stdin": sys.stdin.read(), "cwd": os.getcwd(), "listing": os.listdir("."),
+            "env": dict(os.environ)}
+  open(os.path.join(here, "record.json"), "w").write(json.dumps(record))
+  time.sleep(spec["sleep"])
+  sys.stdout.write(spec["stdout"])
+  sys.stderr.write(spec["stderr"])
+  sys.exit(spec["exit"])
+  """
+
+
+  class FakeClaude:
+      """A `claude` executable that records how it was run and prints what a test says."""
+
+      def __init__(self, folder: Path) -> None:
+          """Keep the folder that holds the executable, its spec and its record."""
+          self.folder = folder
+
+      def says(  # noqa: PLR0913
+          self, stdout: object = "", *, exit: int = 0, stderr: str = "", sleep: float = 0,  # noqa: A002
+          version: str = "claude 9.9.9 (fake)", version_exit: int = 0, version_sleep: float = 0,
+      ) -> None:  # fmt: skip
+          out = stdout if isinstance(stdout, str) else json.dumps(stdout)
+          spec = {"stdout": out, "exit": exit, "stderr": stderr, "sleep": sleep,
+                  "version": version, "version_exit": version_exit, "version_sleep": version_sleep}  # fmt: skip
+          (self.folder / "spec.json").write_text(json.dumps(spec))
+
+      def ran(self) -> dict:
+          return json.loads((self.folder / "record.json").read_text())
+
+
+  @pytest.fixture
+  def claude(tmp_path, monkeypatch):
+      folder = tmp_path / "bin"
+      folder.mkdir()
+      (folder / "fake_claude.py").write_text(FAKE, encoding="utf-8")
+      fake_executable(folder, "claude", f'exec "{sys.executable}" "{folder}/fake_claude.py" "$@"')
+      monkeypatch.setenv("PATH", f"{folder}{os.pathsep}{os.environ['PATH']}")
+      fake = FakeClaude(folder)
+      fake.says(answer())
+      return fake
+
+
+  def answer(model=NAME, verdict=VERDICT, **more):
+      reply = {
+          "type": "result",
+          "subtype": "success",
+          "is_error": False,
+          "terminal_reason": "completed",
+          "num_turns": 2,
+          "result": "",
+          "structured_output": verdict,
+          "modelUsage": {model: {"inputTokens": 900, "outputTokens": 40}},
+      }
+      return {**reply, **more}
+
+
+  API_FAILURE = {  # what `claude -p --output-format json` printed, with exit 1, when the provider refused the call
+      "type": "result",
+      "subtype": "success",
+      "is_error": True,
+      "terminal_reason": "api_error",
+      "api_error_status": 403,
+      "api_error": "provider_credentials",
+      "num_turns": 1,
+      "result": "AWS authentication failed · API Error: 403 not authorized to perform: bedrock:InvokeModel",
+      "modelUsage": {},
+  }
+
+
+  def ask(tmp_path):
+      return judge.load_model(MODEL, tmp_path).ask(question(tmp_path))
+
+
+  def test_a_claude_code_value_loads_a_model_whose_id_holds_the_harness(tmp_path, claude):
+      loaded = judge.load_model(MODEL, tmp_path)
+      assert re.fullmatch(rf"{MODEL}@claude 9\.9\.9 \(fake\); flags sha256:[0-9a-f]{{64}}", loaded.id)
+      assert loaded.model == NAME
+      assert ask(tmp_path).result == "not-satisfied"
+
+
+  def test_the_question_goes_in_on_stdin_and_the_command_line_isolates_claude(tmp_path, claude):
+      asked = question(tmp_path)
+      judge.load_model(MODEL, tmp_path).ask(asked)
+      ran = claude.ran()
+      assert ran["stdin"] == judge.question_text(tmp_path, asked)
+      argv = ran["argv"]
+      assert argv[:5] == ["-p", "--model", NAME, "--effort", "high"]
+      assert argv[argv.index("--output-format") + 1] == "json"
+      assert json.loads(argv[argv.index("--json-schema") + 1]) == judge._SCHEMA
+      assert argv[argv.index("--tools") + 1] == ""  # no tools at all
+      assert {"--safe-mode", "--no-session-persistence"} <= set(argv)
+      assert argv[argv.index("--setting-sources") + 1] == "user"
+      assert "--restricted" not in argv
+      assert argv[argv.index("--permission-prompts") + 1] == "none"
+      assert "When a member logs in" not in " ".join(argv)  # the repository's text never rides the command line
+
+
+  def test_claude_runs_in_an_empty_directory_that_is_removed_afterwards(tmp_path, claude):
+      ask(tmp_path)
+      ran = claude.ran()
+      assert ran["listing"] == []
+      assert Path(ran["cwd"]).resolve() != tmp_path.resolve()
+      assert not Path(ran["cwd"]).exists()
+
+
+  def test_only_allowlisted_variables_reach_claude(tmp_path, claude, monkeypatch):
+      forbidden = {
+          "ANTHROPIC_API_KEY": "key",
+          "ANTHROPIC_AUTH_TOKEN": "bearer",
+          "ANTHROPIC_BASE_URL": "https://example.invalid",
+          "ANTHROPIC_MODEL": "other",
+          "CLAUDE_CODE_OAUTH_TOKEN": "subscription-token",
+          "CLAUDE_CODE_EFFORT_LEVEL": "low",
+          "CLAUDECODE": "1",
+          "CLAUDE_CODE_CHILD_SESSION": "1",
+          "EARNEST_JUDGE": MODEL,
+      }
+      for name, value in forbidden.items():
+          monkeypatch.setenv(name, value)
+      ask(tmp_path)
+      env = claude.ran()["env"]
+      assert not set(forbidden) & set(env)
+      assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == str(judge.MAX_TOKENS)
+      assert env["PATH"] == os.environ["PATH"]
+
+
+  def test_a_structured_reply_becomes_a_verdict(tmp_path, claude):
+      assert ask(tmp_path) == judge.Verdict("not-satisfied", "no greeting", "src/a.py", 3)
+
+
+  def test_a_reply_at_line_0_is_read_at_line_1(tmp_path, claude):
+      claude.says(answer(verdict={**VERDICT, "location": {"file": "a", "line": 0}}))
+      assert ask(tmp_path).line == 1
+
+
+  def test_an_api_failure_cannot_run_and_says_why(tmp_path, claude):
+      claude.says(API_FAILURE, exit=1)
+      with pytest.raises(judge.JudgeError, match=r"cannot answer `req~greet~1` implemented: claude exited 1: AWS auth"):
+          ask(tmp_path)
+
+
+  def test_an_error_reply_with_exit_0_still_cannot_run(tmp_path, claude):
+      claude.says({**API_FAILURE})
+      with pytest.raises(judge.JudgeError, match="API Error: 403"):
+          ask(tmp_path)
+
+
+  def test_a_refusal_cannot_run(tmp_path, claude):
+      claude.says(answer(is_error=True, stop_reason="refusal", result="I can't help with that.", structured_output=None))
+      with pytest.raises(judge.JudgeError, match="I can't help with that"):
+          ask(tmp_path)
+
+
+  def test_a_failed_structured_output_names_its_errors(tmp_path, claude):
+      reply = {"type": "result", "subtype": "error_max_structured_output_retries", "is_error": True, "result": None}
+      claude.says({**reply, "errors": ["Failed to provide valid structured output after 5 attempts"]}, exit=1)
+      with pytest.raises(judge.JudgeError, match="Failed to provide valid structured output"):
+          ask(tmp_path)
+
+
+  @pytest.mark.parametrize(("out", "code"), [("", 1), ("not json", 0), ("[]", 0), ("[]", 1)])
+  def test_output_that_is_not_a_result_object_cannot_run(tmp_path, claude, out, code):
+      claude.says(out, exit=code, stderr="Not logged in")
+      with pytest.raises(judge.JudgeError, match=f"claude exited {code}"):
+          ask(tmp_path)
+
+
+  @pytest.mark.parametrize(
+      ("used", "said"),
+      [
+          ({"claude-opus-5-5-20270101": {}}, "as claude-opus-5-5-20270101: set EARNEST_JUDGE=claude-code:claude-opus-5-5-20270101"),
+          ({NAME: {}, "claude-haiku-5-5": {}}, "as claude-haiku-5-5, claude-opus-5-5: set EARNEST_JUDGE=claude-code:<that id>"),
+          ({}, "as no model:"),
+          (None, "as no model:"),
+      ],
+  )
+  def test_a_reply_from_other_models_than_the_id_cannot_run(tmp_path, claude, used, said):
+      claude.says({**answer(), "modelUsage": used})
+      with pytest.raises(judge.JudgeError, match=said):
+          ask(tmp_path)
+
+
+  @pytest.mark.parametrize(
+      "verdict",
+      [
+          None,
+          "not json",
+          [],
+          {"result": "maybe", "reasoning": "x", "location": {"file": "a", "line": 1}},
+          {"result": "satisfied", "reasoning": "x"},
+          {"result": "satisfied", "reasoning": "x", "location": {"file": "a", "line": "1"}},
+      ],
+  )
+  def test_a_malformed_structured_output_cannot_run(tmp_path, claude, verdict):
+      claude.says(answer(verdict=verdict))
+      with pytest.raises(judge.JudgeError, match="malformed"):
+          ask(tmp_path)
+
+
+  def test_a_reply_without_structured_output_cannot_run(tmp_path, claude):
+      reply = answer()
+      del reply["structured_output"]
+      claude.says(reply)
+      with pytest.raises(judge.JudgeError, match=r"malformed.*structured_output"):
+          ask(tmp_path)
+
+
+  def test_a_claude_that_hangs_cannot_run(tmp_path, claude, monkeypatch):
+      monkeypatch.setattr(judge, "_CLAUDE_TIMEOUT", 0.5)
+      claude.says(answer(), sleep=5)
+      with pytest.raises(judge.JudgeError, match=r"cannot answer.*timed out"):
+          ask(tmp_path)
+
+
+  def test_a_claude_that_cannot_be_executed_cannot_run(tmp_path):
+      asked = question(tmp_path)
+      with pytest.raises(judge.JudgeError, match="cannot answer `req~greet~1` implemented"):
+          judge.ClaudeCode(MODEL, NAME, tmp_path, str(tmp_path / "no-such-claude")).ask(asked)
+
+
+  def test_no_claude_on_path_cannot_start(tmp_path, monkeypatch):
+      monkeypatch.setenv("PATH", str(tmp_path))
+      with pytest.raises(judge.JudgeError, match="cannot start: there is no `claude` executable on PATH"):
+          judge.load_model(MODEL, tmp_path)
+
+
+  def test_a_claude_code_value_without_a_model_name_cannot_run(tmp_path):
+      with pytest.raises(judge.JudgeError, match="names no model"):
+          judge.load_model("claude-code:", tmp_path)
+  ```
+
+  Then add these tests to the file, over the same fixtures:
+  - **The environment.** A parametrized `test_a_bedrock_variable_reaches_claude` over the twelve variables of the table (`CLAUDE_CODE_USE_BEDROCK`, `AWS_REGION`, `AWS_DEFAULT_REGION`, `ANTHROPIC_BEDROCK_REGION_PREFIX`, `AWS_PROFILE`, `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `AWS_EC2_METADATA_DISABLED`): each set to a marker reaches `claude` unchanged. `test_the_allowlist_is_exactly_the_documented_set`: `set(judge._CLAUDE_ENV)` equals the base variables plus those twelve, so an addition needs a test and a row.
+  - **The id.** `test_a_new_claude_changes_the_id` (`says(version="claude 9.9.10 (fake)")`); `test_a_changed_flag_or_pin_changes_the_id` (monkeypatch `_CLAUDE_FLAGS` with one more flag: the id changes and the argv the fake records carries that flag; then `_CLAUDE_PIN`); `test_the_command_line_is_exactly_the_flags_the_id_hashes` (on the fake's record, `argv[:3] == ["-p", "--model", NAME]` and `argv[3:] == list(judge._CLAUDE_FLAGS)`, and the `--system-prompt` and `--json-schema` values equal `_CLAUDE_SYSTEM` and `json.dumps(_SCHEMA)`, so a flag `ask` adds outside `_CLAUDE_FLAGS` fails the test instead of escaping the digest); parametrized `test_a_claude_without_a_version_cannot_start` matching `cannot start`, over four rows: `version_exit=1`; an empty `version`; a `--version` that sleeps (`version_sleep`) with `judge._CLAUDE_VERSION_TIMEOUT` monkeypatched to a fraction of a second, so `subprocess.TimeoutExpired` must surface as `JudgeError`; and a `claude` on `PATH` whose shebang names no interpreter, so the version call raises `OSError`; `test_a_claude_upgrade_voids_a_calibration`: a slot whose `model` is the loaded model's `id` is `calibrated` for it, and after `says(version="claude 9.9.10 (fake)")` and a second `load_model` it is not.
   - **The pruning**, in `test_cli.py`: `test_a_finished_calibration_drops_the_answers_of_an_older_harness`. The record's `judge.calibrate` holds entries whose `model` is `claude-code:m@v1; flags sha256:a`, `claude-code:m@v2; flags sha256:a`, `claude-code:other@v1; flags sha256:a` and a stub id; a calibration that finishes under `claude-code:m@v2; flags sha256:a` leaves the `other` and stub entries and its own answers, and the two `m` entries of older harnesses are gone. The existing prune test stays green.
-  - **The shared helpers** need no new test: `test_judge_anthropic.py`'s existing tests pin `Claude`'s messages and must pass unchanged after Step 3, and the spike's alias and malformed-answer tests run `ClaudeCode` through the same helpers (a spike test that pins the `!r` form of the malformed-answer error changes to `{error}`).
+  - **The shared helpers** need no new test: `test_judge_anthropic.py`'s existing tests pin `Claude`'s messages and must pass unchanged after Step 3, and the alias and malformed-answer tests above run `ClaudeCode` through the same helpers.
   - **The doubles** (`Counting`, `Recording`) need no change: the id-based design adds no `Model` member.
   - **The messages**, Step 4's two tests: `test_cli.py:951` (`"anthropic:<model>" in result[2]` also asserts `claude-code:<model>`) and `test_judge_anthropic.py:209` (its pattern `anthropic:<model> or stub:<path>` becomes the new order).
 
   Run `uv run pytest tests/unit/test_judge_claude_code.py tests/unit/test_cli.py tests/unit/test_judge_anthropic.py tests/unit/test_impact.py` from `packages/earnest/`. Expected: the new and changed tests fail (no `claude-code` branch, no `fake_executable` in `conftest.py` until it is hoisted, no lineage prune) and the rest pass.
 
-- [ ] **Step 2 [agent]:** The backend. `git apply -p1 docs/superpowers/plans/2026-11-25-spikes/spike-g-prototype-src.diff` from the repository root, then, on `judge/__init__.py`:
-  - set `_CLAUDE_ENV` to the table's variables (the spike's tuple loses `CLAUDE_CODE_OAUTH_TOKEN` and gains the Bedrock ones);
-  - move the flags into `_CLAUDE_FLAGS` (the schema as `json.dumps(_SCHEMA)`, the system text as `_CLAUDE_SYSTEM`, `--setting-sources user` in place of `--restricted`) and build argv as `[self.claude, "-p", "--model", self.model, *_CLAUDE_FLAGS]`; the order keeps the spike's `argv[:5]` assertion true;
-  - add a small `_claude_env()` (the allowlist and the pins) that `ask` and the version call share;
-  - give `ClaudeCode` its `model` field (the spike took the name as `self.id.partition(":")[2]`, which the harness-bearing id breaks) and have `_claude_code` build the id as the section above says, raising `JudgeError` `the model <value> cannot start: ...` for a missing `claude`, a failed or empty `--version`, an `OSError`, or a `--version` that times out. Catch `(OSError, subprocess.SubprocessError)` around the version call: `TimeoutExpired` is a `SubprocessError` and not an `OSError`, and uncaught it would escape as a traceback instead of exit 2.
+- [ ] **Step 2 [agent]:** The backend, in `judge/__init__.py`. Spike G measured the first version (88 lines, 29 tests); this is that code with the plan's three changes: `--setting-sources user` for `--restricted`, the Bedrock allowlist, and the id that holds the harness. Add `import os`, `import shutil`, `import subprocess` and `import tempfile` beside `import json`. In `load_model`, after the `anthropic` branch:
 
-  Run the same four test files. Expected: the spike's tests and the Step 1 tests of this step pass; the pruning test fails until Step 3.
+  ```python
+      if kind == "claude-code" and path:
+          return _claude_code(value, root)
+  ```
+
+  Then, after `Claude`, and before `question_text`:
+
+  ```python
+  # `claude-code:<model>`: the verdict comes from `claude -p`, logged in as the user. Only these variables reach it, so no
+  # ANTHROPIC_API_KEY or other CLAUDE_CODE_* of the calling session changes who is billed.
+  _CLAUDE_ENV = (
+      "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "CLAUDE_CONFIG_DIR",
+      "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
+      "CLAUDE_CODE_USE_BEDROCK", "AWS_REGION", "AWS_DEFAULT_REGION", "ANTHROPIC_BEDROCK_REGION_PREFIX",
+      "AWS_PROFILE", "AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE",
+      "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_BEARER_TOKEN_BEDROCK",
+      "AWS_EC2_METADATA_DISABLED",
+  )  # fmt: skip
+  # max_tokens as for `Claude`; no auto-update, telemetry or feedback traffic mid-run
+  _CLAUDE_PIN = {"CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(MAX_TOKENS), "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+  _CLAUDE_SYSTEM = "You are a code reviewer. Follow the user's instructions exactly."  # replaces Claude Code's own prompt
+  # every flag but the model name; `ask` builds its argv from it and the id hashes it, so the two cannot differ
+  _CLAUDE_FLAGS = (
+      "--effort", "high", "--output-format", "json", "--json-schema", json.dumps(_SCHEMA),
+      "--tools", "",  # none: the question text is all the judge sees, and only the schema's StructuredOutput remains
+      "--safe-mode",  # no CLAUDE.md, skills, plugins, hooks, MCP servers or auto memory
+      "--setting-sources", "user",  # the user's `env` block and `awsCredentialExport`, no project or local settings
+      "--no-session-persistence", "--permission-prompts", "none", "--system-prompt", _CLAUDE_SYSTEM,
+  )  # fmt: skip
+  _CLAUDE_TIMEOUT = 900  # seconds for one question
+  _CLAUDE_VERSION_TIMEOUT = 30  # seconds for `claude --version`
+
+
+  def _claude_env() -> dict[str, str]:
+      """Return the allowlisted variables the caller has set, and the two pins; `claude` gets nothing else."""
+      return {key: os.environ[key] for key in _CLAUDE_ENV if key in os.environ} | _CLAUDE_PIN
+
+
+  def _claude_code(value: str, root: Path) -> ClaudeCode:
+      """Return the `claude-code:` model; `claude` holds its own login, and earnest reads no key.
+
+      Raises:
+          JudgeError: there is no `claude` on PATH, or `claude --version` fails, is empty or times out.
+      """
+      if (path := shutil.which("claude")) is None:
+          msg = f"the model {value} cannot start: there is no `claude` executable on PATH"
+          raise JudgeError(msg)
+      try:
+          done = subprocess.run(  # noqa: S603  # argv is a list
+              [path, "--version"], capture_output=True, text=True, env=_claude_env(), timeout=_CLAUDE_VERSION_TIMEOUT, check=False
+          )
+      except (OSError, subprocess.SubprocessError) as error:  # TimeoutExpired is a SubprocessError, not an OSError
+          msg = f"the model {value} cannot start: {error}"
+          raise JudgeError(msg) from error
+      version = done.stdout.strip()
+      if done.returncode != 0 or not version:
+          msg = f"the model {value} cannot start: `claude --version` exited {done.returncode} and printed {version!r}"
+          raise JudgeError(msg)
+      name = value.partition(":")[2]
+      flags = digest(canonical({"flags": [*_CLAUDE_FLAGS], "pin": _CLAUDE_PIN}).encode())
+      return ClaudeCode(f"claude-code:{name}@{version}; flags {flags}", name, root, path)
+
+
+  @dataclass(frozen=True)
+  class ClaudeCode:
+      """A Claude model through Claude Code's `claude -p`; `id` holds the `claude` version and the flags' digest."""
+
+      id: str
+      model: str
+      root: Path
+      claude: str
+
+      def ask(self, question: Question) -> Verdict:
+          """Send the question's text on stdin and return the model's structured verdict.
+
+          Raises:
+              JudgeError: `claude` cannot run or fails, another model answers, or its reply is not a verdict.
+          """
+          asked = f"`{question.subject}` {question.kind}"
+          text = question_text(self.root, question)
+          argv = [self.claude, "-p", "--model", self.model, *_CLAUDE_FLAGS]
+          try:
+              with tempfile.TemporaryDirectory(prefix="earnest-judge-") as empty:  # nothing there for it to discover
+                  done = subprocess.run(  # noqa: S603  # argv is a list; the question goes in on stdin, never the command line
+                      argv,
+                      input=text,
+                      capture_output=True,
+                      text=True,
+                      cwd=empty,
+                      env=_claude_env(),
+                      timeout=_CLAUDE_TIMEOUT,
+                      check=False,
+                  )
+          except (OSError, subprocess.SubprocessError) as error:
+              msg = f"the model {self.id} cannot answer {asked}: {error}"
+              raise JudgeError(msg) from error
+          try:
+              reply = json.loads(done.stdout)
+          except ValueError:
+              reply = None
+          if not isinstance(reply, dict) or done.returncode != 0 or reply.get("is_error"):
+              # an API failure is `is_error` under `subtype: success`, its text in `result`; an `error_*` subtype has `errors`
+              why = (
+                  (reply.get("result") or reply.get("errors") or reply.get("subtype"))
+                  if isinstance(reply, dict)
+                  else done.stderr
+              )
+              msg = f"the model {self.id} cannot answer {asked}: claude exited {done.returncode}: {str(why).strip()[:300]}"
+              raise JudgeError(msg)
+          used = reply.get("modelUsage")
+          if not isinstance(used, dict) or set(used) != {self.model}:  # an alias, or a fallback: bind to the models that answer
+              answered = ", ".join(sorted(used)) if isinstance(used, dict) and used else "no model"
+              msg = f"the model {self.id} answered {asked} as {answered}: set EARNEST_JUDGE=claude-code:<that id>"
+              raise JudgeError(msg)
+          try:
+              return _verdict(_from_line_one(reply["structured_output"]))
+          except (ValueError, TypeError, KeyError, RecursionError) as error:
+              msg = f"the model {self.id} gave a malformed answer to {asked}: {error}"
+              raise JudgeError(msg) from error
+  ```
+
+  `digest` and `canonical` are already imported from `earnest.reporter`; `digest` takes bytes, hence `.encode()`. The flags start `--effort high`, so the test's `argv[:5]` holds. The last two blocks of `ask` (the `modelUsage` check and the decoding) are what Step 3 replaces with `_bound` and `_decode`; until then the alias message always says `<that id>`.
+
+  Run the same four test files. Expected: the Step 1 tests pass, except the one-key row of the alias test (the message names the answerer only after Step 3) and the pruning test, which fail until Step 3.
 
 - [ ] **Step 3 [agent]:** Extract `_decode` and `_bound` from `Claude.ask` and call them from both models, as the section above says; then `cli._keep_calibration`'s lineage prune. Run the four files, then the regression run (`uv run pytest --ignore=tests/steps/test_calibration_gate.py`) and `uv run pytest tests/steps/test_calibration_gate.py`. Expected: all green, with no existing test changed beyond Step 1's; record the exact counts against the same runs before the task. `git diff --stat` for `Model`, `Stub`, `Cache`, `Calibration`, `slot`, `calibrated` and `_comparison` shows no change.
 - [ ] **Step 4 [agent]:** The two `load_model` messages and its docstring. The unset one becomes `earnest needs a model: set EARNEST_JUDGE to anthropic:<model>, claude-code:<model> or stub:<path of a canned-verdict file>`, and the unknown one `EARNEST_JUDGE names no model Earnest knows: {value!r}; use anthropic:<model>, claude-code:<model> or stub:<path>`. A `claude-code:` value with no name after the colon falls to the unknown-model message, as `anthropic:` does (the spike has `test_a_claude_code_value_without_a_model_name_cannot_run`).

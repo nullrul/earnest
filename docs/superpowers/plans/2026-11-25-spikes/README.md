@@ -1,57 +1,24 @@
-# Spike patches for the M8 and M9 plans
+# Spike artifacts for the M6 plan
 
-Reference diffs that the M9 plan
-([2026-11-25-openspec-host.md](../2026-11-25-openspec-host.md)) builds Tasks 4 to
-7 on. They were measured on 2026-11-25 in scratch copies of earnest at `ae4136c`
-and copied here from `/tmp/earnest-swarm/`, which does not survive. The paths in
-their headers are rewritten to be relative. Read them, and take only the hunks
-that the task names: they carry spike-only choices (an approval environment
-variable, a constant route, REMOVED handling) that the plan drops or defers.
+The spikes of 2026-11-25 ran in scratch copies of earnest at `ae4136c`, which do not survive. The M9 plan
+([2026-11-25-openspec-host.md](../2026-11-25-openspec-host.md)) and the M6 plan
+([2026-10-25-calibration-gate.md](../2026-10-25-calibration-gate.md)) inline the code that their tasks build on, so
+this folder holds no diffs or patches. It keeps the one script that Task 7b of the M6 plan runs.
 
-| File | Task of the M9 plan | What it holds |
-| --- | --- | --- |
-| `spike-c-design-c.src.diff` | 4, 6, 10 | the archive skip, the layer overlay, REMOVED handling (Task 10) |
-| `spike-c-design-c.tests.diff` | 4, 6, 10 | the 14 layer tests of spike C |
-| `m9-delta-over-delta.diff` | 6 | the two-line stacked-change extension of answer 8 |
-| `spike-d-prototype-src.patch` | 5, 7 | `openspec.py`, the change loader, the boxes, the two rules |
-| `spike-d-prototype-tests.patch` | 5, 7 | the 25 tests of spike D |
-
-Where each applies (`git apply --check` passes at HEAD of this branch; the
-tests diffs add new files, so a wrong directory still "applies" but puts them
-in the wrong place):
-
-- `spike-c-design-c.src.diff` and `spike-c-design-c.tests.diff`:
-  `git apply -p1` from the repository root.
-- `m9-delta-over-delta.diff`: `git apply -p1` from `packages/earnest/`, and only
-  after `spike-c-design-c.src.diff`; it is a delta over design C, so treat it as
-  read-only otherwise.
-- `spike-d-prototype-src.patch` and `spike-d-prototype-tests.patch`:
-  `git apply -p1` from `packages/earnest/` only (from the root they fail).
-
-Content: synthetic fixtures and upstream OpenSpec behavior only. Nothing in
-these files comes from a private repository.
+Content: synthetic fixtures and upstream OpenSpec behavior only. Nothing in these files comes from a private repository.
 
 ## Spike G, for the M6 plan
 
-Task 7b of the M6 plan
-([2026-10-25-calibration-gate.md](../2026-10-25-calibration-gate.md)) builds the
-`claude-code:` judge model on spike G, measured the same day in a scratch copy
-of earnest at `ae4136c`. The diffs apply to the checkout with `git apply -p1`
-from the repository root (checked against `ae4136c`). They carry spike-only
-choices that Task 7b changes: `--restricted` (replaced by `--setting-sources
-user`), an environment allowlist without the Bedrock variables, and no harness
-in the cache key or the calibration slot. The patch also predates the id-based
-harness: it takes the model name as `self.id.partition(":")[2]`, which Task 7b
-replaces with a `model` field once the id carries the harness.
-The patch is kept as spiked and not rewritten.
+Task 7b of the M6 plan builds the `claude-code:` judge model on spike G, measured the same day in a scratch copy of
+earnest at `ae4136c`. Spike G's backend and tests carry spike-only choices that Task 7b changes: `--restricted`
+(replaced by `--setting-sources user`), an environment allowlist without the Bedrock variables, and no harness in the
+cache key or the calibration slot. They also took the model name as `self.id.partition(":")[2]`, which Task 7b replaces
+with a `model` field once the id carries the harness. Task 7b gives the code and the tests with those changes applied.
 
-| File | What it holds |
-| --- | --- |
-| `spike-g-prototype-src.diff` | the +88 lines of `judge/__init__.py`: `ClaudeCode`, its constants and the `load_model` branch |
-| `spike-g-prototype-tests.diff` | `tests/unit/test_judge_claude_code.py`, 29 tests against a fake `claude` on `PATH`; no login, no network |
+| File                    | What it holds                                                                                                                                                         |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `spike-g-live-check.sh` | the one-call live check that comes before the 20-call run, adapted from the spike's `drive.py`; run from `packages/earnest/` with `EARNEST_JUDGE=claude-code:<model>` |
 
-The spike's two real calls both failed at the provider (a Bedrock 403 for the
-host's instance role, because `--restricted` had dropped the user settings), so
-no answer, `modelUsage` key or token count was ever observed; Task 7b lists what
-stays unverified until the live check has run.
+The spike's two real calls both failed at the provider (a Bedrock 403 for the host's instance role, because
+`--restricted` had dropped the user settings), so no answer, `modelUsage` key or token count was ever observed; Task 7b
+lists what stays unverified until the live check has run.
