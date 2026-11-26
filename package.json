@@ -1,7 +1,6 @@
 {
   "name": "earnest-repo-tools",
   "private": true,
-  "packageManager": "pnpm@10.34.9",
   "devDependencies": {
     "prettier": "3.10.1"
   }

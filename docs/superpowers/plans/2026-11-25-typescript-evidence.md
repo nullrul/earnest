@@ -682,7 +682,7 @@ The commands below are for pnpm (question 1, decided).
 - [ ] **Step 5:** Run, from the repository root and `packages/earnest/`:
   - `rtk proxy uv run pytest tests/integration/test_node_toolchain.py; echo $?`, expected 0;
   - `rtk proxy make -C packages/earnest node-install; echo $?`, expected 0;
-  - `rtk proxy make -C packages/earnest node-check; echo $?`, expected 0, with a line naming the three versions;
+  - `rtk proxy make -C packages/earnest node-check; echo $?`, expected 0, with `node v24...` followed by one `<name> <pin>` line per `devDependencies` entry, counted like the negative control: `rtk proxy make -C packages/earnest node-check 2>/dev/null | grep -vc '^node '`, expected `7` with all seven, `6` without `openspec`;
   - the negative control, which asserts the message because `make` exits 2 for any failed recipe, so the code alone would pass for another cause: `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent 2>&1 | grep -c "is missing: run make node-install"`, expected one line per manifest tool (`7` with all seven, `6` without `openspec`), and `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent >/dev/null 2>&1; echo $?`, expected 2;
   - `rtk proxy uv run pytest --ignore=tests/steps/test_typescript_evidence.py; echo $?`, expected 0 at the baseline count (the feature does not exist yet, so the `--ignore` is a no-op here);
   - `LINT_FILE=.github/workflows/ci.yml make lint-file`, expected exit 0.

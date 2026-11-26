@@ -389,8 +389,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Exit command: `uv run pytest tests/steps/test_openspec_host.py`.
 - Deliverable: `SHALL` in `ears.py` (#21); the id syntax and the fixture (#20);
   the archive skip, the layer overlay and the stacked-change rule in
-  `adapters/`, `index.py` and `structural.py` (#23); `openspec.py`, the
-  stage-to-glob mapping and the change loader in `plan.py` (#22); the box
+  `adapters/`, `index.py` and `structural.py` (#23); `openspec.py` with
+  the change loader, and the stage-to-glob mapping in `plan.py` (#22); the box
   reader and the rules `earnest/checked-unevidenced` and
   `earnest/untracked-box` (#24); `integrations/openspec/` (#25); the shared
   Node toolchain with the pinned `openspec` CLI, and the `tests/node.py` helper
