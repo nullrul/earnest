@@ -798,7 +798,7 @@ The commands below are for pnpm (question 1, decided).
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `cli.py`; Create `packages/earnest/tests/integration/test_typescript_evidence.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_cli.py`.
 
 - [ ] **Step 1:** Write failing unit tests. A fake `stryker` is a script that the test writes in `tmp_path` with the shebang `sys.executable`: it records its argv, its working directory and `NODE_PATH` to a file, and writes a canned report to `reports/mutation/mutation.json` under its working directory. No Node is involved.
-  - `mutation_files` returns the `.ts` file of a traced requirement beside the `.py` files, and a `.js` file or a file with no tag is not returned;
+  - `mutation_files`, parametrized over `.ts`, `.tsx`, `.mts` and `.cts`, returns the file of a traced requirement beside the `.py` files, and a `.js` file or a file with no tag is not returned;
   - the command is the repository's `node_modules/.bin/stryker` when that file exists, else the first `stryker` on the PATH; with neither, `EvidenceError` names StrykerJS;
   - the run: the working directory is a copy, not the repository; argv is exactly `run --mutate <files> --reporters json`; `NODE_PATH` is the `node_modules` of the command, then any earlier value; the mutants are the report's, read through Task 3's reader;
   - a path holding a comma or a glob character exits 2 naming the file;
