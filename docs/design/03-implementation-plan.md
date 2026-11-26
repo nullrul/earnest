@@ -24,6 +24,8 @@ flowchart LR
   M4 --> M5
   M4 --> M6["M6 calibration_gate"]
   M5 --> M8["M8 typescript_evidence"]
+  M5 --> M9["M9 openspec_host"]
+  M8 -. shared Node toolchain .- M9
   classDef done fill:#d4edda,stroke:#2e7d32
   class M1,M2,M2b,M3,M4,M5,M6 done
 ```
@@ -42,6 +44,10 @@ M6 continues the judge branch. Evidence has its own milestone so that M6 waits
 on the judge alone, and the out-of-task check and impact have theirs so that M2
 carries only the record, the stage engine and the Region rule. M8 follows M5
 and adds TypeScript evidence through StrykerJS and Jest; it is part of v1.
+M9 follows M5 too. It hosts OpenSpec as a second delivery method, ratified on 2026-11-25 through #19,
+and stays outside v1. M8 and M9 depend on each other for
+nothing but one Node toolchain (#36 and #26), which lands once, in whichever milestone
+goes first.
 
 M1 is the first runnable milestone, and no open question gates it or M2. The
 rows of the Open questions sections that gate later milestones are named in
@@ -265,7 +271,21 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Development fixture: the SYNTHETIC `tests/fixtures/calibration-dev/` (user
   decision 2026-10-27), agent-written and never used to claim SC4. The exit
   command and the demo run on it; `tests/fixtures/calibration/` waits for the
-  maintainer's fixture, and the SC4 real-model run is unrun.
+  maintainer's fixture, and the SC4 real-model run is unrun. Decided
+  2026-11-25: the real run is approved; it uses no `ANTHROPIC_API_KEY`. The
+  judge calls Claude through Claude Code (`claude -p`) on this host, where
+  Claude Code authenticates to Amazon Bedrock, so the run bills the AWS account
+  Claude Code is configured for. It goes through a new judge backend,
+  `EARNEST_JUDGE=claude-code:<model>`, which spike G designed and Task 7b of the
+  plan builds before the run; Task 7b's live one-call check comes before the
+  20-call run. A passing `claude-code:` calibration satisfies SC4, and the
+  calibration slot and the judge cache key record the `claude --version` output
+  and a hash of the flags and system text, so a `claude` upgrade asks again.
+  Calibrate keeps the answers already given when a call fails, so a rerun asks
+  only the rest. The fixture pins apartment-twin `aff94e3`, an agent drafts its
+  requirements, EARS rewrites and tags for the user to approve, and the user
+  writes the twenty verdicts; the BDD gate stays on `calibration-dev`, and no
+  paid `check --judge` runs.
 - Spec coverage: UC8; SC4; the Calibration capability.
 - Context to load: `00`: SC4. `01`: UC8, G10, Process vocabulary, Command
   surface. `02`: `judge/` and `fixtures/calibration/` in Module boundaries.
@@ -303,17 +323,9 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Context to load: `01`: Adopting AI-DLC, including "The `earnest` sensor and
   the approval gate"; Command surface; Runtime and permission model. `02`: Fork
   delta; L3. The fork's own plan.
-- Gating open questions: from `01`, whether the gate or the approve transition
-  refuses a run header with `dirty` true; the Fork-delta path that holds the
-  gate presentation, and the path of the record the approve transition reads;
-  and the Fork-delta path that holds the check on an artifact that changes
-  during a sensor run. From `02`: the fork repository's name and owner; how the
-  sensor script finds the `earnest` command; the upstream tools that
-  read `source-manifest.json`; the upstream artifacts the mapping table leaves
-  unnamed; the User Stories requirement ids; holding the sensor on through the
-  sensors-off switches; the upstream tests that pin sensor ids and routes.
-  From M2b: authority to create and push the fork repository, a fork checkout
-  with Bun, and the per-unit row of `01`.
+- Gating open questions: all seventeen DECIDED (user, 2026-11-25); see the
+  task plan. Row 4 keeps `nullrul/aidlc-workflows` as the fork's repository,
+  which needs an upstream sync first and revises L3 of `02`.
 - Task plan: the integration gate at
   `docs/superpowers/plans/<date>-aidlc-fork.md`, written when M7 is next; the
   delta's plan lives in the fork's repository.
@@ -333,9 +345,103 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Context to load: `01`: Evidence rule, D4. `02`: `impact.py`; L1, L4, L5.
 - Gating open questions: where the fixture's Node, Jest and StrykerJS come
   from in `make test` and CI, which L5 of `02` kept out of the package's
-  tests; to be added to `01` or `02` when M8 is next.
-- Task plan: `docs/superpowers/plans/<date>-typescript-evidence.md`, written
-  when M8 is next.
+  tests. DECIDED (user, 2026-11-25), six answers in the task plan: pnpm with
+  `pnpm-lock.yaml`; the manifest in `packages/earnest/`; `.nvmrc` 24 with
+  `engines` `>=22.20.0` and `lint-docs` left on Node 20; the OpenSpec CLI pinned
+  at 2.1.1; ts-jest 29.4.15 with typescript 6.0.3; the feature fails, never
+  skips, when the Node tools are missing.
+- Task plan:
+  [2026-11-25-typescript-evidence.md](../superpowers/plans/2026-11-25-typescript-evidence.md).
+
+### M9 `openspec_host`
+
+- Status: DECIDED (user, 2026-11-25): OpenSpec is ratified as a second host
+  method (`00`, T8 and Scope; #19), and M9 is OUTSIDE v1, so `04` stays "nine in
+  all". The edits to `00`, `01` and `02` are written by Task 0 of the plan.
+- Goal: run earnest over an OpenSpec repository. Requirements in its specs
+  carry earnest ids and the `SHALL` keyword, a change in flight is an intent
+  with a route and stage checks, the main, delta and archived copies of a
+  requirement resolve to one definition, a ticked box in `tasks.md` is checked
+  against the evidence below it, and OpenSpec's own apply and archive steps
+  carry earnest's guidance.
+- Depends on: M5. It shares one Node toolchain with M8 and waits on neither.
+- Exit behavior: on the synthetic `openspec-change` fixture, `openspec validate
+--all --strict` passes and two `check` runs give identical SARIF. Each
+  requirement lands at exactly one level, with a located reason for every level
+  it missed. A tag naming a missing requirement and a requirement no tag
+  reaches both appear at file and line. A MODIFIED requirement changed without
+  a new revision raises `unbumped-change` once its stage's items are approved
+  at the gate by name, a requirement of several sentences
+  raises `req-not-ears`, and a change in flight overlays its main copy while
+  the archived copy is not read. A missing `openspec` CLI or Node fails the
+  feature rather than skips it.
+- Exit command: `uv run pytest tests/steps/test_openspec_host.py`.
+- Deliverable: `SHALL` in `ears.py` (#21); the id syntax and the fixture (#20);
+  the archive skip, the layer overlay and the stacked-change rule in
+  `adapters/`, `index.py` and `structural.py` (#23); `openspec.py` with
+  the change loader, and the stage-to-glob mapping in `plan.py` (#22); the box
+  reader and the rules `earnest/checked-unevidenced` and
+  `earnest/untracked-box` (#24); `integrations/openspec/` (#25); the shared
+  Node toolchain with the pinned `openspec` CLI, and the `tests/node.py` helper
+  (#26, with M8); `tests/fixtures/openspec-change/`, `openspec_host.feature` and its
+  step module (#27).
+- Spec coverage: SC1, SC2, SC3, SC5, SC8 (task status), SC9 (stage run
+  header), SC10 (messages); the Trace, Revision propagation and Plan and stage
+  status capabilities.
+- Context to load: `00`: T8 and Scope. `01`: Adopting OpenSpec (added through
+  #19), Grammar, D2, Findings, Stages, Frontier and position, Revision
+  lifecycle, Command surface. `02`: `ears.py`, `adapters/`, `index.py`,
+  `structural.py`, `plan.py`, `reporter.py` and the OpenSpec rows (added through
+  #19); L4, L5, L6.
+- Gating open questions: all fourteen DECIDED (user, 2026-11-25); see the task
+  plan. M9 is outside v1.
+- Task plan:
+  [2026-11-25-openspec-host.md](../superpowers/plans/2026-11-25-openspec-host.md).
+
+## Critical path (2026-11-25)
+
+State today. M1 to M6 are done in code. M6 keeps two open issues, #28 (the
+maintainer's SC4 fixture) and #29 (the real-model run), which gate nothing
+else in the graph. Every gating question was answered on 2026-11-25: M6's #29
+is approved on this host's Claude Code, logged in to Amazon Bedrock (no API
+key), through a new `claude-code:` judge backend, Task 7b; M7's seventeen,
+M8's six and M9's fourteen are all DECIDED (see each plan). M7 row 4 keeps
+`nullrul/aidlc-workflows`, so the fork needs an upstream sync before its
+delta, and M7 still waits on fork work outside this repository; M9 stays
+outside v1. What is left is by hand: the user's twenty verdicts for #28 and
+the logged-in Claude Code for #29, plus the work itself.
+
+In the order of how much each item unblocks:
+
+1. The shared Node toolchain (#36 and #26): one decision, made once and now
+   made (2026-11-25; see M8's plan). It
+   unblocks all of M8 after its docs commit, and M9's pin, which in turn gates
+   the route of #22, the guidance of #25 and the exit gate of #27. Two
+   milestones: the largest fan-out on the list.
+2. #19, the ratification: decided 2026-11-25 (OpenSpec is the second host,
+   outside v1). What is left is paper: Task 0 of M9 records the answers, and
+   Tasks 3 to 9 of M9 wait for it.
+3. #21, accepting `SHALL`: DECIDED 2026-11-25 (scope in the plan), one task, no
+   dependency. It makes OpenSpec specs parse and is the first code of M9.
+4. Inside M9, the chain #20, then the archive skip of #23, then #22: each
+   makes the next readable. Ids give earnest something to read, the skip turns
+   a spec-plus-archive repository from 393 duplicates to none, and intents are
+   what #24 and #25 read. #23's overlay (Task 6) and then #24 (Task 7) run in sequence, because both edit `index.py`, and #25 (Task 8) runs beside them.
+5. M7's seventeen answers, all DECIDED 2026-11-25 (see its plan). They blocked
+   all of M7 and nothing else in v1; row 4 adds the fork's upstream sync as the
+   first fork-side step.
+
+What to defer:
+
+- M9, deferred by the 2026-11-25 decisions (see its plan): the id-drift check,
+  REMOVED and RENAMED (its Task 10), a bump to OpenSpec 2.2.0, and a ramp that
+  softens `req-not-ears`, until a real repository's count says they matter.
+- M8: a TypeScript counterpart of M5's failing-test finding (its choice P4).
+- M7: the per-unit fork work behind row 17, until the fork has its plan.
+- M6: #29, until the fixture (#28) and the Claude Code judge backend (Task 7b)
+  exist. It is approved, bills Bedrock usage on the AWS account Claude Code is
+  configured for and unblocks no milestone, but SC4 stays the precondition to
+  executing the first unit (`00`).
 
 ## Future directions
 

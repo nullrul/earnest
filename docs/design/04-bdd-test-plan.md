@@ -15,11 +15,11 @@ asserts success criteria of `00-project-intent.md` and names them in its title.
 
 ## Tiers
 
-| Tier | Where, under `packages/earnest/tests/` | What it proves |
-| --- | --- | --- |
-| Behavior | `features/<milestone>.feature`, bound by `steps/test_<milestone>.py` | the milestone's exit behavior at the command-line boundary, over a fixture repository |
-| Integration | `integration/test_<flow>.py` | two or more modules wired over a committed repository, with real files and Git |
-| Unit | `unit/test_<module>.py` and `unit/adapters/test_<language>.py` | one module behind its interface, with the edge cases its plan's Review Focus names |
+| Tier        | Where, under `packages/earnest/tests/`                               | What it proves                                                                        |
+| ----------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| Behavior    | `features/<milestone>.feature`, bound by `steps/test_<milestone>.py` | the milestone's exit behavior at the command-line boundary, over a fixture repository |
+| Integration | `integration/test_<flow>.py`                                         | two or more modules wired over a committed repository, with real files and Git        |
+| Unit        | `unit/test_<module>.py` and `unit/adapters/test_<language>.py`       | one module behind its interface, with the edge cases its plan's Review Focus names    |
 
 - A milestone signs off when its feature runs green under its exit command,
   `uv run pytest tests/steps/test_<milestone>.py` in `packages/earnest/`, and
@@ -36,19 +36,20 @@ Each milestone of `03` exits on one feature, and each feature reads one fixture
 repository. The success criteria column copies the Spec coverage line of each
 milestone in `03`.
 
-| Milestone | Feature | Step module | Fixture | Success criteria |
-| --- | --- | --- | --- | --- |
-| M1 `trace_check` | `trace_check.feature` | `test_trace_check.py` | `broken-links` | SC1, SC2, SC3 (untraced and traced), SC10 (message text) |
-| M2 `stage_status` | `stage_status.feature` | `test_stage_status.py` | `seeded-change` | SC1, SC5, SC8 (stage and task status), SC9 (run header) |
-| M2b `unit_status` | `unit_status.feature` | `test_unit_status.py` | `seeded-change` (units variant) | SC1, SC8 (unit and per-unit stage status), SC9 (per-unit run header) |
-| M3 `task_change` | `task_change.feature` | `test_task_change.py` | `seeded-change` | SC6, SC7 |
-| M4 `judge_check` | `judge_check.feature` | `test_judge_check.py` | `seeded-change` | SC3 (judged), SC4 (warning), SC11 |
-| M5 `evidence_check` | `evidence_check.feature` | `test_evidence_check.py` | `seeded-change`, and its units variant | SC3 (in full), SC8 (done) |
-| M6 `calibration_gate` | `calibration_gate.feature` | `test_calibration_gate.py` | `calibration` | SC4 |
-| M7 `aidlc_fork` | `aidlc_fork.feature` | `test_aidlc_fork.py` | `seeded-change`, with a fork checkout | SC9 |
-| M8 `typescript_evidence` | `typescript_evidence.feature` | `test_typescript_evidence.py` | a TypeScript fixture, named when M8 is next | SC3 for TypeScript |
+| Milestone                                            | Feature                       | Step module                   | Fixture                                | Success criteria                                                               |
+| ---------------------------------------------------- | ----------------------------- | ----------------------------- | -------------------------------------- | ------------------------------------------------------------------------------ |
+| M1 `trace_check`                                     | `trace_check.feature`         | `test_trace_check.py`         | `broken-links`                         | SC1, SC2, SC3 (untraced and traced), SC10 (message text)                       |
+| M2 `stage_status`                                    | `stage_status.feature`        | `test_stage_status.py`        | `seeded-change`                        | SC1, SC5, SC8 (stage and task status), SC9 (run header)                        |
+| M2b `unit_status`                                    | `unit_status.feature`         | `test_unit_status.py`         | `seeded-change` (units variant)        | SC1, SC8 (unit and per-unit stage status), SC9 (per-unit run header)           |
+| M3 `task_change`                                     | `task_change.feature`         | `test_task_change.py`         | `seeded-change`                        | SC6, SC7                                                                       |
+| M4 `judge_check`                                     | `judge_check.feature`         | `test_judge_check.py`         | `seeded-change`                        | SC3 (judged), SC4 (warning), SC11                                              |
+| M5 `evidence_check`                                  | `evidence_check.feature`      | `test_evidence_check.py`      | `seeded-change`, and its units variant | SC3 (in full), SC8 (done)                                                      |
+| M6 `calibration_gate`                                | `calibration_gate.feature`    | `test_calibration_gate.py`    | `calibration-dev`                      | SC4                                                                            |
+| M7 `aidlc_fork`                                      | `aidlc_fork.feature`          | `test_aidlc_fork.py`          | `seeded-change`, with a fork checkout  | SC9                                                                            |
+| M8 `typescript_evidence`                             | `typescript_evidence.feature` | `test_typescript_evidence.py` | `ts-evidence`                          | SC3 for TypeScript                                                             |
+| M9 `openspec_host` (ratified 2026-11-25, outside v1) | `openspec_host.feature`       | `test_openspec_host.py`       | `openspec-change`                      | SC1, SC2, SC3, SC5, SC8 (task status), SC9 (stage run header), SC10 (messages) |
 
-The scenarios of M7 and M8 are added here when each milestone's plan is written; M6's section is below.
+M7's scenarios are PROPOSED in its plan (merged in PR #18); the maintainer decided that plan's answers on 2026-11-25, so its Task 0 Step 2 can add them here; the sections of M6, M8 and M9 follow, those of M8 and M9 PROPOSED.
 
 ## How scenarios are written
 
@@ -81,29 +82,29 @@ The scenarios of M7 and M8 are added here when each milestone's plan is written;
 
 ### What `broken-links` seeds
 
-| File | Line | Seeded text | Finding |
-| --- | --- | --- | --- |
-| `docs/plan.md` | 7 | `Delivers: req~Rate-Limit~1` | `near-miss`, a key-line id with an uppercase name |
-| `docs/plan.md` | 8 | `Depends: task~set_up~1` | `near-miss`, a malformed id that fits no named pattern |
-| `docs/plan.md` | 10 | `` `task~notify~1` Tell the member when to try again `` | `near-miss`, text after the id |
-| `docs/plan.md` | 16 | `**Delivers:** req~audit-log~1` | `near-miss`, a key not written exactly |
-| `docs/plan.md` | 17 | `Depends: task~wire-limiter~1,` | `near-miss`, an empty entry |
-| `docs/plan.md` | 19 | `` `tsk~expire~1` `` | `near-miss`, an unknown type |
-| `docs/requirements.md` | 11 | `req~lockout-notice~2`, with no `utest` | `gap` |
-| `docs/requirements.md` | 18 | `req~session-expiry~1`, with no `Covers:` line | `orphaned`, an item that covers no parent |
-| `docs/requirements.md` | 22 | `Needs: impl utest` | `near-miss`, a list separated by a space |
-| `docs/requirements.md` | 24 | `` `req~remember-me` `` | `near-miss`, an id line without its revision |
-| `docs/requirements.md` | 28 | `req~audit-log~1`, with no `utest` | `gap` |
-| `docs/requirements.md` | 32 | `Covers: feat~sign-in~2, FR1.2` | `predated` for the first entry, `near-miss` for the AI-DLC id |
-| `docs/requirements.md` | 34 | `req~audit-log~1` a second time | `duplicate` |
-| `docs/scope.md` | 9 | `feat~password-reset~1`, with no `req` and no `stest` | two `gap` findings |
-| `src/auth.py` | 16 | `[impl->req~rate-limt~1]` | `orphaned`, naming `req~rate-limit~1` as the closest id |
-| `src/auth.py` | 19 | `[impl-req~audit-log~1]` | `near-miss`, the missing `>` |
-| `tests/sign_in.feature` | 9 | `@stest feat~sign-in~1` | `near-miss`, an `@` tag without `:` |
-| `tests/sign_in.feature` | 15 | `@stest:feat~Password-Reset~1` | `near-miss`, an uppercase name |
-| `tests/test_auth.py` | 13 | `[itest->req~rate-limit~1]` | `unwanted`, at warning level |
-| `web/login.ts` | 3 | `[impl->req~lockout-notice~1]` | `outdated`, as the item is at revision 2 |
-| `web/login.ts` | 13 | `[impl->req~lockout-notice]` | `near-miss`, a tag without its revision |
+| File                    | Line | Seeded text                                             | Finding                                                       |
+| ----------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------- |
+| `docs/plan.md`          | 7    | `Delivers: req~Rate-Limit~1`                            | `near-miss`, a key-line id with an uppercase name             |
+| `docs/plan.md`          | 8    | `Depends: task~set_up~1`                                | `near-miss`, a malformed id that fits no named pattern        |
+| `docs/plan.md`          | 10   | `` `task~notify~1` Tell the member when to try again `` | `near-miss`, text after the id                                |
+| `docs/plan.md`          | 16   | `**Delivers:** req~audit-log~1`                         | `near-miss`, a key not written exactly                        |
+| `docs/plan.md`          | 17   | `Depends: task~wire-limiter~1,`                         | `near-miss`, an empty entry                                   |
+| `docs/plan.md`          | 19   | `` `tsk~expire~1` ``                                    | `near-miss`, an unknown type                                  |
+| `docs/requirements.md`  | 11   | `req~lockout-notice~2`, with no `utest`                 | `gap`                                                         |
+| `docs/requirements.md`  | 18   | `req~session-expiry~1`, with no `Covers:` line          | `orphaned`, an item that covers no parent                     |
+| `docs/requirements.md`  | 22   | `Needs: impl utest`                                     | `near-miss`, a list separated by a space                      |
+| `docs/requirements.md`  | 24   | `` `req~remember-me` ``                                 | `near-miss`, an id line without its revision                  |
+| `docs/requirements.md`  | 28   | `req~audit-log~1`, with no `utest`                      | `gap`                                                         |
+| `docs/requirements.md`  | 32   | `Covers: feat~sign-in~2, FR1.2`                         | `predated` for the first entry, `near-miss` for the AI-DLC id |
+| `docs/requirements.md`  | 34   | `req~audit-log~1` a second time                         | `duplicate`                                                   |
+| `docs/scope.md`         | 9    | `feat~password-reset~1`, with no `req` and no `stest`   | two `gap` findings                                            |
+| `src/auth.py`           | 16   | `[impl->req~rate-limt~1]`                               | `orphaned`, naming `req~rate-limit~1` as the closest id       |
+| `src/auth.py`           | 19   | `[impl-req~audit-log~1]`                                | `near-miss`, the missing `>`                                  |
+| `tests/sign_in.feature` | 9    | `@stest feat~sign-in~1`                                 | `near-miss`, an `@` tag without `:`                           |
+| `tests/sign_in.feature` | 15   | `@stest:feat~Password-Reset~1`                          | `near-miss`, an uppercase name                                |
+| `tests/test_auth.py`    | 13   | `[itest->req~rate-limit~1]`                             | `unwanted`, at warning level                                  |
+| `web/login.ts`          | 3    | `[impl->req~lockout-notice~1]`                          | `outdated`, as the item is at revision 2                      |
+| `web/login.ts`          | 13   | `[impl->req~lockout-notice]`                            | `near-miss`, a tag without its revision                       |
 
 Two requirements, `req~rate-limit~1` and `req~session-expiry~1`, each have an
 `impl` and a `utest` cover at their current revision, so two of the four
@@ -243,26 +244,26 @@ needed.
 Base commit, record directory `aidlc/spaces/default/intents/260926-checkout/`
 (inside the sensor's `matches`):
 
-| File | Line | Seeded text | Role |
-| --- | --- | --- | --- |
-| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 6 | `- **Scope**: bugfix` | the profile; M2 parses it and does not display it |
-| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 11-14 | `### INITIALIZATION PHASE`, then `- [x] workspace-scaffold — EXECUTE: always`, `workspace-detection`, `state-init`, in that order | auto-proceeding stages with no gate, outside the route |
-| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 16-19 | `### INCEPTION PHASE`, then `- [S] reverse-engineering — EXECUTE: greenfield project`, `- [x] requirements-analysis — EXECUTE: always`, `- [S] units-generation — SKIP: not in bugfix scope` | a runtime skip, a route stage, a planned skip |
-| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 21-23 | `### CONSTRUCTION PHASE`, then `- [x] code-generation — EXECUTE: always`, `- [x] build-and-test — EXECUTE: always` | agent-written marks that Earnest never reads as status |
-| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md` | 25-27 | `### OPERATION PHASE`, then `- [S] deployment-pipeline — EXECUTE: no pipeline change`, `- [S] deployment-execution — EXECUTE: no pipeline change` | runtime skips |
-| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 1-6 | a `WORKFLOW_STARTED` block (Timestamp 2026-09-26T09:00:00Z, Scope bugfix, Request), closed by `---` on line 6 | the attempt boundary |
-| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 7-13 | a `STAGE_SKIPPED` block (Timestamp 2026-09-26T09:10:00Z; Stage `reverse-engineering`; Reason; Skip Kind `conditional-runtime`), closed by `---` on line 13 | the audited skip |
-| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 14-27 | two more `STAGE_SKIPPED` blocks, `deployment-pipeline` at 09:20:00Z (lines 14-20) and `deployment-execution` at 09:21:00Z (lines 21-27) | the audited skips; the order is synthetic and does not follow a real run |
-| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md` | 28-36 | a `GATE_APPROVED` block (Timestamp 2026-09-26T10:00:00Z; Stage `requirements-analysis`; User Input; Assessment Hash `sha256:` and 64 zeros; Items `req~audit-log~1, req~lockout-notice~1, req~rate-limit~1`; Approved By `human`), closed by `---` on line 36 | the requirements stage's approval. The hash is a placeholder because currentness reads the items alone; the last three fields are the fork's |
-| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 3 | `` `req~rate-limit~1` ``, body on lines 5-6 | traced; bumped by the overlay |
-| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 8 | `` `req~lockout-notice~1` ``, body on lines 10-11 (`...shall tell the member` / `when they may try again.`) | traced; edited without a bump by the overlay |
-| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 13 | `` `req~audit-log~1` ``, body on line 15 | traced, delivered by no task: `unplanned` |
-| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 3, 5 | `` `task~add-limiter~1` ``, body `Add a limiter that counts failed logins in a window.` | the plan |
-| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 7 | `Delivers: req~rate-limit~1` | the edge the bump leaves at the old revision |
-| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 9, 11 | `` `task~notify-lockout~1` ``, body `Tell the member when the lockout starts.` | the plan |
-| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 13-14 | `Delivers: req~lockout-notice~1` and `Depends: task~add-limiter~1` | the plan; the dependency a scenario closes into a cycle |
-| `src/checkout/auth.py` | 4, 9, 14 | `# [impl->req~rate-limit~1]`, `# [impl->req~lockout-notice~1]`, `# [impl->req~audit-log~1]` | the `impl` covers; line 4 is the tag the bump leaves at the old revision |
-| `tests/test_auth.py` | 4, 9, 14 | `# [utest->req~rate-limit~1]`, `# [utest->req~lockout-notice~1]`, `# [utest->req~audit-log~1]` | the `utest` covers; line 4 is the tag the bump leaves at the old revision |
+| File                                                                                                | Line     | Seeded text                                                                                                                                                                                                                                                   | Role                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md`                                       | 6        | `- **Scope**: bugfix`                                                                                                                                                                                                                                         | the profile; M2 parses it and does not display it                                                                                            |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md`                                       | 11-14    | `### INITIALIZATION PHASE`, then `- [x] workspace-scaffold — EXECUTE: always`, `workspace-detection`, `state-init`, in that order                                                                                                                             | auto-proceeding stages with no gate, outside the route                                                                                       |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md`                                       | 16-19    | `### INCEPTION PHASE`, then `- [S] reverse-engineering — EXECUTE: greenfield project`, `- [x] requirements-analysis — EXECUTE: always`, `- [S] units-generation — SKIP: not in bugfix scope`                                                                  | a runtime skip, a route stage, a planned skip                                                                                                |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md`                                       | 21-23    | `### CONSTRUCTION PHASE`, then `- [x] code-generation — EXECUTE: always`, `- [x] build-and-test — EXECUTE: always`                                                                                                                                            | agent-written marks that Earnest never reads as status                                                                                       |
+| `aidlc/spaces/default/intents/260926-checkout/aidlc-state.md`                                       | 25-27    | `### OPERATION PHASE`, then `- [S] deployment-pipeline — EXECUTE: no pipeline change`, `- [S] deployment-execution — EXECUTE: no pipeline change`                                                                                                             | runtime skips                                                                                                                                |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md`                            | 1-6      | a `WORKFLOW_STARTED` block (Timestamp 2026-09-26T09:00:00Z, Scope bugfix, Request), closed by `---` on line 6                                                                                                                                                 | the attempt boundary                                                                                                                         |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md`                            | 7-13     | a `STAGE_SKIPPED` block (Timestamp 2026-09-26T09:10:00Z; Stage `reverse-engineering`; Reason; Skip Kind `conditional-runtime`), closed by `---` on line 13                                                                                                    | the audited skip                                                                                                                             |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md`                            | 14-27    | two more `STAGE_SKIPPED` blocks, `deployment-pipeline` at 09:20:00Z (lines 14-20) and `deployment-execution` at 09:21:00Z (lines 21-27)                                                                                                                       | the audited skips; the order is synthetic and does not follow a real run                                                                     |
+| `aidlc/spaces/default/intents/260926-checkout/audit/fixture-a1b2c3d4.md`                            | 28-36    | a `GATE_APPROVED` block (Timestamp 2026-09-26T10:00:00Z; Stage `requirements-analysis`; User Input; Assessment Hash `sha256:` and 64 zeros; Items `req~audit-log~1, req~lockout-notice~1, req~rate-limit~1`; Approved By `human`), closed by `---` on line 36 | the requirements stage's approval. The hash is a placeholder because currentness reads the items alone; the last three fields are the fork's |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md`      | 3        | `` `req~rate-limit~1` ``, body on lines 5-6                                                                                                                                                                                                                   | traced; bumped by the overlay                                                                                                                |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md`      | 8        | `` `req~lockout-notice~1` ``, body on lines 10-11 (`...shall tell the member` / `when they may try again.`)                                                                                                                                                   | traced; edited without a bump by the overlay                                                                                                 |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md`      | 13       | `` `req~audit-log~1` ``, body on line 15                                                                                                                                                                                                                      | traced, delivered by no task: `unplanned`                                                                                                    |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 3, 5     | `` `task~add-limiter~1` ``, body `Add a limiter that counts failed logins in a window.`                                                                                                                                                                       | the plan                                                                                                                                     |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 7        | `Delivers: req~rate-limit~1`                                                                                                                                                                                                                                  | the edge the bump leaves at the old revision                                                                                                 |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 9, 11    | `` `task~notify-lockout~1` ``, body `Tell the member when the lockout starts.`                                                                                                                                                                                | the plan                                                                                                                                     |
+| `aidlc/spaces/default/intents/260926-checkout/construction/code-generation/code-generation-plan.md` | 13-14    | `Delivers: req~lockout-notice~1` and `Depends: task~add-limiter~1`                                                                                                                                                                                            | the plan; the dependency a scenario closes into a cycle                                                                                      |
+| `src/checkout/auth.py`                                                                              | 4, 9, 14 | `# [impl->req~rate-limit~1]`, `# [impl->req~lockout-notice~1]`, `# [impl->req~audit-log~1]`                                                                                                                                                                   | the `impl` covers; line 4 is the tag the bump leaves at the old revision                                                                     |
+| `tests/test_auth.py`                                                                                | 4, 9, 14 | `# [utest->req~rate-limit~1]`, `# [utest->req~lockout-notice~1]`, `# [utest->req~audit-log~1]`                                                                                                                                                                | the `utest` covers; line 4 is the tag the bump leaves at the old revision                                                                    |
 
 At the base commit all three requirements are traced and one finding exists,
 `unplanned` on line 13 of `requirements.md`. The requirements stage has a
@@ -276,10 +277,10 @@ The `change/` overlay, the second commit on the branch
 `task/add-limiter-window`, a name that is fixture mechanics only, as Earnest
 reads no branch:
 
-| File | Line | Change | Finding |
-| --- | --- | --- | --- |
-| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 3, 5-6 | `req~rate-limit~1` becomes `req~rate-limit~2`, and the body now says thirty minutes | the bump: leaves the approval, the `Delivers:` edge and both tags at revision 1 |
-| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 11 | the line now reads `how long the lockout lasts.` and the id line stays `req~lockout-notice~1` | `unbumped-change`, given a record written before the change |
+| File                                                                                           | Line   | Change                                                                                        | Finding                                                                         |
+| ---------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 3, 5-6 | `req~rate-limit~1` becomes `req~rate-limit~2`, and the body now says thirty minutes           | the bump: leaves the approval, the `Delivers:` edge and both tags at revision 1 |
+| `aidlc/spaces/default/intents/260926-checkout/inception/requirements-analysis/requirements.md` | 11     | the line now reads `how long the lockout lasts.` and the id line stays `req~lockout-notice~1` | `unbumped-change`, given a record written before the change                     |
 
 After the change the approval no longer matches the stage's items, so the
 requirements stage is the frontier again. Findings in the code-generation stage
@@ -291,14 +292,14 @@ expected. SC5 holds all the same: each place is flagged in the same run.
 Each reading is a choice that the docs leave open or imply. A scenario that
 rests on one inherits it.
 
-| Reading | Basis |
-| --- | --- |
-| A task's `Delivers:` counts whatever the revision, so no `unplanned` fires for `req~rate-limit~2` after the bump | the Findings table of `01` says "delivered by no task" and does not mention revision; M1's `gap` lookup is revision-blind |
-| A tag or edge at an old revision reaches the code-generation stage through a task that delivers the same type and name | Stages in `01` |
-| `unbumped-change` is located at the item's id line | M1 locates item findings at the id line, and so do approval findings |
-| The `outdated` findings that a bump in an approved earlier stage causes are position `ahead` (level note) until that stage is re-approved | Frontier and position and Revision lifecycle in `01`, read together |
-| A stale stage approval is an `outdated` finding at level note, at its stage's position; the latest counting `GATE_APPROVED` row is the stage's approval | the Findings table and Frontier and position in `01` |
-| A hash is held per id and revision, replaced until a counting approval row names it, then frozen; `unbumped-change` fires only when a counting row names the id and revision, and a held hash that no counting row names is no baseline | Revision lifecycle in `01` |
+| Reading                                                                                                                                                                                                                                 | Basis                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| A task's `Delivers:` counts whatever the revision, so no `unplanned` fires for `req~rate-limit~2` after the bump                                                                                                                        | the Findings table of `01` says "delivered by no task" and does not mention revision; M1's `gap` lookup is revision-blind |
+| A tag or edge at an old revision reaches the code-generation stage through a task that delivers the same type and name                                                                                                                  | Stages in `01`                                                                                                            |
+| `unbumped-change` is located at the item's id line                                                                                                                                                                                      | M1 locates item findings at the id line, and so do approval findings                                                      |
+| The `outdated` findings that a bump in an approved earlier stage causes are position `ahead` (level note) until that stage is re-approved                                                                                               | Frontier and position and Revision lifecycle in `01`, read together                                                       |
+| A stale stage approval is an `outdated` finding at level note, at its stage's position; the latest counting `GATE_APPROVED` row is the stage's approval                                                                                 | the Findings table and Frontier and position in `01`                                                                      |
+| A hash is held per id and revision, replaced until a counting approval row names it, then frozen; `unbumped-change` fires only when a counting row names the id and revision, and a held hash that no counting row names is no baseline | Revision lifecycle in `01`                                                                                                |
 
 ### Stage status feature
 
@@ -859,13 +860,13 @@ of SC7. Each test calls the code its tag covers, and `test_audit_lockout` also
 calls `count_failed_logins`, so the coverage map and the tags select different
 tests for line 6.
 
-| File | Line | Seeded text | Role |
-| --- | --- | --- | --- |
-| `pytest.ini` | 1-2 | `[pytest]`, `pythonpath = src` | lets the map run import `checkout`; raises no finding |
-| `tests/test_auth.py` | 2 | `from checkout.auth import audit_lockout, count_failed_logins, lockout_message` | at collection, outside every test context |
-| `tests/test_auth.py` | 6 | `assert count_failed_logins(3) == 3` | covers `src/checkout/auth.py` line 6 under `test_count_failed_logins` |
-| `tests/test_auth.py` | 11 | `assert lockout_message().startswith("Try again")` | covers line 11 under `test_lockout_message` |
-| `tests/test_auth.py` | 16 | `assert audit_lockout(str(count_failed_logins(1))) == "1"` | covers lines 6 and 16 under `test_audit_lockout` |
+| File                 | Line | Seeded text                                                                     | Role                                                                  |
+| -------------------- | ---- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `pytest.ini`         | 1-2  | `[pytest]`, `pythonpath = src`                                                  | lets the map run import `checkout`; raises no finding                 |
+| `tests/test_auth.py` | 2    | `from checkout.auth import audit_lockout, count_failed_logins, lockout_message` | at collection, outside every test context                             |
+| `tests/test_auth.py` | 6    | `assert count_failed_logins(3) == 3`                                            | covers `src/checkout/auth.py` line 6 under `test_count_failed_logins` |
+| `tests/test_auth.py` | 11   | `assert lockout_message().startswith("Try again")`                              | covers line 11 under `test_lockout_message`                           |
+| `tests/test_auth.py` | 16   | `assert audit_lockout(str(count_failed_logins(1))) == "1"`                      | covers lines 6 and 16 under `test_audit_lockout`                      |
 
 Code lines are shown without their indentation. The tag lines 4, 9 and 14 of
 both files stay where M2 seeds them, and the base findings of M2 and M2b are
@@ -875,19 +876,19 @@ The `task/` overlay, `task/src/checkout/auth.py`, is committed on top of
 `change/`. The current task in most scenarios is `task~add-limiter~1`
 (`Delivers: req~rate-limit~1`, read on type and name):
 
-| File | Line | Change | Finding |
-| --- | --- | --- | --- |
-| `src/checkout/auth.py` | 2 | the blank line becomes `LIMIT = 5`, before the first tag, in no tag region | `out-of-task`, and `impact-degraded`, reaching no stage |
-| `src/checkout/auth.py` | 6 | `return min(window, LIMIT)`, in the region of the tag on line 4, which `change/` leaves at `req~rate-limit~1` | none: the region is already reported `outdated`, and lies inside the task; impact selects `test_count_failed_logins` and `test_audit_lockout` from the map |
-| `src/checkout/auth.py` | 11 | `return "Try again in fifteen minutes."`, in the `req~lockout-notice~1` region | `out-of-task`; impact selects `test_lockout_message` |
+| File                   | Line | Change                                                                                                        | Finding                                                                                                                                                    |
+| ---------------------- | ---- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/checkout/auth.py` | 2    | the blank line becomes `LIMIT = 5`, before the first tag, in no tag region                                    | `out-of-task`, and `impact-degraded`, reaching no stage                                                                                                    |
+| `src/checkout/auth.py` | 6    | `return min(window, LIMIT)`, in the region of the tag on line 4, which `change/` leaves at `req~rate-limit~1` | none: the region is already reported `outdated`, and lies inside the task; impact selects `test_count_failed_logins` and `test_audit_lockout` from the map |
+| `src/checkout/auth.py` | 11   | `return "Try again in fifteen minutes."`, in the `req~lockout-notice~1` region                                | `out-of-task`; impact selects `test_lockout_message`                                                                                                       |
 
 The rows that `change/` adds with a current task and a baseline:
 
-| File | Line | Change | Finding |
-| --- | --- | --- | --- |
-| `…/inception/requirements-analysis/requirements.md` | 3 | the id line `req~rate-limit~2` | `impact-degraded`; no `out-of-task`, as the stale-approval `outdated` note lies on the line |
-| `…/inception/requirements-analysis/requirements.md` | 5 | the body says thirty minutes | `out-of-task` and `impact-degraded` |
-| `…/inception/requirements-analysis/requirements.md` | 11 | the body says how long the lockout lasts | `out-of-task` and `impact-degraded` |
+| File                                                | Line | Change                                   | Finding                                                                                     |
+| --------------------------------------------------- | ---- | ---------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `…/inception/requirements-analysis/requirements.md` | 3    | the id line `req~rate-limit~2`           | `impact-degraded`; no `out-of-task`, as the stale-approval `outdated` note lies on the line |
+| `…/inception/requirements-analysis/requirements.md` | 5    | the body says thirty minutes             | `out-of-task` and `impact-degraded`                                                         |
+| `…/inception/requirements-analysis/requirements.md` | 11   | the body says how long the lockout lasts | `out-of-task` and `impact-degraded`                                                         |
 
 The prose `impact-degraded` findings count against
 `inception/requirements-analysis`, the stage whose artifact holds the line.
@@ -902,30 +903,30 @@ map are those of the base.
 
 ### Readings the M3 scenarios pin
 
-| Reading | Basis |
-| --- | --- |
-| The diff since the change baseline runs to the work tree, untracked files included, so uncommitted work counts, and the work tree may be on any branch or none | UC3 ("about to commit"), the Runtime and permission model, and the Out-of-task rule in `01` (the maintainer's decision: no check against Git branches) |
-| The out-of-task check and impact read changed lines only in files the scanner reads, the evaluated tree. An appended audit row or a state-file edit raises nothing | a region exists only in a scanned source, and `02` keeps skipped files out of the evaluated tree (maintainer decision i) |
-| A changed region is a tag region that holds a changed line, or one hunk of changed lines outside every tag region, Markdown prose included; its finding is located at its first changed line | the Region rule read strictly, with prose kept in scope as `01` stands (maintainer decisions a and R1h′) |
-| A region is already reported `outdated` when an `outdated` finding is located on one of its lines, the stale-approval note included | D11 in `01` |
-| An `out-of-task` finding counts against the stage that holds the current task, at position current, so its message opens `in scope at construction/code-generation` even while that stage is ahead | Frontier and position in `01`: "current: … the current task" |
-| `impact-degraded` is one note per changed line in no tag region, blank lines included. A line in a stage artifact counts against that stage, taking that stage's position; a code or test line in no tag region reaches no stage | the Impact rule in `01`, read literally (maintainer decisions R1h′ and ii); M2's placement of a finding in a stage artifact |
-| The first two exits clear the finding: a region whose tags a task item added in the diff delivers, on type and name, is not out-of-task, and the hunk that adds the task item raises none; the finding stands after a declared block | the Out-of-task rule in `01` (E1, as the maintainer re-derived it) |
-| A modified line is seen through the base line its diff hunk pairs it with; an added line beyond the pairing is one the map never saw | the Impact rule and D12 in `01` |
-| A test tag matches a requirement on type and name, so `[utest->req~rate-limit~1]` still selects its test after the bump | the Out-of-task rule's revision-blind matching, and M2's reading of `Delivers:` |
-| The impacted requirements are those the tags of the changed tag regions name, at their current revision; the features are the `feat` items they cover, none on the `bugfix` route, whose chain root is `req` | the Impact rule and Stages in `01` (E2) |
-| Tests are named by pytest node id, the per-test context with its phase suffix dropped | pytest-cov's `--cov-context=test` |
-| The full suite is every test the coverage map holds a context for; when impact selects the full suite with no map, `properties.impact` records `tests` as `[]` with `degraded` true, and the summary says so explicitly, as `tests: the full suite` | D12 in `01` (Lead decision) |
-| A change that only deletes lines forms no region and raises no `out-of-task`; deleting another requirement's code is a known limit | the Out-of-task rule in `01`, read literally (Lead decision) |
-| A line deleted since the baseline selects the tests that covered it in the baseline's map; with no such data (no map for the baseline, or no context for the line in that map) it raises `impact-degraded` at the line the deletion follows, naming its baseline line, and selects the full suite. No table here deletes a line | the Impact rule in `01` (Manager decision) |
-| A file deleted since the baseline, whose path the scanner would read, is read whole as deleted lines; its `impact-degraded` notes sit at line 1 of the deleted path, a deleted stage artifact counting against its stage and deleted code reaching no stage. A deleted audit shard or state file raises nothing, and no deleted file raises `out-of-task` | the Impact rule in `01` (Lead decision) |
-| Only the hunk of a task item that delivers one of the changed regions' tags is the proposal; a hunk adding a task that delivers none is out-of-task | the Out-of-task rule in `01`: "the hunk that adds such a task item" |
-| A line can lie in two tag regions, when the regions of one id merge across another tag's group; each changed region is then its own finding, read on its own tags | the Region rule in `01`, read literally |
-| `out-of-task` and `impact-degraded` stay out of the assessment document, so the hash of a stage check is the same whether a current task, a baseline or a coverage map exists | the Assessment hash section of `01` |
-| A stage check of a dirty work tree, or a map run that times out, ends with pytest exit code 2 to 5 or leaves no data, takes no map; the summary names the cause and the record's `coverage` stays as it was | the Impact rule in `01` |
-| The current task is `--task`, else the one `- **Current Task**:` line of an intent's state file, under `## Project Information`, naming a task of that intent on type and name; no such line, several, or a value naming no task gives no current task and one summary line | the Out-of-task rule in `01`, a marker the maintainer ratified: AI-DLC's state file is the stage state Earnest already reads raw, outside the evaluated tree, so moving the task changes no hash and no diff |
-| The change baseline is the `commit` of the run header of the stage, current or outdated in its approval, whose approval row's `Assessment Hash` equals its header's `hash`, taking the latest such row in audit order; the seeded approval row's placeholder hash matches no header, so a scenario records a baseline by a stage check and a fresh approval at the gate. No baseline, or a commit Git no longer holds, gives one summary line | the Out-of-task rule in `01` (the maintainer's decision), read through the record's run headers and the audit rows as M2 keeps them |
-| Without a current task, or without a baseline, the check holds no `out-of-task` or `impact-degraded` finding, no `properties.impact` and no impact section, and the reason is a summary line, not a SARIF result | the Out-of-task and Impact rules in `01`: impact runs with the out-of-task check, as the baseline belongs to the current task's intent |
+| Reading                                                                                                                                                                                                                                                                                                                                                                                                                                       | Basis                                                                                                                                                                                                        |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The diff since the change baseline runs to the work tree, untracked files included, so uncommitted work counts, and the work tree may be on any branch or none                                                                                                                                                                                                                                                                                | UC3 ("about to commit"), the Runtime and permission model, and the Out-of-task rule in `01` (the maintainer's decision: no check against Git branches)                                                       |
+| The out-of-task check and impact read changed lines only in files the scanner reads, the evaluated tree. An appended audit row or a state-file edit raises nothing                                                                                                                                                                                                                                                                            | a region exists only in a scanned source, and `02` keeps skipped files out of the evaluated tree (maintainer decision i)                                                                                     |
+| A changed region is a tag region that holds a changed line, or one hunk of changed lines outside every tag region, Markdown prose included; its finding is located at its first changed line                                                                                                                                                                                                                                                  | the Region rule read strictly, with prose kept in scope as `01` stands (maintainer decisions a and R1h′)                                                                                                     |
+| A region is already reported `outdated` when an `outdated` finding is located on one of its lines, the stale-approval note included                                                                                                                                                                                                                                                                                                           | D11 in `01`                                                                                                                                                                                                  |
+| An `out-of-task` finding counts against the stage that holds the current task, at position current, so its message opens `in scope at construction/code-generation` even while that stage is ahead                                                                                                                                                                                                                                            | Frontier and position in `01`: "current: … the current task"                                                                                                                                                 |
+| `impact-degraded` is one note per changed line in no tag region, blank lines included. A line in a stage artifact counts against that stage, taking that stage's position; a code or test line in no tag region reaches no stage                                                                                                                                                                                                              | the Impact rule in `01`, read literally (maintainer decisions R1h′ and ii); M2's placement of a finding in a stage artifact                                                                                  |
+| The first two exits clear the finding: a region whose tags a task item added in the diff delivers, on type and name, is not out-of-task, and the hunk that adds the task item raises none; the finding stands after a declared block                                                                                                                                                                                                          | the Out-of-task rule in `01` (E1, as the maintainer re-derived it)                                                                                                                                           |
+| A modified line is seen through the base line its diff hunk pairs it with; an added line beyond the pairing is one the map never saw                                                                                                                                                                                                                                                                                                          | the Impact rule and D12 in `01`                                                                                                                                                                              |
+| A test tag matches a requirement on type and name, so `[utest->req~rate-limit~1]` still selects its test after the bump                                                                                                                                                                                                                                                                                                                       | the Out-of-task rule's revision-blind matching, and M2's reading of `Delivers:`                                                                                                                              |
+| The impacted requirements are those the tags of the changed tag regions name, at their current revision; the features are the `feat` items they cover, none on the `bugfix` route, whose chain root is `req`                                                                                                                                                                                                                                  | the Impact rule and Stages in `01` (E2)                                                                                                                                                                      |
+| Tests are named by pytest node id, the per-test context with its phase suffix dropped                                                                                                                                                                                                                                                                                                                                                         | pytest-cov's `--cov-context=test`                                                                                                                                                                            |
+| The full suite is every test the coverage map holds a context for; when impact selects the full suite with no map, `properties.impact` records `tests` as `[]` with `degraded` true, and the summary says so explicitly, as `tests: the full suite`                                                                                                                                                                                           | D12 in `01` (Lead decision)                                                                                                                                                                                  |
+| A change that only deletes lines forms no region and raises no `out-of-task`; deleting another requirement's code is a known limit                                                                                                                                                                                                                                                                                                            | the Out-of-task rule in `01`, read literally (Lead decision)                                                                                                                                                 |
+| A line deleted since the baseline selects the tests that covered it in the baseline's map; with no such data (no map for the baseline, or no context for the line in that map) it raises `impact-degraded` at the line the deletion follows, naming its baseline line, and selects the full suite. No table here deletes a line                                                                                                               | the Impact rule in `01` (Manager decision)                                                                                                                                                                   |
+| A file deleted since the baseline, whose path the scanner would read, is read whole as deleted lines; its `impact-degraded` notes sit at line 1 of the deleted path, a deleted stage artifact counting against its stage and deleted code reaching no stage. A deleted audit shard or state file raises nothing, and no deleted file raises `out-of-task`                                                                                     | the Impact rule in `01` (Lead decision)                                                                                                                                                                      |
+| Only the hunk of a task item that delivers one of the changed regions' tags is the proposal; a hunk adding a task that delivers none is out-of-task                                                                                                                                                                                                                                                                                           | the Out-of-task rule in `01`: "the hunk that adds such a task item"                                                                                                                                          |
+| A line can lie in two tag regions, when the regions of one id merge across another tag's group; each changed region is then its own finding, read on its own tags                                                                                                                                                                                                                                                                             | the Region rule in `01`, read literally                                                                                                                                                                      |
+| `out-of-task` and `impact-degraded` stay out of the assessment document, so the hash of a stage check is the same whether a current task, a baseline or a coverage map exists                                                                                                                                                                                                                                                                 | the Assessment hash section of `01`                                                                                                                                                                          |
+| A stage check of a dirty work tree, or a map run that times out, ends with pytest exit code 2 to 5 or leaves no data, takes no map; the summary names the cause and the record's `coverage` stays as it was                                                                                                                                                                                                                                   | the Impact rule in `01`                                                                                                                                                                                      |
+| The current task is `--task`, else the one `- **Current Task**:` line of an intent's state file, under `## Project Information`, naming a task of that intent on type and name; no such line, several, or a value naming no task gives no current task and one summary line                                                                                                                                                                   | the Out-of-task rule in `01`, a marker the maintainer ratified: AI-DLC's state file is the stage state Earnest already reads raw, outside the evaluated tree, so moving the task changes no hash and no diff |
+| The change baseline is the `commit` of the run header of the stage, current or outdated in its approval, whose approval row's `Assessment Hash` equals its header's `hash`, taking the latest such row in audit order; the seeded approval row's placeholder hash matches no header, so a scenario records a baseline by a stage check and a fresh approval at the gate. No baseline, or a commit Git no longer holds, gives one summary line | the Out-of-task rule in `01` (the maintainer's decision), read through the record's run headers and the audit rows as M2 keeps them                                                                          |
+| Without a current task, or without a baseline, the check holds no `out-of-task` or `impact-degraded` finding, no `properties.impact` and no impact section, and the reason is a summary line, not a SARIF result                                                                                                                                                                                                                              | the Out-of-task and Impact rules in `01`: impact runs with the out-of-task check, as the baseline belongs to the current task's intent                                                                       |
 
 ### Task change feature
 
@@ -1317,15 +1318,15 @@ The `override/` overlay is one file,
 top of the base commit. The base commit's short sha is `89f3937`; the conftest
 pins its author, committer and dates, so it is the same on every run.
 
-| Line | Text | Role |
-| --- | --- | --- |
-| 1 | `# Requirements` | as in the base |
-| 3, 5-6 | `` `req~rate-limit~1` `` and its base body | EARS: response only |
-| 8 | `Override: req~rate-limit~1 implemented at 89f3937, the gateway enforces the lockout; this code only counts the window.` | replaces the judge's `implemented` question for `req~rate-limit~1` |
-| 10, 12-13 | `` `req~lockout-notice~1` `` and its base body | EARS: trigger and response |
-| 15 | `Override: req~lockout-notice~1 implemented at 89f3937, the support desk approved "Try again later." as the wording.` | replaces the judge's `implemented` question for `req~lockout-notice~1` |
-| 17 | `` `req~audit-log~1` `` | the id, at its base revision |
-| 19 | `Lockouts go into the audit log.` | not EARS: no `shall`; `req-not-ears` at line 17 |
+| Line      | Text                                                                                                                     | Role                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| 1         | `# Requirements`                                                                                                         | as in the base                                                         |
+| 3, 5-6    | `` `req~rate-limit~1` `` and its base body                                                                               | EARS: response only                                                    |
+| 8         | `Override: req~rate-limit~1 implemented at 89f3937, the gateway enforces the lockout; this code only counts the window.` | replaces the judge's `implemented` question for `req~rate-limit~1`     |
+| 10, 12-13 | `` `req~lockout-notice~1` `` and its base body                                                                           | EARS: trigger and response                                             |
+| 15        | `Override: req~lockout-notice~1 implemented at 89f3937, the support desk approved "Try again later." as the wording.`    | replaces the judge's `implemented` question for `req~lockout-notice~1` |
+| 17        | `` `req~audit-log~1` ``                                                                                                  | the id, at its base revision                                           |
+| 19        | `Lockouts go into the audit log.`                                                                                        | not EARS: no `shall`; `req-not-ears` at line 17                        |
 
 Lines 2, 4, 7, 9, 11, 14, 16 and 18 are blank. The base tags in
 `src/checkout/auth.py` and `tests/test_auth.py` are unchanged, so every
@@ -1335,39 +1336,39 @@ record holds no body hash and the edit of line 19 raises no
 
 The `override-change/` overlay, committed on `main` on top of `override/`:
 
-| File | Line | Change | Finding |
-| --- | --- | --- | --- |
-| `…/inception/requirements-analysis/requirements.md` | 3 | `req~rate-limit~2`, the body of lines 5-6 saying thirty minutes, as in M2's `change/` | M2's stale-approval and `outdated` rows; `override-expired` at line 8, whose override stays at revision 1 |
-| `src/checkout/auth.py` | 11 | `return "Try again shortly."`, in the `req~lockout-notice~1` region | `override-drift` at line 15: the region changed since `89f3937` |
+| File                                                | Line | Change                                                                                | Finding                                                                                                   |
+| --------------------------------------------------- | ---- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `…/inception/requirements-analysis/requirements.md` | 3    | `req~rate-limit~2`, the body of lines 5-6 saying thirty minutes, as in M2's `change/` | M2's stale-approval and `outdated` rows; `override-expired` at line 8, whose override stays at revision 1 |
+| `src/checkout/auth.py`                              | 11   | `return "Try again shortly."`, in the `req~lockout-notice~1` region                   | `override-drift` at line 15: the region changed since `89f3937`                                           |
 
 `judge-verdicts.json`, at the fixture's root, answers three questions. It
 holds no answer for `req~rate-limit~1 implemented`, so a judge that asked an
 overridden question would exit 2.
 
-| Requirement | Question | Result | Reasoning | Location |
-| --- | --- | --- | --- | --- |
-| `req~rate-limit~1` | `tested` | `not-satisfied` | `test_count_failed_logins counts three failed logins and never reaches the fifth, so no lockout is asserted.` | `tests/test_auth.py` line 6 |
-| `req~lockout-notice~1` | `implemented` | `not-satisfied` | `lockout_message returns a fixed text that never says when the member may try again.` | `src/checkout/auth.py` line 11 |
-| `req~lockout-notice~1` | `tested` | `satisfied` | `test_lockout_message asserts that the message tells the member to try again.` | `tests/test_auth.py` line 11 |
+| Requirement            | Question      | Result          | Reasoning                                                                                                     | Location                       |
+| ---------------------- | ------------- | --------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `req~rate-limit~1`     | `tested`      | `not-satisfied` | `test_count_failed_logins counts three failed logins and never reaches the fifth, so no lockout is asserted.` | `tests/test_auth.py` line 6    |
+| `req~lockout-notice~1` | `implemented` | `not-satisfied` | `lockout_message returns a fixed text that never says when the member may try again.`                         | `src/checkout/auth.py` line 11 |
+| `req~lockout-notice~1` | `tested`      | `satisfied`     | `test_lockout_message asserts that the message tells the member to try again.`                                | `tests/test_auth.py` line 11   |
 
 ### Readings the M4 scenarios pin
 
-| Reading | Basis |
-| --- | --- |
-| `--judge` takes its model from `EARNEST_JUDGE`; `stub:<path>` answers from the canned-verdict file, keyed by requirement id and revision, then by question, with `result`, `reasoning` and `location` | the Runtime and permission model in `01` (the maintainer's decision) |
-| The judge asks two questions of each traced requirement that parses as EARS: `implemented` of its `impl` regions and `tested` of its test regions, with the question text built from the clause spans. An untraced or unparsed requirement is asked nothing | D14 and D2 in `01`; the two questions match the two override kinds of the Override rule |
-| An overridden question is not asked. Its override is the observation of record: method `inspection`, author `maintainer`, result `satisfied`, the override's reason as reasoning, located at the `Override:` line | the Process vocabulary and the Override rule in `01`: an override replaces the judge's observation for one item, revision and kind |
-| The observations of record, one per question of each judged requirement, travel under the run's `properties.observations`, sorted by requirement and question; each has `method`, `subject`, `question`, `author`, `result`, `reasoning` and `location` | the SARIF 2.1.0 section of `01`, whose result observations carry method, subject, result, reasoning and location; `author` separates the judge's from the maintainer's, as the Process vocabulary does |
-| `req-not-ears` is raised on every check, judge or not, at the requirement's id line, as an error; the requirement can still be traced | D2 in `01`; `ears.py` sits in the Assessor beside the trace layer (`02`) |
-| `judge-not-satisfied` is one warning per not-satisfied observation of record, at the verdict's location when that lies in a region the question asked about, else at the requirement's id line; the finding carries the observation | the findings table and the Process vocabulary in `01` |
-| `judge-uncalibrated` is one warning per judge run, located at line 1 of `.earnest/assessment.json`, whose `calibration` slot holds no passing result; it reaches no stage, and its message names the model id and the prompt hash | the Command surface in `01`: "every judge run raises `judge-uncalibrated`" |
-| The stub's model id is `stub:sha256:` and the SHA-256 of the canned-verdict file; it and the prompt hash go into the judge cache key | the Runtime and permission model and the Process vocabulary in `01` |
-| A requirement is judged when it is traced and each of its two questions is satisfied or overridden; the judged percentage counts it among all requirements, rounded down | the Trace levels table in `01`; M1's percentages |
-| An override is read from the requirement's own item, and its `at` commit resolves through Git; its region is the requirement's regions of its kind: `impl` regions for `implemented`, test regions for `tested` | the Override rule and the Region rule in `01` |
-| An override whose revision is not the item's current one raises `override-expired` at its `Override:` line and drops out of the verdict, and is not checked for drift | the Override rule in `01` |
-| An override whose region changed between its commit and the work tree raises `override-drift` at its `Override:` line; the judge reruns the question, the override stays the observation of record, and the finding carries both observations, the override's and the rerun's. The rerun raises no `judge-not-satisfied` of its own | the Override rule and D3 in `01`: the override stands while the code holds still, and surfaces the moment it moves |
-| `override-expired`, `override-drift` and `req-not-ears` count against the stage whose artifact holds their line | M2's placement of a finding in a stage artifact |
-| `--judge` writes the record's `judge` slot, the judge cache; a second run with an unchanged key reuses the observations, and writes the same SARIF log | the Runtime and permission model and the Process vocabulary in `01` |
+| Reading                                                                                                                                                                                                                                                                                                                             | Basis                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--judge` takes its model from `EARNEST_JUDGE`; `stub:<path>` answers from the canned-verdict file, keyed by requirement id and revision, then by question, with `result`, `reasoning` and `location`                                                                                                                               | the Runtime and permission model in `01` (the maintainer's decision)                                                                                                                                   |
+| The judge asks two questions of each traced requirement that parses as EARS: `implemented` of its `impl` regions and `tested` of its test regions, with the question text built from the clause spans. An untraced or unparsed requirement is asked nothing                                                                         | D14 and D2 in `01`; the two questions match the two override kinds of the Override rule                                                                                                                |
+| An overridden question is not asked. Its override is the observation of record: method `inspection`, author `maintainer`, result `satisfied`, the override's reason as reasoning, located at the `Override:` line                                                                                                                   | the Process vocabulary and the Override rule in `01`: an override replaces the judge's observation for one item, revision and kind                                                                     |
+| The observations of record, one per question of each judged requirement, travel under the run's `properties.observations`, sorted by requirement and question; each has `method`, `subject`, `question`, `author`, `result`, `reasoning` and `location`                                                                             | the SARIF 2.1.0 section of `01`, whose result observations carry method, subject, result, reasoning and location; `author` separates the judge's from the maintainer's, as the Process vocabulary does |
+| `req-not-ears` is raised on every check, judge or not, at the requirement's id line, as an error; the requirement can still be traced                                                                                                                                                                                               | D2 in `01`; `ears.py` sits in the Assessor beside the trace layer (`02`)                                                                                                                               |
+| `judge-not-satisfied` is one warning per not-satisfied observation of record, at the verdict's location when that lies in a region the question asked about, else at the requirement's id line; the finding carries the observation                                                                                                 | the findings table and the Process vocabulary in `01`                                                                                                                                                  |
+| `judge-uncalibrated` is one warning per judge run, located at line 1 of `.earnest/assessment.json`, whose `calibration` slot holds no passing result; it reaches no stage, and its message names the model id and the prompt hash                                                                                                   | the Command surface in `01`: "every judge run raises `judge-uncalibrated`"                                                                                                                             |
+| The stub's model id is `stub:sha256:` and the SHA-256 of the canned-verdict file; it and the prompt hash go into the judge cache key                                                                                                                                                                                                | the Runtime and permission model and the Process vocabulary in `01`                                                                                                                                    |
+| A requirement is judged when it is traced and each of its two questions is satisfied or overridden; the judged percentage counts it among all requirements, rounded down                                                                                                                                                            | the Trace levels table in `01`; M1's percentages                                                                                                                                                       |
+| An override is read from the requirement's own item, and its `at` commit resolves through Git; its region is the requirement's regions of its kind: `impl` regions for `implemented`, test regions for `tested`                                                                                                                     | the Override rule and the Region rule in `01`                                                                                                                                                          |
+| An override whose revision is not the item's current one raises `override-expired` at its `Override:` line and drops out of the verdict, and is not checked for drift                                                                                                                                                               | the Override rule in `01`                                                                                                                                                                              |
+| An override whose region changed between its commit and the work tree raises `override-drift` at its `Override:` line; the judge reruns the question, the override stays the observation of record, and the finding carries both observations, the override's and the rerun's. The rerun raises no `judge-not-satisfied` of its own | the Override rule and D3 in `01`: the override stands while the code holds still, and surfaces the moment it moves                                                                                     |
+| `override-expired`, `override-drift` and `req-not-ears` count against the stage whose artifact holds their line                                                                                                                                                                                                                     | M2's placement of a finding in a stage artifact                                                                                                                                                        |
+| `--judge` writes the record's `judge` slot, the judge cache; a second run with an unchanged key reuses the observations, and writes the same SARIF log                                                                                                                                                                              | the Runtime and permission model and the Process vocabulary in `01`                                                                                                                                    |
 
 ### Judge check feature
 
@@ -1578,13 +1579,13 @@ mutants survive with the second mutant of `lockout_message`.
 
 ### Readings the M5 scenarios pin
 
-| Reading | Basis |
-| --- | --- |
-| Surviving mutants raise one `evidence-failed`, an error, per line that holds one, against each requirement the region's tags cover | the Evidence rule and the findings table in `01` |
-| A surviving mutant outside every tagged region raises nothing | the Evidence rule and D4 in `01`: Earnest filters the tool's results by region |
-| `evidence-failed` counts against the Code Generation stage of the task that delivers the requirement; in the base history that stage is the frontier, so the finding is current | Frontier and position in `01`; `stage_status.feature` |
-| Evidenced is judged with a passing result under a key that matches the tree; where no model runs (plain `check`, `plan`), the matching `passed` entry stands for judged | Trace levels in `01`; E1 |
-| `earnest plan` reads the `evidence` slot and shows a task done when each delivered `req` is evidenced and each delivered `dsn` traced, and its unit done by Computed status | Computed status and the Command surface in `01`; E1 |
+| Reading                                                                                                                                                                         | Basis                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Surviving mutants raise one `evidence-failed`, an error, per line that holds one, against each requirement the region's tags cover                                              | the Evidence rule and the findings table in `01`                               |
+| A surviving mutant outside every tagged region raises nothing                                                                                                                   | the Evidence rule and D4 in `01`: Earnest filters the tool's results by region |
+| `evidence-failed` counts against the Code Generation stage of the task that delivers the requirement; in the base history that stage is the frontier, so the finding is current | Frontier and position in `01`; `stage_status.feature`                          |
+| Evidenced is judged with a passing result under a key that matches the tree; where no model runs (plain `check`, `plan`), the matching `passed` entry stands for judged         | Trace levels in `01`; E1                                                       |
+| `earnest plan` reads the `evidence` slot and shows a task done when each delivered `req` is evidenced and each delivered `dsn` traced, and its unit done by Computed status     | Computed status and the Command surface in `01`; E1                            |
 
 ### Evidence check feature
 
@@ -1676,9 +1677,9 @@ Feature: Evidence check
   `unit~u2~1`'s frontier, a note, so they assert the plan, not the exit code.
 - New steps, bound in `tests/steps/test_evidence_check.py`:
   - `the coding agent runs earnest check --evidence`, and `the coding agent
-    has run earnest check --evidence` (below).
+has run earnest check --evidence` (below).
   - `the repo maintainer's evidence overlay is committed` and `the repo
-    maintainer's units evidence overlay is committed`: the two overlay commits
+maintainer's units evidence overlay is committed`: the two overlay commits
     on `main`.
   - `the SARIF log holds no finding at "<file>" line <n>`: no SARIF result is
     located at that file and line, whatever its rule.
@@ -1818,9 +1819,9 @@ Feature: Calibration gate
   `<rule>` finding" are rebound from `test_judge_check.py` and
   `test_evidence_check.py`; only `conftest.py` steps are shared.
 - The steps read calibrate's stdout: line 1 is `calibration of <model id> with
-  the prompt <prompt hash>`; then one line per requirement, sorted by id:
+the prompt <prompt hash>`; then one line per requirement, sorted by id:
   `<id>  judge <implemented>/<tested>  maintainer <implemented>/<tested>
-  <match|differs>`, columns split on runs of spaces.
+<match|differs>`, columns split on runs of spaces.
 - Indented lines (four spaces) under a differing row carry reasoning detail
   and are ignored by the steps. The last two lines are `matches: <n>/10` and
   `pass` or `fail`.
@@ -1830,23 +1831,358 @@ Feature: Calibration gate
   share one record. The guard example "EARNEST_JUDGE is unset" fails today on
   argparse's two-line usage error, so the CLI must exit 2 with one line.
 
+## M8 `typescript_evidence`
+
+Status: the scenarios are PROPOSED. They rest on the gating answers of the task
+plan
+[2026-11-25-typescript-evidence.md](../superpowers/plans/2026-11-25-typescript-evidence.md),
+which the maintainer decided on 2026-11-25, and on a StrykerJS run of the drafted fixture
+that Task 2 Step 2 of that plan makes. The `evidenced 50%` and `remaining` rows
+rest on a DERIVED row of that plan's mutant table and are confirmed before the
+maintainer ratifies this text.
+
+- Feature: `packages/earnest/tests/features/typescript_evidence.feature`,
+  bound by `tests/steps/test_typescript_evidence.py`.
+- Fixture: `tests/fixtures/ts-evidence/`, plain files committed once on `main`
+  at test time, with the canned verdicts `evidence-verdicts.json`, which no
+  commit holds.
+- Success criteria asserted: SC3 for TypeScript. Readings: the Evidence rule
+  and D4 in `01`, and E1 of the M5 task plan.
+
+The step that names the Node tools fails, never skips, when one is missing.
+
+| Reading                                                                                                                                                       | Basis                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| A surviving StrykerJS mutant raises one `evidence-failed`, an error, per line that holds one, against each requirement the region's tags cover                | the Evidence rule and the findings table in `01`; M5's reading            |
+| A surviving mutant on a line outside every region raises nothing                                                                                              | the Evidence rule and D4: Earnest filters the tool's results by region    |
+| `Survived` and `NoCoverage` surviving, `Killed`, `Timeout` and `CompileError` killed, `Ignored` skipped; any other status makes the run incomplete, exit 2    | M5's mapping of mutmut's statuses, carried over by the table of this plan |
+| Evidenced is judged with a passing result under a key that matches the tree; a plain `check` reads the key without running a tool                             | E1; Trace levels in `01`                                                  |
+| The key's `tool` for a TypeScript requirement is `stryker <version>`, so an upgrade of StrykerJS drops the requirement below evidenced until the check reruns | E1                                                                        |
+| An evidence run without StrykerJS, or one that gives no report, exits 2 with one line naming it; a plain `check` needs no Node tool                           | the Command surface of `01`: a check that fails to run exits 2            |
+
+### TypeScript evidence feature
+
+```gherkin
+Feature: TypeScript evidence
+  Against the stub model, the coding agent learns from the check which tagged
+  regions of a TypeScript repository hold a surviving StrykerJS mutant, and
+  which level each requirement reaches, with the same three separate
+  percentages as for Python (SC3). The feature runs Jest and StrykerJS from
+  the package's Node toolchain, and fails when they are missing.
+
+  Scenario: The evidence check reports a surviving StrykerJS mutant in a tagged region (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the SARIF log holds exactly these findings:
+      | rule                       | file                     | line | level   | position | stage |
+      | earnest/judge-uncalibrated | .earnest/assessment.json | 1    | warning | current  | -     |
+      | earnest/evidence-failed    | src/limits.ts            | 11   | error   | current  | -     |
+    And the check exits non-zero
+
+  Scenario: A surviving mutant outside every tagged region raises nothing (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the SARIF log holds no finding at "src/limits.ts" line 3
+    And the SARIF log holds an earnest/evidence-failed finding at "src/limits.ts" line 11
+
+  Scenario: Each requirement lands at exactly one trace level, with three percentages (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level     |
+      | req~limit-boundary~1 | judged    |
+      | req~remaining~1      | evidenced |
+    And the summary leads with "traced 100%, judged 100%, evidenced 50%; requirements: 2"
+
+  Scenario: After the evidence check, a plain check keeps the TypeScript requirement evidenced (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    And the coding agent has run earnest check --evidence
+    When the coding agent runs earnest check
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level     |
+      | req~limit-boundary~1 | traced    |
+      | req~remaining~1      | evidenced |
+    And the summary leads with "traced 100%, judged 50%, evidenced 50%; requirements: 2"
+
+  Scenario: An edit to the tested TypeScript drops the requirement below evidenced until the check reruns (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with Node, Jest and StrykerJS on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    And the coding agent has run earnest check --evidence
+    And the coding agent has an uncommitted edit to the TypeScript test of "req~remaining~1"
+    When the coding agent runs earnest check
+    Then the SARIF log gives each requirement one trace level:
+      | requirement          | level  |
+      | req~limit-boundary~1 | traced |
+      | req~remaining~1      | traced |
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+
+  Scenario: Without --evidence the check needs no Node tool (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with no Node tools on the path
+    When the coding agent runs earnest check
+    Then the check exits zero
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+
+  Scenario: Without StrykerJS the evidence check exits 2 and names the tool (SC3)
+    Given the repo maintainer's "ts-evidence" repository, with no Node tools on the path
+    And the judge is the stub model with the canned evidence verdicts of "ts-evidence"
+    When the coding agent runs earnest check --evidence
+    Then the check exits with code 2, with empty stdout
+    And the one line on stderr names "StrykerJS"
+```
+
+## M9 `openspec_host`
+
+Status: the scenarios are PROPOSED. M9 is ratified as a second host and is OUTSIDE v1 (the maintainer's decision of 2026-11-25), so this file's count stays "nine in all". They rest on the gating answers of the
+task plan
+[2026-11-25-openspec-host.md](../superpowers/plans/2026-11-25-openspec-host.md),
+which the maintainer decided on 2026-11-25, including `SHALL` read as the exact
+keyword `shall` or `SHALL` with no `MUST`. The scenarios of the intent, the stage
+check, the overlay and the box rest on answers 6, 7, 8, 9 and 10 of that
+plan. Tables marked DERIVED are
+read from separate runs of the spike prototypes on the drafted fixture, and the
+plan's Task 9 Step 2 confirms them against the combined tree before the
+maintainer ratifies this text.
+
+- Feature: `packages/earnest/tests/features/openspec_host.feature`, bound by
+  `tests/steps/test_openspec_host.py`.
+- Fixture: `tests/fixtures/openspec-change/`, a synthetic lockout repository,
+  plain files committed once on `main` at test time. Its base holds
+  `docs/intent.md` (the tenet, goal and feature), `openspec/config.yaml`, one
+  main spec of two requirements, and two tagged functions and tests. Overlays
+  left out of the base commit, each committed on request by a step: `defects`
+  (two more requirements and a mistyped tag), `archive` (one archived change),
+  `change` (one change in flight, with a MODIFIED and an ADDED requirement and
+  a `tasks.md` of three boxes), `approved` (the maintainer's gate row that
+  approves the change's `specs` stage and names its two items) and `unbumped`
+  (a body edited at the same revision). `judge-verdicts.json` sits beside them
+  and is left out of the commit. Nothing in it comes from a real repository.
+- Success criteria asserted: SC1, SC2, SC3, SC5, SC8 (task status), SC9 (run
+  header), SC10 (messages). Readings: the Grammar and D2 of `01` (the keyword),
+  Adopting OpenSpec in `01` (ids, layers, the archive skip, a change as an
+  intent, the box), the Revision lifecycle, and the Findings table.
+
+The judge is the stub model wherever a scenario names it, so no network is
+reached. A scenario cannot remove its own Background, so the guard that a
+missing `openspec` CLI fails the feature, and never skips it, is tested at the
+unit tier (`tests/unit/test_node.py`), and the Background's step fails
+with the same one line.
+
+### What `openspec-change` seeds
+
+| Defect                                   | File and line                                                                       | Finding                                                               |
+| ---------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| A tag names no requirement               | `src/lockout.py:18`                                                                 | `earnest/orphaned`, suggesting `req~lockout-message~1`                |
+| A requirement of two sentences           | `openspec/specs/lockout/spec.md:29`, its id line                                    | `earnest/req-not-ears`, and two `earnest/gap` (no `impl`, no `utest`) |
+| A requirement no tag reaches             | `openspec/specs/lockout/spec.md:39`                                                 | two `earnest/gap`                                                     |
+| Tags at the superseded revision          | `src/lockout.py:6`, `tests/test_lockout.py:6`, with the `change` layer              | `earnest/outdated`                                                    |
+| A requirement nothing implements         | `openspec/changes/lockout-window/specs/lockout/spec.md:16`, with the `change` layer | two `earnest/gap`                                                     |
+| Boxes ticked on unevidenced requirements | `openspec/changes/lockout-window/tasks.md:5` and `:9`, with the `change` layer      | `earnest/checked-unevidenced`                                         |
+
+### Readings the M9 scenarios pin
+
+| Reading                                                                                                                                                                                                                              | Basis                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| The keyword is `shall` or `SHALL` and no other case; the five templates in the message stay lowercase                                                                                                                                | answer 1 of the plan (DECIDED 2026-11-25, option A); D2 |
+| An id line sits directly under a `### Requirement:` heading, with `Covers:` below it; the `feat`, `goal` and `tenet` sit in `docs/intent.md`                                                                                         | answer 3 of the plan; S2 and S12                        |
+| `openspec/changes/archive/` is not read, below the root `openspec/` only                                                                                                                                                             | answers 8 and 11; S6                                    |
+| A requirement in a change in flight at a higher revision supersedes its main copy, and links at the old revision are `outdated` (SC5)                                                                                                | answer 8; spike C's design C                            |
+| A change below the root `openspec/changes/` is an intent, and its stages are `proposal`, `specs`, `design` and `tasks`, in the route the CLI gives                                                                                   | answers 6, 7 and 11; spike D                            |
+| A stage's artifact existing counts as approval "by openspec", and a gate row overrides it                                                                                                                                            | answer 6                                                |
+| A box is ticked by `x` or `X` alone, and a tick leaves the task's body hash as it was                                                                                                                                                | answer 10; S10                                          |
+| A body hash is frozen only for an item that a counting `GATE_APPROVED` row names. An artifact approved "by openspec" names none, so `unbumped-change` fires only after the `approved` layer's row                                    | answer 6; `next_bodies` and `_named` in `plan.py`       |
+| A ticked box over a requirement below `evidenced` raises one `checked-unevidenced` at the box, a warning at the current stage, and only from a stage check of `tasks`; a plain `check` of the `change` state keeps its four findings | answer 10; T4; plan choice P8                           |
+
+### OpenSpec host feature
+
+```gherkin
+Feature: OpenSpec host
+  The coding agent and the repo maintainer run earnest over an OpenSpec
+  repository: specs whose requirements carry earnest ids and the SHALL
+  keyword, a change in flight, and an archived change. The trace, the levels
+  and the plan come from the files, and OpenSpec's own strict validation
+  passes beside them (SC1, SC2, SC3, SC5, SC8, SC9). The feature runs the
+  pinned openspec CLI from the package's Node toolchain, and fails when it is
+  missing.
+
+  Background:
+    Given the repo maintainer's "openspec-change" repository, with the pinned OpenSpec CLI on the path
+
+  Scenario: An OpenSpec repository with earnest ids passes OpenSpec's strict validation and earnest's check (SC1, SC3)
+    When the coding agent runs openspec validate --all --strict
+    And the coding agent runs earnest check
+    Then the validation exits zero
+    And the check exits zero
+    And the SARIF log holds no finding
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+
+  Scenario: Two checks of an unchanged OpenSpec repository give identical SARIF (SC1)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check twice
+    Then both runs write the same SARIF log
+
+  Scenario: Each requirement lands at one trace level, with a located reason for each level it missed (SC3)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log gives each requirement one trace level:
+      | requirement               | level    |
+      | req~lock-after-failures~1 | traced   |
+      | req~lockout-audit~1       | untraced |
+      | req~lockout-message~1      | traced   |
+      | req~idle-timeout~1      | untraced |
+    And each untraced requirement has a located finding that names it
+    And the summary leads with "traced 50%, judged 0%, evidenced 0%; requirements: 4"
+
+  Scenario: A tag naming a missing requirement and a requirement no tag reaches appear at file and line (SC2)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule                 | file                           | line | level |
+      | earnest/orphaned     | src/lockout.py                 | 18   | error |
+      | earnest/req-not-ears | openspec/specs/lockout/spec.md | 29   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 29   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 29   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 39   | error |
+      | earnest/gap          | openspec/specs/lockout/spec.md | 39   | error |
+    And the orphaned finding suggests "req~lockout-message~1"
+    And the check exits non-zero
+
+  Scenario: A requirement of more than one sentence raises req-not-ears at its line, and SHALL is accepted (SC10)
+    Given the "defects" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds an earnest/req-not-ears finding at "openspec/specs/lockout/spec.md" line 29
+    And that finding names "req~lockout-audit~1", lists the five templates and says the keyword is `shall` or `SHALL`
+    And the SARIF log holds no finding at "openspec/specs/lockout/spec.md" line 9
+    And the SARIF log holds no finding at "openspec/specs/lockout/spec.md" line 19
+
+  Scenario: An archived change is not read (SC1)
+    Given the "archive" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds no finding
+    And the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2"
+    And the check exits zero
+
+  Scenario: A change in flight supersedes the main copy, and tags at the old revision are flagged (SC5)
+    Given the "change" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds exactly these findings:
+      | rule             | file                                                   | line | level |
+      | earnest/gap      | openspec/changes/lockout-window/specs/lockout/spec.md | 16   | error |
+      | earnest/gap      | openspec/changes/lockout-window/specs/lockout/spec.md | 16   | error |
+      | earnest/outdated | src/lockout.py                                         | 6    | error |
+      | earnest/outdated | tests/test_lockout.py                                  | 6    | error |
+    And the SARIF log holds no earnest/duplicate finding
+    And the SARIF log gives each requirement one trace level:
+      | requirement               | level    |
+      | req~lock-after-failures~2 | untraced |
+      | req~lockout-message~1      | traced   |
+      | req~lockout-reset~1       | untraced |
+    And the check exits non-zero
+
+  Scenario: A change in flight is an intent with its stages and their status (SC8)
+    Given the "change" layer is committed
+    When the coding agent runs earnest plan
+    Then the plan lists the intent "openspec/changes/lockout-window"
+    And the plan lists these stages in route order:
+      | stage    | status   | approval          |
+      | proposal | done     | current, openspec |
+      | specs    | not done | current, openspec |
+      | design   | done     | current, openspec |
+      | tasks    | not done | current, openspec |
+    And the frontier is "none"
+    And the plan exits zero
+
+  Scenario: A body edited without a new revision raises unbumped-change after the stage check (SC5, SC9)
+    Given the "change" layer is committed
+    And the coding agent has run earnest check --stage "specs" --intent "openspec/changes/lockout-window"
+    And the "approved" layer is committed
+    And the "unbumped" layer is committed
+    When the coding agent runs earnest check
+    Then the SARIF log holds an earnest/unbumped-change finding at "openspec/changes/lockout-window/specs/lockout/spec.md" line 4
+    And the record holds a run header for "openspec/changes/lockout-window/specs"
+    And the check exits non-zero
+
+  Scenario: A ticked box whose requirement is below evidenced raises checked-unevidenced at the box (SC8)
+    Given the "change" layer is committed
+    When the coding agent runs earnest check --stage "tasks" --intent "openspec/changes/lockout-window"
+    Then the SARIF log holds an earnest/checked-unevidenced finding at "openspec/changes/lockout-window/tasks.md" line 5 with level warning
+    And the SARIF log holds an earnest/checked-unevidenced finding at "openspec/changes/lockout-window/tasks.md" line 9 with level warning
+    And the SARIF log holds no earnest/checked-unevidenced finding at "openspec/changes/lockout-window/tasks.md" line 13
+    And the plan lists these tasks:
+      | task                  | status   | box |
+      | task~lock-for-window~1 | not done | [x] |
+      | task~unlock-at-end~1   | not done | [x] |
+      | task~window-docs~1     | not done | [ ] |
+
+  Scenario: OpenSpec's apply instructions carry earnest's guidance (SC10)
+    Given the "change" layer is committed
+    When the coding agent runs openspec instructions apply --change "lockout-window" --json
+    Then the instructions exit zero
+    And the operation guidance names "earnest check --judge --evidence"
+    And the operation guidance sends the agent to "tasks.md"
+    And the operation guidance names "GATE_APPROVED"
+```
+
+### Notes for the M9 task plan
+
+- New steps are bound in `tests/steps/test_openspec_host.py`: the Background's
+  Given (it builds the base with `fixture_repo`, and calls `require_tools`, which
+  fails and never skips), the Givens that commit a named layer (with
+  `commit_on_main`) and run `earnest check --stage`,
+  the Whens that run `openspec validate` and `openspec instructions`, and the
+  Thens on the validation's exit, the orphaned suggestion, the keyword message,
+  the box column and the guidance lines.
+- Shared and reused, from `tests/conftest.py` and M2 to M5: the SARIF-table
+  step, "both runs write the same SARIF log", "the check exits non-zero" and
+  "exits zero", the summary step, "the plan lists these stages in route order:"
+  and "the plan lists these tasks:", and "the frontier is".
+- The scenarios hold only the columns they name: "the SARIF log holds exactly
+  these findings:" compares the columns a table gives, here `rule`, `file`,
+  `line` and `level`, so a table gives no `position` or `stage`.
+- Every scenario that runs `earnest plan` or `check --stage` for a change needs
+  the `openspec` CLI on the `PATH`. The unit tier reaches the same code with a
+  fake script, so the unit tests stay Node-free.
+- The `defects` table lists two `earnest/gap` rows at lines 29 and 39 each:
+  one for the missing `impl` cover and one for the missing `utest` cover.
+- Numbers measured on 2026-11-25: the `defects` state gives 6 findings and the
+  summary `traced 50%`; the `change` state gives 4 findings and `traced 33%`;
+  the base gives none and `traced 100%`; the `archive` state gives none, where
+  spike B's tree without the skip gives 2 `earnest/duplicate`. The intent's
+  stage rows and the two `checked-unevidenced` warnings come from the spike D
+  prototype on the same files, in a tree without the overlay, and are DERIVED.
+  The `change` state's four findings were measured without the intent of #22,
+  so Task 9 Step 2 also confirms that they stay four once the intent exists,
+  and that a plain `check` adds no `checked-unevidenced` to them (plan choice
+  P8: the rule comes from a stage check of `tasks`, so the exact four-row table
+  of the "supersedes" scenario holds at every task). The `approved` layer stands
+  for the gate row that the agent writes, through the guidance, after the human
+  approves (answer 6): it is what lets `unbumped-change` fire,
+  because an artifact approved "by openspec" names no item and a body hash is
+  frozen only for named items.
+
 ## Scope (v1)
 
 - One behavior feature per milestone of `03`, nine in all, with the scenarios
-  of M1, M2, M2b, M3, M4 and M5 in full.
+  of M1, M2, M2b, M3, M4, M5 and M6 in full, those of M8 PROPOSED, and those of
+  M7 held PROPOSED in its plan until its Task 0 writes them here. M9
+  `openspec_host` is outside v1 (decided 2026-11-25, with the ratification of
+  OpenSpec as a second host), and its PROPOSED scenarios sit below beside the nine.
 - Three test tiers under one runner, pytest, with pytest-bdd for the features.
 - Four fixture repositories, `broken-links`, `seeded-change`, `calibration`
   and `calibration-dev` (synthetic), each plain files with its history built
-  at test time, and a TypeScript fixture at M8.
+  at test time, and `ts-evidence` at M8. The synthetic `openspec-change` of M9
+  is a fifth, outside v1 with its milestone.
 
 ## Future directions
 
-- The scenarios of M7 and M8, each written here when its milestone's
-  plan is written.
+- The scenarios of M7, written here by Task 0 Step 2 of its plan (merged in PR #18); the maintainer decided its answers on 2026-11-25.
 - A coverage threshold for the package, when the maintainer sets one.
 
 ## Open questions
 
-| Question | Owner | Resolved by |
-| --- | --- | --- |
+| Question                                                                                          | Owner      | Resolved by                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | How M3's overlay changes meet the exact findings tables of M2's bump and fresh-approval scenarios | maintainer | resolved before M3. The out-of-task check and impact run only with a current task and a change baseline, and read no Git branch (the maintainer's decision), so M2's scenarios, whose state file names no current task, keep the tables of `main`. M3's code edits sit in the `task/` overlay stacked on `change/`, with their own tables in `task_change.feature`, where M3's steps name the current task and record an approved stage check |
