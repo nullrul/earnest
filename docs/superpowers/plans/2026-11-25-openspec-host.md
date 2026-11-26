@@ -330,60 +330,52 @@ The main spec, defects state (the base is its first 26 lines). Line 32 holds two
 
 `openspec/specs/lockout/spec.md`:
 
+<!-- prettier-ignore -->
 ```markdown
 # lockout Specification
 
 ## Purpose
-
 Lock an account that sees repeated failed logins, and tell its member.
 
 ## Requirements
 
 ### Requirement: Lock after failures
-
 `req~lock-after-failures~1`
 Covers: feat~lockout~1
 
 When a member fails to log in three times, the system SHALL lock the account.
 
 #### Scenario: Third failure
-
 - **WHEN** a member fails to log in three times
 - **THEN** the account is locked
 
 ### Requirement: Lockout message
-
 `req~lockout-message~1`
 Covers: feat~lockout~1
 
 When an account is locked, the system SHALL send the member a notice.
 
 #### Scenario: Notice sent
-
 - **WHEN** an account is locked
 - **THEN** the member receives a notice
 
 ### Requirement: Lockout audit
-
 `req~lockout-audit~1`
 Covers: feat~lockout~1
 
 The system SHALL record each lockout in the audit log. The record names the member and the time.
 
 #### Scenario: Audit entry
-
 - **WHEN** an account is locked
 - **THEN** the audit log holds an entry
 
 ### Requirement: Idle timeout
-
 `req~idle-timeout~1`
 Covers: feat~lockout~1
 
 While a session is idle, the system SHALL expire it after ten minutes.
 
 #### Scenario: Idle session
-
 - **WHEN** a session is idle for ten minutes
 - **THEN** it expires
 ```
@@ -441,6 +433,7 @@ The chain, `docs/intent.md`:
 
 `docs/intent.md`:
 
+<!-- prettier-ignore -->
 ```markdown
 # Intent
 
@@ -466,32 +459,29 @@ The in-flight change's delta, `change/openspec/changes/lockout-window/specs/lock
 
 `openspec/changes/lockout-window/specs/lockout/spec.md`:
 
+<!-- prettier-ignore -->
 ```markdown
 ## MODIFIED Requirements
 
 ### Requirement: Lock after failures
-
 `req~lock-after-failures~2`
 Covers: feat~lockout~1
 
 When a member fails to log in three times, the system SHALL lock the account for the lockout window.
 
 #### Scenario: Third failure
-
 - **WHEN** a member fails to log in three times
 - **THEN** the account is locked for the window
 
 ## ADDED Requirements
 
 ### Requirement: Lockout reset
-
 `req~lockout-reset~1`
 Covers: feat~lockout~1
 
 When the lockout window ends, the system SHALL unlock the account.
 
 #### Scenario: Window ends
-
 - **WHEN** the lockout window ends
 - **THEN** the account is unlocked
 ```
@@ -500,22 +490,20 @@ Its `tasks.md` (L2 layout: the id line and `Delivers:` directly above the box). 
 
 `openspec/changes/lockout-window/tasks.md`:
 
+<!-- prettier-ignore -->
 ```markdown
 ## 1. Lock window
 
 `task~lock-for-window~1`
 Delivers: req~lock-after-failures~2
-
 - [x] 1.1 Lock the account for the window
 
 `task~unlock-at-end~1`
 Delivers: req~lockout-reset~1
-
 - [x] 1.2 Unlock the account when the window ends
 
 `task~window-docs~1`
 Delivers: req~lockout-reset~1
-
 - [ ] 1.3 Document the window
 ```
 
@@ -525,9 +513,9 @@ The `approved` overlay is the approval of the `specs` stage with its two items n
 
 `approved/openspec/changes/lockout-window/audit/fixture-approvals.md`:
 
+<!-- prettier-ignore -->
 ```markdown
 ## Gate Approved
-
 **Timestamp**: 2026-11-25T10:00:00Z
 **Event**: GATE_APPROVED
 **Stage**: specs
@@ -693,46 +681,52 @@ Built on spike B (`/tmp/earnest-swarm/spike-b/recommended-code.patch`, 6939 byte
 - [ ] **Step 1:** Run `rtk proxy uv run pytest tests/unit/test_ears.py tests/unit/test_judge.py -q; echo $?` from `packages/earnest/`. Expected: `0`. Record the counts here.
 - [ ] **Step 2:** Write the failing tests. In `test_ears.py`, after `test_each_template_parses_with_its_clauses`:
 
-```python
-@pytest.mark.parametrize(
-    ("body", "expected"),
-    [
-        ("The system SHALL log in.", {"response": "log in"}),
-        ("When a member logs in, the system SHALL greet them.", {"when": "a member logs in", "response": "greet them"}),
-        ("While the shop is closed, the system SHALL refuse orders.", {"while": "the shop is closed", "response": "refuse orders"}),
-        ("If the card fails, then the system SHALL say so.", {"if": "the card fails", "response": "say so"}),
-        ("Where coupons are on, the system SHALL take them.", {"where": "coupons are on", "response": "take them"}),
-        (
-            "Where coupons are on, while the cart is open, when a code is typed, the system SHALL apply it.",
-            {"where": "coupons are on", "while": "the cart is open", "when": "a code is typed", "response": "apply it"},
-        ),
-        ("The system SHALL NOT log in.", {"response": "NOT log in"}),
-    ],
-)
-def test_each_template_parses_with_shall_in_capitals(body, expected):
-    assert kinds(body) == expected
+  ```python
+  @pytest.mark.parametrize(
+      ("body", "expected"),
+      [
+          ("The system SHALL log in.", {"response": "log in"}),
+          ("When a member logs in, the system SHALL greet them.", {"when": "a member logs in", "response": "greet them"}),
+          ("While the shop is closed, the system SHALL refuse orders.", {"while": "the shop is closed", "response": "refuse orders"}),
+          ("If the card fails, then the system SHALL say so.", {"if": "the card fails", "response": "say so"}),
+          ("Where coupons are on, the system SHALL take them.", {"where": "coupons are on", "response": "take them"}),
+          (
+              "Where coupons are on, while the cart is open, when a code is typed, the system SHALL apply it.",
+              {"where": "coupons are on", "while": "the cart is open", "when": "a code is typed", "response": "apply it"},
+          ),
+          ("The system SHALL NOT log in.", {"response": "NOT log in"}),
+      ],
+  )
+  def test_each_template_parses_with_shall_in_capitals(body, expected):
+      assert kinds(body) == expected
 
 
-@pytest.mark.parametrize(
-    ("body", "response"),
-    [
-        ("The system SHALL do x and the cache SHALL do y.", "do x and the cache SHALL do y"),
-        ("The system SHALL do x and the cache shall do y.", "do x and the cache shall do y"),
-        ("The system shall do x and the cache SHALL do y.", "do x and the cache SHALL do y"),
-        ("The system SHALL reply that clients SHALL retry.", "reply that clients SHALL retry"),
-    ],
-)
-def test_the_response_starts_after_the_first_keyword_in_either_case(body, response):
-    assert kinds(body) == {"response": response}
+  @pytest.mark.parametrize(
+      ("body", "response"),
+      [
+          ("The system SHALL do x and the cache SHALL do y.", "do x and the cache SHALL do y"),
+          ("The system SHALL do x and the cache shall do y.", "do x and the cache shall do y"),
+          ("The system shall do x and the cache SHALL do y.", "do x and the cache SHALL do y"),
+          ("The system SHALL reply that clients SHALL retry.", "reply that clients SHALL retry"),
+      ],
+  )
+  def test_the_response_starts_after_the_first_keyword_in_either_case(body, response):
+      assert kinds(body) == {"response": response}
 
 
-def test_a_sentence_keeps_the_keyword_case_it_was_written_in():
-    sentence = ears.parse("When the word SHALL is typed, the system SHALL echo it.")
-    assert sentence is not None
-    assert sentence.text == "When the word SHALL is typed, the system SHALL echo it."
-```
+  def test_a_sentence_keeps_the_keyword_case_it_was_written_in():
+      sentence = ears.parse("When the word SHALL is typed, the system SHALL echo it.")
+      assert sentence is not None
+      assert sentence.text == "When the word SHALL is typed, the system SHALL echo it."
+  ```
 
-Add these rows to the list of `test_a_body_that_is_not_one_ears_sentence_does_not_parse`: `"The system MUST log in."`, `"The system Shall log in."`, `"The system sHALL log in."`, `"THE SYSTEM SHALL LOG IN."`, `"WHEN a member logs in, the system SHALL greet them."`, `"The system SHALL log in. The system SHALL log out."`, `"When a member logs in the system SHALL greet them."`, `"The system SHALLOW log in."`. Add `assert "`shall`or`SHALL`" in found.message` to `test_req_not_ears_sits_at_the_id_line_and_lists_the_five_templates_in_order`. In `test_judge.py`, add `test_a_requirement_written_with_shall_in_capitals_is_asked_with_its_clause_spans`: the `REQS` of that module with `the system shall greet them` replaced by `the system SHALL greet them`; assert `question_text` holds `Requirement: When a member logs in, the system SHALL greet them.\nClauses:\n` and `\nwhen: a member logs in\nresponse: greet them\nCode regions:\n`.
+  Add these rows to the list of `test_a_body_that_is_not_one_ears_sentence_does_not_parse`: `"The system MUST log in."`, `"The system Shall log in."`, `"The system sHALL log in."`, `"THE SYSTEM SHALL LOG IN."`, `"WHEN a member logs in, the system SHALL greet them."`, `"The system SHALL log in. The system SHALL log out."`, `"When a member logs in the system SHALL greet them."`, `"The system SHALLOW log in."`. In `test_req_not_ears_sits_at_the_id_line_and_lists_the_five_templates_in_order` add:
+
+  ```python
+  assert "`shall` or `SHALL`" in found.message
+  ```
+
+  In `test_judge.py`, add `test_a_requirement_written_with_shall_in_capitals_is_asked_with_its_clause_spans`: the `REQS` of that module with `the system shall greet them` replaced by `the system SHALL greet them`; assert `question_text` holds `Requirement: When a member logs in, the system SHALL greet them.\nClauses:\n` and `\nwhen: a member logs in\nresponse: greet them\nCode regions:\n`.
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_ears.py tests/unit/test_judge.py -q; echo $?`. Expected: the `SHALL` rows and the message and judge tests fail, and a non-zero code.
 - [ ] **Step 4:** In `ears.py` add the constant above `_EARS` and use it in the two places the regex names the keyword. A change to the match alone leaves the lookahead blind to `SHALL` (S4):
