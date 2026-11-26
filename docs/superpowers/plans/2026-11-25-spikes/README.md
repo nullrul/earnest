@@ -40,7 +40,10 @@ of earnest at `ae4136c`. The diffs apply to the checkout with `git apply -p1`
 from the repository root (checked against `ae4136c`). They carry spike-only
 choices that Task 7b changes: `--restricted` (replaced by `--setting-sources
 user`), an environment allowlist without the Bedrock variables, and no harness
-in the cache key or the calibration slot.
+in the cache key or the calibration slot. The patch also predates the id-based
+harness: it takes the model name as `self.id.partition(":")[2]`, which Task 7b
+replaces with a `model` field once the id carries the harness.
+The patch is kept as spiked and not rewritten.
 
 | File | What it holds |
 | --- | --- |

@@ -323,20 +323,9 @@ gains the `done` class, and the graph doubles as the loop's progress board.
 - Context to load: `01`: Adopting AI-DLC, including "The `earnest` sensor and
   the approval gate"; Command surface; Runtime and permission model. `02`: Fork
   delta; L3. The fork's own plan.
-- Gating open questions: all seventeen DECIDED (user, 2026-11-25), in the
-  task plan. Row 4 keeps `nullrul/aidlc-workflows` and revises L3 of `02`, which
-  needs an upstream sync of the fork first (against the plan's recommendation of
-  a standalone repository). The rows: from `01`, whether the gate or the approve transition
-  refuses a run header with `dirty` true (neither refuses); the Fork-delta path that holds the
-  gate presentation, and the path of the record the approve transition reads;
-  and the Fork-delta path that holds the check on an artifact that changes
-  during a sensor run. From `02`: the fork repository's name and owner; how the
-  sensor script finds the `earnest` command; the upstream tools that
-  read `source-manifest.json`; the upstream artifacts the mapping table leaves
-  unnamed; the User Stories requirement ids; holding the sensor on through the
-  sensors-off switches; the upstream tests that pin sensor ids and routes.
-  From M2b: authority to create and push the fork repository, a fork checkout
-  with Bun, and the per-unit row of `01`.
+- Gating open questions: all seventeen DECIDED (user, 2026-11-25); see the
+  task plan. Row 4 keeps `nullrul/aidlc-workflows` as the fork's repository,
+  which needs an upstream sync first and revises L3 of `02`.
 - Task plan: the integration gate at
   `docs/superpowers/plans/<date>-aidlc-fork.md`, written when M7 is next; the
   delta's plan lives in the fork's repository.
@@ -404,22 +393,8 @@ gains the `done` class, and the graph doubles as the loop's progress board.
   lifecycle, Command surface. `02`: `ears.py`, `adapters/`, `index.py`,
   `structural.py`, `plan.py`, `reporter.py` and the OpenSpec rows (added through
   #19); L4, L5, L6.
-- Gating open questions: fourteen, in the task plan, all DECIDED (user,
-  2026-11-25). `SHALL` is accepted, and its scope is the exact keyword `shall`
-  or `SHALL`, no `MUST`. Multi-sentence bodies stay a `req-not-ears` error; ids
-  sit inline in the specs, with the `feat` items in `docs/intent.md`, and a
-  tenet and goal are required there; a repository with no requirement gets the
-  warning `earnest/no-requirements`; stage approvals are hybrid (an existing
-  artifact counts as approved by openspec, and the `GATE_APPROVED` rows are
-  written by the agent, through the #25 guidance, after the human approves); the
-  route comes from the CLI and a skipped stage is not the frontier; the archive
-  is skipped and the overlay is design C plus the stacked-change extension;
-  REMOVED and the smaller choices of #23 as the plan writes them; a ticked box
-  does not change a task's body hash, and `checked-unevidenced` and
-  `untracked-box` are warnings; `openspec/` is read at the repository root only;
-  the CLI is pinned at 2.1.1 and the feature fails, never skips, without it; the
-  guidance goes in `config.yaml`'s `operations.*.guidance`; and OpenSpec is
-  ratified as the second host, outside v1, with a synthetic fixture.
+- Gating open questions: all fourteen DECIDED (user, 2026-11-25); see the task
+  plan. M9 is outside v1.
 - Task plan:
   [2026-11-25-openspec-host.md](../superpowers/plans/2026-11-25-openspec-host.md).
 
@@ -429,46 +404,38 @@ State today. M1 to M6 are done in code. M6 keeps two open issues, #28 (the
 maintainer's SC4 fixture) and #29 (the real-model run), which gate nothing
 else in the graph. Every gating question was answered on 2026-11-25: M6's #29
 is approved on this host's Claude Code, logged in to Amazon Bedrock (no API
-key), through a new `claude-code:` judge backend, Task 7b; M7's seventeen answers are decided (row 4 keeps
-`nullrul/aidlc-workflows`, so the fork needs a 911-commit upstream sync before
-its delta, and L3 of `02` is revised), and M7 still waits on fork work outside
-this repository; M8's six Node-toolchain answers are decided; M9's fourteen are
-decided, OpenSpec is ratified as a second host, and M9 stays outside v1. What is
-left is by hand: the user's twenty verdicts for #28 and the logged-in Claude
-Code for #29, plus the work itself.
+key), through a new `claude-code:` judge backend, Task 7b; M7's seventeen,
+M8's six and M9's fourteen are all DECIDED (see each plan). M7 row 4 keeps
+`nullrul/aidlc-workflows`, so the fork needs an upstream sync before its
+delta, and M7 still waits on fork work outside this repository; M9 stays
+outside v1. What is left is by hand: the user's twenty verdicts for #28 and
+the logged-in Claude Code for #29, plus the work itself.
 
 In the order of how much each item unblocks:
 
 1. The shared Node toolchain (#36 and #26): one decision, made once and now
-   made (2026-11-25: pnpm, `packages/earnest/`, Node 24, OpenSpec 2.1.1). It
+   made (2026-11-25; see M8's plan). It
    unblocks all of M8 after its docs commit, and M9's pin, which in turn gates
    the route of #22, the guidance of #25 and the exit gate of #27. Two
    milestones: the largest fan-out on the list.
 2. #19, the ratification: decided 2026-11-25 (OpenSpec is the second host,
    outside v1). What is left is paper: Task 0 of M9 records the answers, and
    Tasks 3 to 9 of M9 wait for it.
-3. #21, accepting `SHALL`: accepted, one task, no dependency; its scope
-   (the exact keyword, no `MUST`) was decided 2026-11-25. It makes OpenSpec specs parse (246 of 318 requirements of OpenSpec's
-   own repository). Of the other 72, 37 are multi-sentence, 36 open with a bare
-   subject and 3 are other (spike B and spike A; the first two counts overlap
-   by 4). It is the first code of M9.
+3. #21, accepting `SHALL`: DECIDED 2026-11-25 (scope in the plan), one task, no
+   dependency. It makes OpenSpec specs parse and is the first code of M9.
 4. Inside M9, the chain #20, then the archive skip of #23, then #22: each
    makes the next readable. Ids give earnest something to read, the skip turns
    a spec-plus-archive repository from 393 duplicates to none, and intents are
    what #24 and #25 read. #23's overlay (Task 6) and then #24 (Task 7) run in sequence, because both edit `index.py`, and #25 (Task 8) runs beside them.
-5. M7's five maintainer-only answers (rows 1, 4, 11, 13 and 17 of its plan),
-   decided 2026-11-25. They blocked all of M7 and nothing else in v1; row 4
-   adds the fork's upstream sync as the first fork-side step. The one change in this
-   repository, the join of a gate row's `Unit` by directory (row 14), needs
-   only its own approval.
+5. M7's seventeen answers, all DECIDED 2026-11-25 (see its plan). They blocked
+   all of M7 and nothing else in v1; row 4 adds the fork's upstream sync as the
+   first fork-side step.
 
 What to defer:
 
-- M9, deferred by the 2026-11-25 decisions: the id-drift check, REMOVED and
-  RENAMED (their code is the plan's Task 10, outside the exit path, and out of
-  the exit fixture), a bump to OpenSpec 2.2.0 (answer 12 pins 2.1.1), and a
-  ramp that softens `req-not-ears` (answer 2 keeps it an error), until a real
-  repository's count says they matter.
+- M9, deferred by the 2026-11-25 decisions (see its plan): the id-drift check,
+  REMOVED and RENAMED (its Task 10), a bump to OpenSpec 2.2.0, and a ramp that
+  softens `req-not-ears`, until a real repository's count says they matter.
 - M8: a TypeScript counterpart of M5's failing-test finding (its choice P4).
 - M7: the per-unit fork work behind row 17, until the fork has its plan.
 - M6: #29, until the fixture (#28) and the Claude Code judge backend (Task 7b)

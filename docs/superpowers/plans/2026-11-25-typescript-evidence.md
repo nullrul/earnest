@@ -18,12 +18,12 @@ The exit command turns green at Task 5.
 
 - `impact.py` gains the StrykerJS run beside the mutmut run (`02`, `impact.py` in Module boundaries; the deliverable of `03`, M8):
   - the files to mutate: `mutation_files` keeps the `.py` files it returns today and adds the `.ts`, `.tsx`, `.mts` and `.cts` files that hold an `impl` region of a traced requirement; `evidence()` splits them by suffix;
-  - the StrykerJS run on the temporary copy that `_copy` makes from `git.work_tree_files(root)`, through `_run` with `MAP_TIMEOUT` and the `_environment()` filter, with `NODE_PATH` set (see the Interface contract);
+  - the StrykerJS run on the temporary copy that `_copy` makes from `git.work_tree_files(root)`, through `_run` with `MAP_TIMEOUT` and the `_environment()` filter, with the command's `node_modules` linked into the copy by one `symlink_to` (see the Interface contract);
   - the report reader: `stryker_mutants` replaces `stryker_survivors`. M5's reader returns survivors only, and `entries()` marks a requirement `passed` only when a killed mutant lies in its regions (`_killed`), so the reader must return every mutant;
   - the evidence key's `tool`, `stryker <version>`, read from the installed `@stryker-mutator/core` without a subprocess, so the read-only `plan` still runs no test.
 - The Python half (`pytest` suite, then mutmut) runs only when the index holds a `.py` file to mutate or a Python test tag. A TypeScript-only repository runs no pytest and needs no mutmut.
 - The region filter, `evidence_failed`, `evidenced`, `merged` and the Region rule are unchanged: they work on `Mutant(path, line, key, code)` and `Region`, whatever the language.
-- The tests: a TypeScript fixture under `tests/fixtures/ts-evidence/`, `typescript_evidence.feature` with its step module, `tests/node.py` for the Node tools' PATH and its fail-not-skip rule, and a fake `stryker` script so that the unit tier keeps Node out (L5).
+- The tests: a TypeScript fixture under `tests/fixtures/ts-evidence/`, `typescript_evidence.feature` with its step module, `tests/node.py` for the Node tools' PATH, `tests/tools.py` for the one fail-not-skip `require`, and a fake `stryker` script (written by `fake_executable` of `tests/conftest.py`) so that the unit tier keeps Node out (L5).
 - One Node toolchain under `packages/earnest/`, shared with M9's #26 (see Shared with M9).
 
 **Tech Stack:**
@@ -58,7 +58,7 @@ Source: `/tmp/earnest-swarm/spike-e/REPORT.md` and the logs and sketches beside 
 | S11 | The lockfile detects drift: `npm ci` refuses a manifest that names `@fission-ai/openspec@2.2.0` against a lock that holds 2.1.1.                                                                                                                                                                                                                        | `logs/drift-npm.out` line 350                                                                                                 |
 | S12 | pnpm is already the repository's precedent: the `lint-docs` job runs `pnpm/action-setup` with `version: 10`, and `make lint-file` and the pre-commit hook run `pnpm dlx markdownlint-cli2`. pnpm is not installed on this host.                                                                                                                         | `.github/workflows/ci.yml` lines 23-25; `Makefile` line 33; `.pre-commit-config.yaml`                                         |
 | S13 | Both installs print peer warnings for `babel-jest` 30.5.2: `unmet peer @babel/core@^7.0.0-0: found 8.0.10` from pnpm, and `ERESOLVE overriding peer dependency` from npm. The installs succeed.                                                                                                                                                         | `logs/s2c-pnpm-dlx-plain-cold.out`; `logs/drift-npm.out`                                                                      |
-| S14 | Not verified by the spike: real runner timings, Dependabot, macOS and Windows, a real `impact.py` Stryker runner (none exists), and `NODE_PATH` on the copy with a pnpm lockfile layout, and the offline behavior of `npm ci` and `pnpm install --frozen-lockfile` (S8 measured `npx` only). The `NODE_PATH` fix of S2 is reported for the npm install. | REPORT, Not verified                                                                                                          |
+| S14 | Not verified by the spike: real runner timings, Dependabot, macOS and Windows, a real `impact.py` Stryker runner (none exists), the `node_modules` link on a pnpm layout, and the offline behavior of `npm ci` and `pnpm install --frozen-lockfile` (S8 measured `npx` only). The `NODE_PATH` and symlink fixes of S2 are reported for the npm install. | REPORT, Not verified                                                                                                          |
 
 ## What the code does today (read 2026-11-25 at `ae4136c`)
 
@@ -136,30 +136,30 @@ The two guard scenarios (a plain `check` with no Node tool on the PATH, and an e
 
 ## Shared with M9
 
-Issues #26 and #36 ask one question. **This plan owns the recipe: Task 1 is the one recipe for the toolchain, and Task 2 Step 3 is the one Python helper, `tests/node.py`.** M9's plan refers to both and copies neither. One toolchain lands, and these files belong to both milestones:
+Issues #26 and #36 ask one question. **This plan owns the recipe and is the only copy of this section: Task 1 is the one recipe for the toolchain, and Task 2 Step 3 is the one Python helper, `tests/node.py`.** M8 is in v1 and lands first, so it creates every file below; M9's plan points here and copies nothing. One toolchain lands, and these files belong to both milestones:
 
 - `packages/earnest/package.json`, the lockfile, `.nvmrc`, and `.npmrc` (one file, with `engine-strict=true` and `save-exact=true`);
-- the `node-install` and `node-check` targets of `packages/earnest/Makefile`, where `node-check` loops over every `devDependencies` entry of the manifest, so it covers `openspec` whichever milestone lands first;
+- the `node-install` and `node-check` targets of `packages/earnest/Makefile`, where `node-check` loops over every `devDependencies` entry of the manifest, so it covers `openspec` with no line of its own;
 - the Node setup steps of the CI `test-python` job;
 - the `.gitignore` lines `.stryker-tmp/` and `reports/mutation/`, and the `**/node_modules/**` ignore of `.markdownlint-cli2.jsonc`;
 - `packages/earnest/tests/node.py`.
 
 | Piece           | M8                                                                                                                                      | M9 (#26)                                                                                         |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| devDependencies | `@stryker-mutator/core`, `@stryker-mutator/jest-runner`, `jest`, `ts-jest`, `typescript`, `@types/jest`                                 | `@fission-ai/openspec`                                                                           |
+| devDependencies | `@stryker-mutator/core`, `@stryker-mutator/jest-runner`, `jest`, `ts-jest`, `typescript`, `@types/jest`                                 | `@fission-ai/openspec`, already in the manifest from Task 1 (question 4)                         |
 | `node-check`    | one generic target: prints Node and each manifest tool's installed version, and exits 2 naming each tool that is missing or off its pin | the same target, with no line of its own                                                         |
 | Environment     | `export OPENSPEC_TELEMETRY := 0` in the Makefile, written by Task 1 from the start (harmless while `openspec` is absent)                | none to add                                                                                      |
 | Python helper   | `tests/node.py`: `tools_path`, `require_tools(*names)`, `without_node_tools`                                                            | `openspec_env(home)`, added to the same file                                                     |
 | Done when       | `make test` and CI run the TypeScript feature                                                                                           | `make test` and CI print the pinned `openspec --version`, and a missing CLI fails the M9 feature |
 
-Order. Whichever milestone lands first creates the files. The second adds its devDependencies and regenerates the lock with the package manager's lock-only command (`pnpm install --lockfile-only`), and never hand-merges a lockfile. Task 1 says what to do in each order. #36's done-when also needs the decision recorded in `01` or `02` and #26 to reference it, which Task 0 Step 3 does.
+Order. M8 creates the files with all seven devDependencies (question 4), so M9 adds no dependency and regenerates no lock. A later pin change regenerates the lock with the package manager's lock-only command (`pnpm install --lockfile-only`), and never hand-merges a lockfile. #36's done-when also needs the decision recorded in `01` or `02` and #26 to reference it, which Task 0 Step 3 does.
 
 ## Plan choices that are not gating
 
 These are this plan's own readings, open to the maintainer's objection when reviewing it. None is recorded as decided.
 
 - **P1. The fixture is `tests/fixtures/ts-evidence/`.** It follows `calibration-dev`: a requirements file, source, tests and a canned verdicts file, with no AI-DLC record. Spike E used the same path for its sketch. This names the fixture that the M8 row of `04` leaves open (#37).
-- **P2. `node-install` is a prerequisite of `test` only.** The spike's sketch hangs it on `install`. But `lint-python` and `build-earnest` also run `install` (`ci.yml` lines 17 and 48), and would need Node for nothing. The cost: the exit command, run by hand, needs one `make node-install` first, and the step module's failure line says so.
+- **P2. `node-install` is a prerequisite of `test` only.** The spike's sketch hangs it on `install`. But `lint-python` and `build-earnest` also run `install` (`ci.yml` lines 17 and 48), and would need Node for nothing. `node-install` is a stamp target on `package.json` and `pnpm-lock.yaml`, so `make test` skips the install when neither changed. The cost: the exit command, run by hand, needs one `make node-install` first, and the step module's failure line says so.
 - **P3. Earnest passes StrykerJS two options, `--mutate` and `--reporters json`, and no `concurrency`.** The repository's own `stryker.config.json` owns the setting (D4 and L4 leave each tool's configuration to the repository), and the fixture's sets `"concurrency": 2`. A repository that sets none gets Stryker's default of the core count less one (S7). The report is read from Stryker's default path, `reports/mutation/mutation.json`, because the JSON reporter's file name has no command-line option (to be confirmed in Task 2 Step 2).
 - **P4. A failing Jest test exits 2.** Stryker's initial dry run fails when a test fails on the unmutated code, so no report exists. The M5 behavior for Python, where a failing tagged test raises `evidence-failed` at its tag, has no TypeScript counterpart in M8: it would need a TypeScript test-name scan, and the exit behavior of `03` asks only for mutants. FLAGGED in Known limits.
 - **P5. The StrykerJS code stays in `impact.py`**, as `03` and #38 say. The file passes 800 lines (C7). Extracting the mutmut and StrykerJS halves into a module of their own would revise the module list of `02`, and would be a refactor with its own diff. Not proposed here.
@@ -170,7 +170,7 @@ These are this plan's own readings, open to the maintainer's objection when revi
 This is what Earnest calls and reads. `<copy>` is the temporary directory that `_copy` fills from `git.work_tree_files(root)`, as it does for mutmut. Task 2 Step 2 checks each form below against the pinned StrykerJS and records any difference in this plan before Task 3 starts.
 
 1. **Locate the command.** `<root>/node_modules/.bin/stryker` when that is a file, else `shutil.which("stryker")` over the `PATH` of `_environment()`. Neither: `EvidenceError`, "evidence: StrykerJS is not installed", and exit 2. The command is never `resolve()`d: its parent is `.bin`, and `<modules>`, the `node_modules` directory, is the parent of `.bin`. That holds for npm's symlinks and for pnpm's wrapper scripts alike.
-2. **Environment.** `_environment()` plus `NODE_PATH=<modules>`, followed by `os.pathsep` and any `NODE_PATH` already set. The copy holds no `node_modules` (S2), so without this Stryker fails to inject `jestWrapper`. Symlinking `<modules>` into the copy also works (S2) and is the fallback if the environment variable proves fragile.
+2. **Environment.** `_environment()` as it is: no `NODE_PATH`. The copy holds no `node_modules` (S2), so without one Stryker fails to inject `jestWrapper`. The run links `<modules>` into the copy with one `symlink_to` (`<copy>/node_modules`), before it starts Stryker, so Node resolves as normal for both CommonJS and ES modules, which `NODE_PATH` does not serve (ESM resolution ignores it). The link is made in the Stryker run, not in `_copy`, because `<modules>` comes from the located command and need not lie under the repository (the fixture holds no `node_modules`, and its tools come through the PATH).
 3. **Command, run in `<copy>`.** `<command> run --mutate <files> --reporters json`, where `<files>` are the mutated paths relative to the copy, joined by commas. A path that holds a comma or a glob character (`*`, `?`, `[`, `{`, `!`) exits 2 naming the file. The repository's own `stryker.config.json` supplies everything else, the test runner, the plugins and `concurrency` (P3). Earnest never passes `--concurrency` or `--configFile`.
 4. **Result.** `<copy>/reports/mutation/mutation.json`. The exit code is no verdict: Stryker exits 0 when mutants survive unless the repository sets `thresholds.break`, and 1 on an error such as a failing dry run. `_run` deletes `<copy>/reports/mutation/mutation.json` before it runs Stryker, because `_copy` copies untracked, non-ignored files and a stale report from the repository under check would otherwise pass for this run's result. A missing report is "no result": `EvidenceError` naming the exit code and the last line Stryker printed, exit 2. A timeout after `MAP_TIMEOUT` is the same, as for mutmut.
 5. **Version.** `<modules>/@stryker-mutator/core/package.json`, key `version`. It is read as JSON, with no subprocess, and gives the key's `tool`: `stryker 10.1.1`.
@@ -350,7 +350,7 @@ module.exports = {
 }
 ```
 
-`README.md` states that the fixture is SYNTHETIC, names the table below, and gives the by-hand run: `NODE_PATH=<package>/node_modules <package>/node_modules/.bin/stryker run` from a copy of the fixture.
+`README.md` states that the fixture is SYNTHETIC, names the table below, and gives the by-hand run: `ln -s <package>/node_modules node_modules && <package>/node_modules/.bin/stryker run` from a copy of the fixture.
 
 The expected StrykerJS results. Task 2 Step 2 replaces this table with the measured one, and amends the fixture or the Gherkin if a row differs:
 
@@ -390,12 +390,12 @@ Expected levels, with the stub verdicts above: `req~limit-boundary~1` judged (it
 - **The silent no-op is gone (C2).** A requirement with TypeScript regions never stays at `judged` after an evidence run that produced no report: the run either has a report or exits 2.
 - **M5 records stay valid.** A Python-only requirement's key is `mutmut <version>` byte for byte (P6), so the M5 scenarios and their sha pins do not move.
 - **No Python half for a TypeScript-only repository.** The test with a `python` that fails when called proves it. No mutmut is needed there either (C3).
-- **`NODE_PATH` reaches Stryker's workers.** The unit test with the fake `stryker` asserts the environment it received, and the feature runs the real one.
+- **The linked `node_modules` reaches Stryker's workers.** The unit test with the fake `stryker` asserts that `<copy>/node_modules` is a symlink to the command's `node_modules`, and the feature runs the real one.
 - **The work tree stays clean.** After `check --evidence`, `git status --porcelain` is unchanged, with no `.stryker-tmp/` or `reports/` in it.
 - **Evidence is not vacuous.** The integration test asserts killed mutants on `remaining`'s lines, so a build that never ran Stryker on that region cannot pass.
 - **One status table.** The mapping above is the only place that reads StrykerJS statuses, and `_surviving`'s incomplete-run message names the tool of the mutant's file, not `mutmut`.
 - **The equivalent mutant stays outside every region.** Moving `clamp` under a tag makes `req~clamp~1` unevidenceable by construction.
-- **One toolchain.** The files of Shared with M9 are edited once, and the lock regenerates, whichever milestone lands second.
+- **One toolchain.** The files of Shared with M9 are created once, here, and M9 edits none of them.
 
 ## Task order and the scenarios each turns green
 
@@ -444,6 +444,7 @@ The scenario titles are PROPOSED, and Task 0 writes them into `04`. The clause c
 | `packages/earnest/tests/fixtures/ts-evidence/`                                                                                                       | the fixture: `requirements.md`, `src/limits.ts`, `tests/limits.test.ts`, `jest.config.js`, `tsconfig.json`, `stryker.config.json`, `evidence-verdicts.json`, `README.md` | 2    |
 | `packages/earnest/tests/node.py`                                                                                                                     | the one Node helper, shared with M9: the Node tools' `PATH`, `require_tools(*names)` (fails, never skips), `without_node_tools` (a PATH of `git` alone)                  | 2    |
 | `packages/earnest/tests/unit/test_node.py`                                                                                                           | fail-not-skip and PATH tests                                                                                                                                             | 2    |
+| `packages/earnest/tests/tools.py`, `tests/unit/test_tools.py`                                                                                        | the one `require(name, hint)` that fails, never skips, shared with M7, and the one never-skips guard                                                                     | 2    |
 | `packages/earnest/tests/features/typescript_evidence.feature`                                                                                        | M8's 7 scenarios, verbatim from `04`                                                                                                                                     | 2    |
 | `packages/earnest/tests/steps/test_typescript_evidence.py`                                                                                           | the steps; the exit command                                                                                                                                              | 2    |
 | `packages/earnest/src/earnest/impact.py`                                                                                                             | `mutation_files` by suffix, `stryker_mutants`, the Stryker run, `evidence()` by language, `stryker_tool`, `key_tool`, per-requirement keys                               | 3-5  |
@@ -452,7 +453,7 @@ The scenario titles are PROPOSED, and Task 0 writes them into `04`. The clause c
 | `packages/earnest/tests/integration/test_typescript_evidence.py`                                                                                     | the real run: the mutant table, the clean tree                                                                                                                           | 4    |
 | `CLAUDE.md`                                                                                                                                          | the Build section names `make node-install` and the Node line                                                                                                            | 6    |
 
-Outside the package, only Task 0's docs, `ci.yml`, `.gitignore`, `.markdownlint-cli2.jsonc` and `CLAUDE.md` change. `tests/conftest.py` does not change: `evidence-verdicts.json` is already in `_OVERLAYS`.
+Outside the package, only Task 0's docs, `ci.yml`, `.gitignore`, `.markdownlint-cli2.jsonc` and `CLAUDE.md` change. `tests/conftest.py` gains `fake_executable` (Task 2 Step 3, hoisted from `fake_python` of `test_impact.py`, unless M7 landed first and did it) and nothing else: `evidence-verdicts.json` is already in `_OVERLAYS`.
 
 ## Known limits
 
@@ -462,7 +463,7 @@ Outside the package, only Task 0's docs, `ci.yml`, `.gitignore`, `.markdownlint-
 - **The reader parses one report schema.** Task 2 Step 2 records the `schemaVersion` of Stryker 10.1.1, and the reader exits 2 on another major, as M5's does for mutmut.
 - **The repository owns Stryker's configuration.** A repository with no `stryker.config.json` gets Stryker's defaults, which by its documentation run `npm test` for each mutant (from its documentation, not run here). One that overrides `jsonReporter.fileName` has no report at the default path, and the run exits 2.
 - **An equivalent mutant cannot be killed.** Stryker's own `// Stryker disable` comment makes it `Ignored`, which raises nothing (the mapping above, from Stryker's documentation, not run here).
-- **Platforms.** Linux only, as the spike ran (S14). On Windows `.bin/stryker` is a `.cmd` shim, and `NODE_PATH` takes `;`. `NODE_PATH` on the copy is reported for the npm layout only, and Task 2 Step 2 checks the pnpm one.
+- **Platforms.** Linux only, as the spike ran (S14). On Windows `.bin/stryker` is a `.cmd` shim, and a symlink needs a privilege. The `node_modules` link on the copy is reported for the npm layout only, and Task 2 Step 2 checks the pnpm one.
 - **Sequential halves.** A repository with both languages runs the Python half, then StrykerJS.
 - **`impact.py` passes 800 lines (P5).**
 - **The lockfile holds 633 packages, and `npm audit` reports 22 moderate findings (S9).** They are dev dependencies of a test toolchain and reach no shipped code. Dependabot is not configured (S14).
@@ -599,13 +600,14 @@ The commands below are for pnpm (question 1, decided).
   - `engines.node` and `.nvmrc` exist and agree with question 3's answer;
   - `.npmrc` holds `engine-strict=true` and `save-exact=true`, each once;
   - `.markdownlint-cli2.jsonc` ignores `**/node_modules/**`;
+  - the Makefile's `node-install` is a stamp target: a rule `node_modules/.stamp: package.json pnpm-lock.yaml`, so `make test` skips the install when neither changed;
   - the `node-check` recipe of the Makefile names no tool: it reads the manifest (the test greps the recipe, case-sensitively, for `stryker`, `jest` and `openspec` and expects none);
   - the lockfile names each pinned package at its pinned version;
   - `ci.yml`'s `test-python` job reads `packages/earnest/.nvmrc` through `node-version-file`.
 
   Run it from `packages/earnest/`: `rtk proxy uv run pytest tests/integration/test_node_toolchain.py; echo $?`. Expected: red, the files do not exist.
 
-- [ ] **Step 2:** Create the toolchain files. This step and the next are the one recipe that M9's Task 2 refers to. `package.json`, with the exact `devDependencies` of S5 (with `@fission-ai/openspec` at 2.1.1, question 4, and with it alone when M9 lands first); the OpenSpec version is M9's answer 12:
+- [ ] **Step 2:** Create the toolchain files. This step and the next are the one recipe that M9's Task 2 refers to. `package.json`, with the exact `devDependencies` of S5 and `@fission-ai/openspec` at 2.1.1 (question 4; the OpenSpec version is M9's answer 12):
 
   ```json
   {
@@ -627,18 +629,16 @@ The commands below are for pnpm (question 1, decided).
   }
   ```
 
-  `engines.node` per question 3 and `packageManager` for pnpm. `.nvmrc` holds `24` (question 3). `.npmrc` holds both lines, once, for whichever milestone lands first:
+  `engines.node` per question 3 and `packageManager` for pnpm. `.nvmrc` holds `24` (question 3). `.npmrc` holds both lines, once:
 
   ```text
   engine-strict=true
   save-exact=true
   ```
 
-  Generate the lock with `pnpm install --lockfile-only` and record its size and package count in this plan.
-  - If #26 landed first: the files exist. Add M8's six devDependencies with `pnpm add --save-dev --save-exact`, which regenerates the lock, and never merge the lockfile by hand. `node-check` needs no edit.
-  - If #26 has not landed: the manifest still holds `@fission-ai/openspec` 2.1.1 (question 4, option A), so #26 adds no dependency.
+  Generate the lock with `pnpm install --lockfile-only` and record its size and package count in this plan. M8 lands first and creates all of it, so #26 adds no dependency and `node-check` needs no edit.
 
-- [ ] **Step 3:** Edit `packages/earnest/Makefile`. `test` gains the prerequisites `node-install` and `node-check` (P2), `install` stays `uv sync`, and `node-install node-check` join `.PHONY`. `OPENSPEC_TELEMETRY` is exported from the start, which is harmless while `openspec` is absent. `node-check` loops over every `devDependencies` entry of the manifest and compares the installed version with the pin, so it covers `openspec` whichever milestone lands first and needs no line per tool. The recipe lines are indented by one tab in the file:
+- [ ] **Step 3:** Edit `packages/earnest/Makefile`. `test` gains the prerequisites `node-install` and `node-check` (P2), `install` stays `uv sync`, and `node-install node-check` join `.PHONY`; `node-install` is the phony name of the stamp file `node_modules/.stamp`, which depends on `package.json` and `pnpm-lock.yaml`, so the install runs only when one of them is newer. `OPENSPEC_TELEMETRY` is exported from the start, which is harmless while `openspec` is absent. `node-check` loops over every `devDependencies` entry of the manifest and compares the installed version with the pin, so it covers `openspec` and needs no line per tool. The recipe lines are indented by one tab in the file:
 
   ```make
   NODE_MODULES := $(CURDIR)/node_modules
@@ -646,8 +646,11 @@ The commands below are for pnpm (question 1, decided).
 
   test: install node-install node-check
 
-  node-install:
+  node-install: node_modules/.stamp
+
+  node_modules/.stamp: package.json pnpm-lock.yaml
       pnpm install --frozen-lockfile
+      touch $@
 
   node-check:
       @command -v node >/dev/null || { echo "node is missing: see .nvmrc" >&2; exit 2; }
@@ -681,9 +684,9 @@ The commands below are for pnpm (question 1, decided).
 
 - [ ] **Step 5:** Run, from the repository root and `packages/earnest/`:
   - `rtk proxy uv run pytest tests/integration/test_node_toolchain.py; echo $?`, expected 0;
-  - `rtk proxy make -C packages/earnest node-install; echo $?`, expected 0;
-  - `rtk proxy make -C packages/earnest node-check; echo $?`, expected 0, with `node v24...` followed by one `<name> <pin>` line per `devDependencies` entry, counted like the negative control: `rtk proxy make --no-print-directory -C packages/earnest node-check 2>/dev/null | grep -vc '^node '` (`--no-print-directory` keeps GNU make's `Entering directory` and `Leaving directory` lines, which `-C` turns on, out of the count), expected `7` with all seven, `6` without `openspec`;
-  - the negative control, which asserts the message because `make` exits 2 for any failed recipe, so the code alone would pass for another cause: `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent 2>&1 | grep -c "is missing: run make node-install"`, expected one line per manifest tool (`7` with all seven, `6` without `openspec`), and `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent >/dev/null 2>&1; echo $?`, expected 2;
+  - `rtk proxy make -C packages/earnest node-install; echo $?`, expected 0, then `rtk proxy make --no-print-directory -C packages/earnest -n node-install | grep -c pnpm`, expected 0 (the stamp is current, so a second `make test` installs nothing);
+  - `rtk proxy make -C packages/earnest node-check; echo $?`, expected 0, with `node v24...` followed by one `<name> <pin>` line per `devDependencies` entry, counted like the negative control: `rtk proxy make --no-print-directory -C packages/earnest node-check 2>/dev/null | grep -vc '^node '` (`--no-print-directory` keeps GNU make's `Entering directory` and `Leaving directory` lines, which `-C` turns on, out of the count), expected `7`;
+  - the negative control, which asserts the message because `make` exits 2 for any failed recipe, so the code alone would pass for another cause: `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent 2>&1 | grep -c "is missing: run make node-install"`, expected one line per manifest tool (`7`), and `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent >/dev/null 2>&1; echo $?`, expected 2;
   - `rtk proxy uv run pytest --ignore=tests/steps/test_typescript_evidence.py; echo $?`, expected 0 at the baseline count (the feature does not exist yet, so the `--ignore` is a no-op here);
   - `LINT_FILE=.github/workflows/ci.yml make lint-file`, expected exit 0.
 - [ ] **Step 6:** Commit `chore: shared Node toolchain for the TypeScript evidence fixture and the openspec CLI`, staging the files by name.
@@ -694,6 +697,8 @@ The commands below are for pnpm (question 1, decided).
 
 - Create: the fixture of the Fixture section, under `packages/earnest/tests/fixtures/ts-evidence/`
 - Create: `packages/earnest/tests/node.py`, `packages/earnest/tests/unit/test_node.py`
+- Create, unless M7 landed first and made them: `packages/earnest/tests/tools.py`, `packages/earnest/tests/unit/test_tools.py`
+- Modify, unless M7 landed first and did it: `packages/earnest/tests/conftest.py` and `tests/unit/test_impact.py` (the `fake_executable` hoist of Step 3)
 - Create: `packages/earnest/tests/features/typescript_evidence.feature`, `packages/earnest/tests/steps/test_typescript_evidence.py`
 - Create: `packages/earnest/tests/unit/stryker-report-<version>.json`, the real report of Step 2
 - Modify: this plan, where Step 2 records what it measured
@@ -703,21 +708,26 @@ The commands below are for pnpm (question 1, decided).
 
   ```bash
   S=$(mktemp -d) && cp -R tests/fixtures/ts-evidence/. "$S" && cd "$S" \
-    && NODE_PATH="<package>/node_modules" "<package>/node_modules/.bin/stryker" run --mutate src/limits.ts --reporters json; echo $?
+    && ln -s "<package>/node_modules" node_modules \
+    && "<package>/node_modules/.bin/stryker" run --mutate src/limits.ts --reporters json; echo $?
   ```
 
   Record in this plan, each as a short list:
   - the measured mutant table: mutator, line, status. If a row differs from the Fixture section's table, amend the fixture (not Earnest), the table and the Gherkin's line numbers, and tell the maintainer before Task 3;
   - the report's `schemaVersion`, its file keys (relative, forward slashes), and the status names it holds, with the schema's wording for `RuntimeError`, `CompileError`, `Ignored` and `Pending`, which settles the mapping table of the Interface contract;
   - whether `--mutate` takes the comma-joined form, whether `--reporters json` leaves the default path `reports/mutation/mutation.json`, and the line of the log that shows `concurrency` 2 applied (S7);
-  - whether `NODE_PATH` alone suffices on this install's layout (S14), and if the copy is run without it, the error;
+  - whether the `node_modules` symlink alone suffices on this install's layout (S14), and if the copy is run without it, the error;
   - a run with the fixture's `jest.config.js` pointing at a missing module, for the "no report" error text.
 
   Copy the real report to `tests/unit/stryker-report-<version>.json`. The step creates one scratch directory and removes only that one.
 
-- [ ] **Step 3:** Write the failing tests of `tests/unit/test_node.py`, then `tests/node.py`. This is the one helper of the Node toolchain: M9's Task 2 refers here and adds no helper of its own (if M9 landed first, the file exists with `PACKAGE`, `tools_path` and `require_tools`, and this step adds `without_node_tools`). Each test uses a temporary package directory with fake `node_modules/.bin` scripts:
+- [ ] **Step 3:** First the two shared helpers, each made by whichever of M7 and M8 lands first and reused by the other:
+  - `fake_executable(directory, name, script)` in `tests/conftest.py`, hoisted from `fake_python` of `tests/unit/test_impact.py` (lines 91-95): it makes `directory` if needed, writes `#!/bin/sh` and `script` to `directory/name`, marks it executable (`0o755`) and returns its `Path`. `fake_python(tmp_path, script)` becomes `str(fake_executable(tmp_path, "python", script))`, and `test_impact.py` imports it with `from tests.conftest import fake_executable`. The fake `.bin` scripts below, and Task 4's fake `stryker`, use it;
+  - `tests/tools.py`: `require(name, hint, path=None) -> Path` returns `shutil.which(name, path=path)`, and calls `pytest.fail(f"{name} is missing: {hint}", pytrace=False)` when there is none. This is the one "missing tool" helper: M7's `fork_checkout` calls it for `bun`, and `require_tools` below calls it for `node` and each Node tool, so a missing tool fails, never skips, in one place. `tests/unit/test_tools.py` holds the tests of `require` (found: the path; missing: `pytest.fail.Exception` naming the tool and the hint) and the one never-skips guard, which scans each gate file that exists (`tools.py`, `fork.py`, `node.py`, the step modules and features of M7 and M8, and the integration module of Task 4) for `\.skip\b|skipif|importorskip|xfail|@skip\b`. Add this plan's files to its list; do not write a second guard.
+
+  Then write the failing tests of `tests/unit/test_node.py`, then `tests/node.py`. This is the one helper of the Node toolchain: M9's Task 2 refers here and adds no helper of its own. Each test uses a temporary package directory with fake `node_modules/.bin` scripts made by `fake_executable`:
   - `tools_path(path)` puts `<package>/node_modules/.bin` first on a PATH string;
-  - `require_tools(*names)` calls `pytest.fail` (the test asserts `pytest.fail.Exception`, never `pytest.skip.Exception`) when `node` is not on the PATH, and again when `node_modules/.bin/<name>` is not a file for any name given. The message names the missing piece and says `make node-install`. M8's steps call `require_tools("stryker", "jest")`, M9's `require_tools("openspec")`. The pin is `node-check`'s to enforce, which `make test` runs before pytest; the helper checks presence;
+  - `require_tools(*names)` calls `tools.require` for `node` on the PATH, and again for each name on `node_modules/.bin`, so it fails (the test asserts `pytest.fail.Exception`, never `pytest.skip.Exception`) when any is missing. The message names the missing piece and says `make node-install`. M8's steps call `require_tools("stryker", "jest")`, M9's `require_tools("openspec")`. The pin is `node-check`'s to enforce, which `make test` runs before pytest; the helper checks presence;
   - `without_node_tools(directory)` fills `directory` with one symlink, to `git`, and returns it as the whole PATH string. Earnest needs `git` and nothing else, and no `node` or `stryker` is then reachable on any host, whichever directory a distribution keeps them in;
 
   The module, as a sketch that the three tests check:
@@ -729,7 +739,7 @@ The commands below are for pnpm (question 1, decided).
   import shutil
   from pathlib import Path
 
-  import pytest
+  from tests.tools import require
 
   PACKAGE = Path(__file__).resolve().parents[1]  # packages/earnest
 
@@ -741,12 +751,9 @@ The commands below are for pnpm (question 1, decided).
 
   def require_tools(*names: str, package: Path = PACKAGE) -> None:
       """Fail with one line that names the cause unless `node` and each named tool of `.bin` are there."""
-      if shutil.which("node") is None:
-          pytest.fail("node is missing from the PATH: see packages/earnest/.nvmrc")
+      require("node", "see packages/earnest/.nvmrc")
       for name in names:
-          tool = package / "node_modules" / ".bin" / name
-          if not tool.is_file():
-              pytest.fail(f"{name} is missing at {tool}: run `make node-install`")
+          require(name, "run `make node-install`", path=str(package / "node_modules" / ".bin"))
 
 
   def without_node_tools(directory: Path) -> str:
@@ -783,10 +790,10 @@ The commands below are for pnpm (question 1, decided).
 
 **Files:** Modify `packages/earnest/src/earnest/impact.py`, `cli.py`; Create `packages/earnest/tests/integration/test_typescript_evidence.py`; Test `tests/unit/test_impact.py`, `tests/unit/test_cli.py`.
 
-- [ ] **Step 1:** Write failing unit tests. A fake `stryker` is a script that the test writes in `tmp_path` with the shebang `sys.executable`: it records its argv, its working directory and `NODE_PATH` to a file, and writes a canned report to `reports/mutation/mutation.json` under its working directory. No Node is involved.
+- [ ] **Step 1:** Write failing unit tests. A fake `stryker` is an `sh` script that the test writes in `tmp_path` with `fake_executable`: it records its argv, its working directory and `readlink node_modules` to a file, and copies a canned report to `reports/mutation/mutation.json` under its working directory. No Node is involved.
   - `mutation_files`, parametrized over `.ts`, `.tsx`, `.mts` and `.cts`, returns the file of a traced requirement beside the `.py` files, and a `.js` file or a file with no tag is not returned;
   - the command is the repository's `node_modules/.bin/stryker` when that file exists, else the first `stryker` on the PATH; with neither, `EvidenceError` names StrykerJS;
-  - the run: the working directory is a copy, not the repository; argv is exactly `run --mutate <files> --reporters json`; `NODE_PATH` is the `node_modules` of the command, then any earlier value; the mutants are the report's, read through Task 3's reader;
+  - the run: the working directory is a copy, not the repository; argv is exactly `run --mutate <files> --reporters json`; `<copy>/node_modules` is a symlink to the `node_modules` of the command (the record's `readlink`), and the environment holds no `NODE_PATH` that Earnest set; the mutants are the report's, read through Task 3's reader;
   - a path holding a comma or a glob character exits 2 naming the file;
   - the work tree holds a stale `reports/mutation/mutation.json` and the fake exits 1 without writing one: `EvidenceError`, exit 2, and the stale mutants are not returned;
   - the fake exits 1 and writes no report: `EvidenceError` holds the exit code and the last line it printed. A fake that sleeps past a patched `MAP_TIMEOUT` gives the timeout error;
@@ -798,7 +805,7 @@ The commands below are for pnpm (question 1, decided).
 - [ ] **Step 2:** Implement in `impact.py`:
   - `mutation_files` returns the `.py` files and the files of the suffix set `.ts .tsx .mts .cts`;
   - `Evidence` gains `stryker: str = ""`, a new last field with a default, so every M5 construction stands;
-  - `_stryker(root)` locates the command (Interface contract, 1), `_stryker_run(copy, files, command)` runs it (2 to 4) and returns `stryker_mutants` of the report, and `stryker_tool(root)` gives the key's tool name (5);
+  - `_stryker(root)` locates the command (Interface contract, 1), `_stryker_run(copy, files, command)` links the command's `node_modules` into the copy with one `symlink_to`, runs it (2 to 4) and returns `stryker_mutants` of the report, and `stryker_tool(root)` gives the key's tool name (5);
   - `evidence()` runs the Python half as before when it is involved (see Step 1), skipping `_tool(python)`, `_configure` and `_suite` otherwise, then the StrykerJS half when the files include a TypeScript one. `Evidence.tool` is `""` for a TypeScript-only run;
   - `cli.py`: the help text.
 - [ ] **Step 3:** Write `tests/integration/test_typescript_evidence.py`, which runs the real tools (question 6: it fails, never skips, through `node.require_tools()`). It builds `fixture_repo("ts-evidence")`, scans it, and calls `impact.evidence` with the PATH of `node.tools_path`. It asserts the measured table of Task 2 Step 2 exactly: the survivors at lines 3 and 11, and at least one killed mutant on a line of `remaining` (so a build that never ran Stryker on that region fails).

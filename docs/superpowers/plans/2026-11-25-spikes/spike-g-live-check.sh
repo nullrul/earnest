@@ -37,7 +37,7 @@ try:
 except judge.JudgeError as error:
     sys.exit(f"JudgeError: {error}")  # exit 1, one line, no traceback
 out = Path(tempfile.mkdtemp(prefix="earnest-live-check-"))
-print(f"model    {model.id}\nharness  {model.harness}")
+print(f"model    {model.id}")
 
 real_run, seen = subprocess.run, {}
 

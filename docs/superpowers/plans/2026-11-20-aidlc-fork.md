@@ -479,7 +479,7 @@ The calls, in order:
   - The graph and the fixture copies live in pytest's temporary directories, not in the checkout.
   - `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` is identical before and after a gate run (Task 6).
   - The gate never runs `bun install`, and needs none (answer 12).
-- **Fail, never skip.** A missing `EARNEST_AIDLC_FORK`, a path without `core/tools/aidlc.ts`, or no `bun` on `PATH` each call `pytest.fail` with a one-line message that names the cause. Neither the module nor its helper uses `pytest.skip`, `skipif` or `importorskip`.
+- **Fail, never skip.** A missing `EARNEST_AIDLC_FORK`, a path without `core/tools/aidlc.ts`, or no `bun` on `PATH` each call `pytest.fail` with a one-line message that names the cause; a missing `bun` goes through `tests/tools.py`'s `require`, the one "missing tool" helper that M8's `require_tools` shares. Neither the module nor its helpers use `pytest.skip`, `skipif` or `importorskip`, and one guard in `tests/unit/test_tools.py` scans for them.
 - **A scrubbed environment for every fork call** (F17). The fork never sees the caller's session, host settings or Git configuration.
 - **Read the fork's rows by content.** Never read them by order or timestamp: the fork writes wall-clock times, and the fixture's rows are dated 2026-09-26 (F17).
 - **Git steps after a fork call.** Once the fork has run, the work tree holds its untracked files (F17). No "Git lists no new file" step follows a fork call.
@@ -540,6 +540,7 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 | `docs/design/01-logic-design.md`, `02-structural-design.md`, `03-implementation-plan.md`, `04-bdd-test-plan.md` | the decisions, the resolved rows, `04`'s M7 section, the link | 0 |
 | `packages/earnest/tests/fork.py` | `Fork`, `fork_checkout`, `compile_graph`, `run_fork`, `fork_shard`, `human_turn`, `gate_approvals` | 1 |
 | `packages/earnest/tests/unit/test_fork.py` | fail-not-skip and scrubbed-environment tests | 1 |
+| `packages/earnest/tests/tools.py`, `tests/unit/test_tools.py` | `require(name, hint, path=None)`, the one fail-never-skip lookup of a tool, and the one never-skips guard; M8 shares both. Made by whichever of M7 and M8 lands first | 1 |
 | `packages/earnest/src/earnest/plan.py` | `Unit` joined by unit directory through one helper | 2 |
 | `packages/earnest/tests/unit/test_plan.py` | the join tests | 2 |
 | `packages/earnest/tests/fixtures/seeded-change/units/` (the audit shard `fixture-a1b2c3d4.md`, `FUTURE-FORMAT.md`) | `**Unit**: u1-limiter` in place of `**Unit**: u1`; the value described as the construction directory | 2 |
@@ -547,8 +548,8 @@ The guard "fails rather than skips" is tested at the unit tier, in `tests/unit/t
 | `packages/earnest/tests/steps/test_unit_status.py` | the guard at line 49 and the assertion at line 124 name `u1-limiter` and `u2-notice` (Task 2); `define_twice` moves to `conftest.py` (Task 3) | 2, 3 |
 | `packages/earnest/tests/fixtures/seeded-change/fork/` | the solo gate overlay: the intent's `aidlc-state.md`, with `code-generation` at `[-]`, `build-and-test` at `[ ]` and `- **Review Override**: none`, plus `aidlc/.aidlc-clone-id` | 3 |
 | `packages/earnest/tests/fixtures/seeded-change/fork-units/` | the units gate overlay: the units variant's `aidlc-state.md` without `Unit Ownership: team`, with `- **Review Override**: none` and `functional-design` reopened for `u2-notice` (Task 3 Step 2), plus `aidlc/.aidlc-clone-id` | 3 |
-| `packages/earnest/tests/sarif.py` | `ISOLATED_GIT`, the Git isolation values shared by `_isolated_git` and the fork's environment | 1 |
-| `packages/earnest/tests/conftest.py` | `_isolated_git` sets `ISOLATED_GIT` (Task 1); `fork` and `fork-units` added to `_OVERLAYS`; `define_twice` moved here from `test_unit_status.py` (Task 3) | 1, 3 |
+| `packages/earnest/tests/sarif.py` | `ISOLATED_GIT`, the Git isolation values shared by `_isolated_git` and the fork's environment; `append_block` takes an optional shard path | 1 |
+| `packages/earnest/tests/conftest.py` | `fake_executable(directory, name, script)`, hoisted from `fake_python` of `tests/unit/test_impact.py` (Task 1; the first of M7 and M8 to land hoists it); `_isolated_git` sets `ISOLATED_GIT` (Task 1); `fork` and `fork-units` added to `_OVERLAYS`; `define_twice` moved here from `test_unit_status.py` (Task 3) | 1, 3 |
 | `packages/earnest/tests/features/aidlc_fork.feature` | M7's 5 scenarios, copied verbatim from `04` | 3 |
 | `packages/earnest/tests/steps/test_aidlc_fork.py` | the steps; the exit command | 3 |
 | `packages/earnest/pyproject.toml` | `--ignore` of the fork module in pytest's `addopts` | 3 |
@@ -569,6 +570,7 @@ Outside the package, only Task 0's docs, the Makefiles, `ci.yml` and `CLAUDE.md`
   - Only CI pins `AIDLC_FORK_REF` and Bun 1.4.2. A local run uses whatever commit and Bun the maintainer has.
   - The per-unit approve scenario rests on answer 17's option A (decided), which needs fork work beyond the `--unit` argument, and on the `--unit` form of the Interface contract until the fork's plan confirms it (Task 0 Step 4).
 - **The approve check costs a run.** Under answer 3, each approve runs `earnest check --stage` once more. On a clean tree that run takes a coverage map: the target's tests under pytest-cov, up to 900 s (E9).
+- **Follow-up, not in this diff: reuse one coverage map across sensor firings.** Each `earnest` firing of a `unit-end` gate, and each approve, takes its own map. Sharing one across firings is a change to earnest's design, not to this gate.
 
 ---
 
@@ -657,13 +659,15 @@ Feature: AI-DLC fork
 
 ### Task 1: The fork helper
 
-**Files:** Create `packages/earnest/tests/fork.py`. Modify `packages/earnest/tests/sarif.py`, `packages/earnest/tests/conftest.py`, and this plan, where the task records its counts. Test `packages/earnest/tests/unit/test_fork.py`.
+**Files:** Create `packages/earnest/tests/fork.py`, and, unless M8 landed first and made them, `packages/earnest/tests/tools.py` and `tests/unit/test_tools.py`. Modify `packages/earnest/tests/sarif.py`, `packages/earnest/tests/conftest.py`, `packages/earnest/tests/unit/test_impact.py` (the `fake_executable` hoist, unless M8 did it), and this plan, where the task records its counts. Test `packages/earnest/tests/unit/test_fork.py`.
 
 **Interfaces:**
 
 - Consumes:
   - `EARNEST` and `RECORD` from `tests/sarif.py`;
-  - `parse_audit(text: str, shard: str) -> list[Event]` from `earnest.plan`, where `Event.fields` is a `dict[str, str]`.
+  - `parse_audit(text: str, shard: str) -> list[Event]` from `earnest.plan`, where `Event.fields` is a `dict[str, str]`;
+  - `append_block(repo, event, timestamp, fields=(), shard=SHARD)` from `tests/sarif.py`, given the optional `shard` path of Step 4;
+  - `require(name, hint, path=None) -> Path` from `tests/tools.py` (Step 4) and `fake_executable(directory, name, script) -> Path` from `tests/conftest.py` (Step 4).
 - Produces, all in `tests/fork.py`:
   - `FORK_ENV = "EARNEST_AIDLC_FORK"`, `ENTRY = "core/tools/aidlc.ts"`, and `CLONE_ID = "fixturecloneid01"`;
   - `@dataclass(frozen=True) class Fork: root: Path; bun: Path; graph: Path; home: Path`;
@@ -672,7 +676,7 @@ Feature: AI-DLC fork
   - `def compile_graph(root: Path, bun: Path, out: Path) -> Fork`;
   - `def run_fork(repo: Path, fork: Fork, *args: str, direct: bool = False) -> subprocess.CompletedProcess[str]`;
   - `def fork_shard(repo: Path) -> Path`;
-  - `def human_turn(repo: Path) -> None`;
+  - `def human_turn(repo: Path) -> None`, which calls `append_block` of `tests/sarif.py` with the fork's shard;
   - `def gate_approvals(repo: Path) -> list[Event]`.
 
 - [ ] **Step 1:** Record the regression count: run `rtk proxy uv run pytest -q; echo $?` in `packages/earnest/`, and write the passed count into this task.
@@ -681,11 +685,11 @@ Feature: AI-DLC fork
 ```python
 """The aidlc_fork gate's helper fails, never skips, and runs the fork in a scrubbed environment."""
 
-import re
 from pathlib import Path
 
 import pytest
 
+from tests.conftest import fake_executable
 from tests.fork import ENTRY, FORK_ENV, Fork, fork_checkout, fork_env, run_fork
 from tests.sarif import EARNEST, ISOLATED_GIT
 
@@ -722,20 +726,10 @@ def test_missing_bun_fails(monkeypatch, tmp_path):
 
 
 def test_found_checkout_and_bun(monkeypatch, tmp_path):
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "bun").write_text("#!/bin/sh\n")
-    (bin_dir / "bun").chmod(0o755)
+    bun = fake_executable(tmp_path / "bin", "bun", "")
     monkeypatch.setenv(FORK_ENV, str(_checkout(tmp_path / "fork")))
-    monkeypatch.setenv("PATH", str(bin_dir))
-    assert fork_checkout() == (tmp_path / "fork", bin_dir / "bun")
-
-
-def test_the_gate_never_skips():
-    tests = Path(__file__).resolve().parents[1]
-    for path in (tests / "fork.py", tests / "steps" / "test_aidlc_fork.py", tests / "features" / "aidlc_fork.feature"):
-        if path.exists():  # a Gherkin @skip tag becomes a skip mark, so the feature is scanned too
-            assert not re.search(r"\.skip\b|skipif|importorskip|xfail|@skip\b", path.read_text()), path
+    monkeypatch.setenv("PATH", str(bun.parent))
+    assert fork_checkout() == (tmp_path / "fork", bun)
 
 
 def test_environment_is_scrubbed(monkeypatch):
@@ -748,9 +742,7 @@ def test_environment_is_scrubbed(monkeypatch):
 
 def test_run_fork_scrubs_and_names_the_repo(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAUDE_SESSION_ID", "leak")
-    bun = tmp_path / "bun"
-    bun.write_text("#!/bin/sh\nenv\n")
-    bun.chmod(0o755)
+    bun = fake_executable(tmp_path, "bun", "env")
     fork = Fork(tmp_path, bun, tmp_path / "stage-graph.json", tmp_path / "home")
     seen = dict(line.split("=", 1) for line in run_fork(tmp_path, fork, "engine").stdout.splitlines())
     assert seen["AIDLC_PROJECT_DIR"] == seen["AIDLC_RUNTIME_PROJECT_DIR"] == str(tmp_path)
@@ -758,10 +750,14 @@ def test_run_fork_scrubs_and_names_the_repo(monkeypatch, tmp_path):
     assert "CLAUDE_SESSION_ID" not in seen
 ```
 
-  `test_the_gate_never_skips` looks for skip calls, skip and xfail marks, and `@skip` tags, not the word, because the helper's docstrings say "never skip".
+  The one never-skips guard is not here: it is `test_the_gate_never_skips` of `tests/unit/test_tools.py`, which M8 shares. It looks for skip calls, skip and xfail marks, and `@skip` tags, not the word, because the helpers' docstrings say "never skip". It scans `tests/tools.py`, `tests/fork.py`, `tests/steps/test_aidlc_fork.py` and `tests/features/aidlc_fork.feature` (a Gherkin `@skip` tag becomes a skip mark, so the feature is scanned too), each when it exists, and M8's files in their turn; this plan adds its files to the list and writes no second guard. `tests/unit/test_tools.py` also holds the tests of `require`: found, it returns the path; missing, it raises `pytest.fail.Exception` naming the tool and the hint.
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_fork.py; echo $?`. Expected: a non-zero code; collection fails with `ModuleNotFoundError: tests.fork`.
-- [ ] **Step 4:** Share the Git isolation values. Add `import os` to the imports of `tests/sarif.py`, and this constant after them:
+- [ ] **Step 4:** Share the helpers.
+  - `fake_executable`: in `tests/conftest.py`, hoist `fake_python` of `tests/unit/test_impact.py` (lines 91-95) into `def fake_executable(directory: Path, name: str, script: str) -> Path`, which makes `directory`, writes `#!/bin/sh` and `script` to `directory/name`, marks it `0o755` and returns it. `fake_python(tmp_path, script)` becomes `str(fake_executable(tmp_path, "python", script))` and `test_impact.py` imports it from `tests.conftest`. If M8 landed first, it is already there.
+  - `tests/tools.py` and its tests, unless M8 made them: `def require(name: str, hint: str, path: str | None = None) -> Path`, which returns `Path(shutil.which(name, path=path))` and calls `pytest.fail(f"{name} is missing: {hint}", pytrace=False)` when there is none; and `tests/unit/test_tools.py` with the tests of the paragraph above.
+  - `append_block` in `tests/sarif.py` gains an optional last parameter, `shard: str | Path = SHARD`, in place of its hard-coded `SHARD`: `write(repo, shard, read(repo, shard) + block(event, timestamp, fields))`. Every existing call is unchanged. `fork_shard` is not changed: it finds the fork's shard, and appends nothing.
+  - The Git isolation values. Add `import os` to the imports of `tests/sarif.py`, and this constant after them:
 
 ```python
 ISOLATED_GIT = {
@@ -778,7 +774,6 @@ ISOLATED_GIT = {
 """Find the AI-DLC fork checkout and run its tools against a built fixture, for the aidlc_fork gate."""
 
 import os
-import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -787,7 +782,8 @@ from pathlib import Path
 import pytest
 
 from earnest.plan import Event, parse_audit
-from tests.sarif import EARNEST, ISOLATED_GIT, RECORD, block
+from tests.sarif import EARNEST, ISOLATED_GIT, RECORD, append_block
+from tests.tools import require
 
 
 FORK_ENV = "EARNEST_AIDLC_FORK"
@@ -819,10 +815,7 @@ def fork_checkout() -> tuple[Path, Path]:
     root = Path(value)
     if not root.is_absolute() or not (root / ENTRY).is_file():
         pytest.fail(f"{FORK_ENV}={value} is not an AI-DLC fork checkout: it has no {ENTRY}", pytrace=False)
-    bun = shutil.which("bun")
-    if bun is None:
-        pytest.fail("bun is not on PATH, and the aidlc_fork gate runs the fork with Bun", pytrace=False)
-    return root, Path(bun)
+    return root, require("bun", "the aidlc_fork gate runs the fork with Bun")
 
 
 def fork_env(bun: Path, home: Path, **extra: str) -> dict[str, str]:
@@ -870,8 +863,7 @@ def fork_shard(repo: Path) -> Path:
 def human_turn(repo: Path) -> None:
     """Append the human's answer at the open gate: a HUMAN_TURN row after gate-start's rows."""
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with fork_shard(repo).open("a") as shard:
-        shard.write("\n" + block("HUMAN_TURN", stamp))
+    append_block(repo, "HUMAN_TURN", stamp, shard=fork_shard(repo))
 
 
 def gate_approvals(repo: Path) -> list[Event]:
@@ -880,7 +872,7 @@ def gate_approvals(repo: Path) -> list[Event]:
     return [event for event in parse_audit(shard.read_text(), shard.name) if event.fields["Event"] == "GATE_APPROVED"]
 ```
 
-- [ ] **Step 5:** Run `rtk proxy uv run pytest tests/unit/test_fork.py; echo $?` and the regression run. Expected: 8 passed and `0`, and the regression run is green at Step 1's count plus 8.
+- [ ] **Step 5:** Run `rtk proxy uv run pytest tests/unit/test_fork.py tests/unit/test_tools.py; echo $?` and the regression run. Expected: 7 passed in `test_fork.py`, plus the tests of `test_tools.py` (3 when this plan makes the file: found, missing, the guard; none new when M8 did) and `0`, and the regression run is green at Step 1's count plus those.
 - [ ] **Step 6:** Check the graph compile against the real checkout, without changing it:
   - Run `git -C "$EARNEST_AIDLC_FORK" status --short --ignored` and save the output.
   - Run `uv run python -c 'from pathlib import Path; import tempfile; from tests.fork import compile_graph, fork_checkout; r, b = fork_checkout(); print(compile_graph(r, b, Path(tempfile.mkdtemp())).graph.stat().st_size)'` from `packages/earnest/`.
