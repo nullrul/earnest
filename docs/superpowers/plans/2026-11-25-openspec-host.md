@@ -857,7 +857,7 @@ Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-sr
   - `test_a_stage_with_no_artifact_before_a_later_artifact_is_not_the_frontier` (answer 7);
   - `test_a_body_edit_raises_unbumped_change_only_after_a_gate_row_names_the_item` (answer 6: with the artifact's approval alone, a body edited at the same revision raises none; with a `GATE_APPROVED` row whose `Items` names the item, it raises one);
   - `test_a_missing_openspec_cli_stops_the_run_with_exit_two` (empty `PATH`; one line on stderr naming `openspec`; empty stdout);
-  - `test_an_unreadable_route_answer_stops_the_run_with_exit_two` (a fake CLI that prints text that is not JSON, or JSON with no `artifacts`);
+  - `test_an_unreadable_route_answer_stops_the_run_with_exit_two` (rows: a fake CLI that prints text that is not JSON; JSON with no `artifacts`; JSON with an empty `artifacts` list, which is no route);
   - `test_a_failing_openspec_cli_stops_the_run_with_exit_two` (a fake CLI that exits 1 and writes its cause on stderr: exit 2, and the one line on stderr holds the cause);
   - `test_an_openspec_cli_that_does_not_answer_in_time_stops_the_run_with_exit_two` (a fake CLI that sleeps, with `openspec._TIMEOUT` patched to a fraction of a second);
   - `test_an_openspec_that_cannot_start_stops_the_run_with_exit_two` (an executable `openspec` on `PATH` whose shebang names no interpreter, so `subprocess.run` raises `OSError`: exit 2, no traceback);
@@ -937,10 +937,14 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
             Artifact(each["id"], each["outputPath"], tuple(each["requires"]), each["status"])
             for each in data["artifacts"]
         )
-        return artifacts, data["schemaName"]
+        schema = data["schemaName"]
     except (ValueError, KeyError, TypeError) as error:
         msg = f"openspec status gave no usable route for {name}: {error}"
         raise RuntimeError(msg) from error
+    if not artifacts:  # a route with no stage would read as nothing left to do
+        msg = f"openspec status gave no usable route for {name}: no artifacts"
+        raise RuntimeError(msg)
+    return artifacts, schema
 
 
 def _glob(pattern: str) -> re.Pattern[str]:
@@ -1042,7 +1046,7 @@ Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-sr
 
 - [ ] **Step 1:** Write the failing tests:
   - `test_a_box_reads_as_upstream_counts_it`, rows: `- [x] a`, `- [X] a`, `* [x] a`, `1. [x] a` are checked; `- [ ] a` and `- [-] a` are unchecked; `- [x](link)` and `- [x][ref]` are no box;
-  - `test_ticking_a_box_leaves_the_task_body_hash_as_it_was`, and `test_changing_a_task_title_changes_the_body_hash`;
+  - `test_ticking_a_box_leaves_the_task_body_hash_as_it_was`, `test_changing_a_task_title_changes_the_body_hash`, and `test_a_bracket_in_the_middle_of_a_task_line_still_changes_the_body_hash` (rows: `Delivers: see 2. [a] and - [b] here` against `[c]`, and `Use a[1] - [k] lookup` against `[m]`);
   - `test_plan_prints_each_tasks_box_beside_its_computed_status` (`task task~lock-for-window~1: not done, box [x]`);
   - `test_a_checked_task_whose_requirement_is_below_evidenced_raises_the_finding_at_its_box` (a stage check of `tasks`);
   - `test_a_plain_check_raises_no_checked_unevidenced` (P8: the same tree, no `--stage`);
@@ -1074,7 +1078,7 @@ Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-sr
   In `index.py`, the body hash of a `task` item blanks the box's marker, so `[x]` and `[ ]` hash alike (answer 10, option A), and nothing else; `_markdown` passes `item_id.type == "task"`:
 
   ```python
-  _BOX = re.compile(r"(\s*(?:[-*+]|\d{1,9}[.)])\s*\[)\s*[^\]\s]?\s*(\](?![(\[]))")  # a task line's box, any marker
+  _BOX = re.compile(r"^(\s*(?:[-*+]|\d{1,9}[.)])\s*\[)\s*[^\]\s]?\s*(\](?![(\[]))")  # the box at the start of a task line, any marker
 
 
   def _body_hash(lines: Iterable[Line], fenced: frozenset[int], boxes: bool = False) -> str:
