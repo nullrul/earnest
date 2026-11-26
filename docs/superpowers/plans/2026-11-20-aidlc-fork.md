@@ -989,7 +989,7 @@ The diff translates a row's directory to the unit's name where `gates` is built,
   - `fork-units/aidlc/.aidlc-clone-id` holds `fixturecloneid01`.
 - [ ] **Step 3:** Add `"fork"` and `"fork-units"` to `_OVERLAYS` in `conftest.py`, in the same commit as the overlay files. Without that, the base copy takes them in, and the base commit's sha moves, which the sha pins in `test_seeded_change.py` catch.
 - [ ] **Step 4:** Move `define_twice` (`test_unit_status.py:53-55`) into `conftest.py`, with its `REQUIREMENTS`, `read` and `write` imports, so that both features share it. `test_unit_status.py` drops the moved step and any import it no longer uses (ruff F401).
-- [ ] **Step 5:** Check the readings on the built overlays with Earnest alone. In a scratch test, or with `uv run python`, build each overlay with `commit_on_main(fixture_repo("seeded-change"), "seeded-change", "fork")` and `commit_on_main(units_repo(), "seeded-change", "fork-units")`, then run each command below as `rtk proxy <command>; echo $?`, since the exit code is the reading:
+- [ ] **Step 5:** Check the readings on the built overlays with Earnest alone. In a scratch test, build each overlay with `commit_on_main(fixture_repo("seeded-change"), "seeded-change", "fork")` and `commit_on_main(units_repo(), "seeded-change", "fork-units")`, then run each command below as `rtk proxy <command>; echo $?`, since the exit code is the reading:
   - `earnest check --stage requirements-analysis`. Expected: exit 0 and 0 results. After `define_twice`: exit 1 and 1 result.
   - `earnest check --stage code-generation`. Expected: exit 0.
   - `earnest check --stage construction/u2-notice/functional-design` on `fork-units`. Expected: exit 0 and 0 results.

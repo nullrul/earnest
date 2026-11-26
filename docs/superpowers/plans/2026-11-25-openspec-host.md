@@ -764,7 +764,22 @@ M8's plan owns both pieces: its Task 1 is the one recipe for the toolchain (mani
   - `test_a_missing_node_fails_and_names_node` (an empty `PATH`);
   - `test_the_environment_turns_telemetry_off_and_keeps_openspec_out_of_home` (`OPENSPEC_TELEMETRY=0`, `DO_NOT_TRACK=1`, `CI=1`, `NO_COLOR=1`, and the three `XDG_*` paths below the given directory).
 
-  If M8 Task 2 Step 3 has landed, `tests/node.py` and its tests exist: add only `openspec_env` and the third test. If not, create the file with `PACKAGE`, `tools_path`, `require_tools` and `openspec_env` as that step gives them, and leave `without_node_tools` and its test to M8's Task 2.
+  If M8 Task 2 Step 3 has landed, `tests/node.py` and its tests exist: add only `openspec_env` and the third test. If not, create the file with `PACKAGE`, `tools_path` and `require_tools` as that step's sketch gives them, then `openspec_env`, and leave `without_node_tools` and its test to M8's Task 2. M9 owns `openspec_env` whichever plan lands first:
+
+  ```python
+  def openspec_env(home: Path) -> dict[str, str]:
+      """Return an environment that keeps OpenSpec's telemetry off and its configuration and data below `home`."""
+      return {
+          **os.environ,
+          "OPENSPEC_TELEMETRY": "0",
+          "DO_NOT_TRACK": "1",
+          "CI": "1",
+          "NO_COLOR": "1",
+          "XDG_CONFIG_HOME": str(home / "config"),
+          "XDG_DATA_HOME": str(home / "data"),
+          "XDG_CACHE_HOME": str(home / "cache"),
+      }
+  ```
 
 - [ ] **Step 5:** Run `rtk proxy uv run pytest tests/unit/test_node.py -q; echo $?`: red before the helper, `0` after. Then `rtk proxy make -C packages/earnest node-install; echo $?` (`0`) and `rtk proxy make -C packages/earnest node-check; echo $?` (a line `@fission-ai/openspec 2.1.1`, `0`). The negative control asserts the message, since `make` exits 2 for any failed recipe and the code alone would pass for another cause: `rtk proxy make -C packages/earnest node-check NODE_MODULES=/nonexistent 2>&1 | grep -c "@fission-ai/openspec is missing: run make node-install"` prints `1`. Run `yamllint -c .yamllint.yml .github/workflows/ci.yml; echo $?` (`0`).
 - [ ] **Step 6:** `CLAUDE.md`'s Build section (M8 Task 6 Step 4 words the Node line) also says that the M9 feature runs the pinned `openspec` and needs Node 22.20 or later. Run the regression run, then commit `chore: pin the openspec CLI with the package's Node toolchain`.
@@ -864,7 +879,7 @@ Built on spike D (`docs/superpowers/plans/2026-11-25-spikes/spike-d-prototype-sr
   - `test_find_intent_messages_name_an_openspec_change_beside_aidlc_state` (in `tests/unit/test_plan.py`; the existing tests there match only the `aidlc-state\.md` part, so they pass with or without the new wording), rows: `plan.find_intent([], None)` and `plan.find_intent([two intents], None)` each raise a `PlanError` whose text matches `openspec/changes/` and still names `aidlc-state.md`.
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_openspec.py tests/unit/test_reporter.py tests/unit/test_plan.py::test_find_intent_messages_name_an_openspec_change_beside_aidlc_state -q; echo $?`. Expected: the `test_openspec.py` tests fail on the missing module, the reporter test on the missing rule and the `find_intent` test on the old message wording, non-zero.
-- [ ] **Step 4:** Write `src/earnest/openspec.py`, and add `change_dirs` to `adapters/__init__.py` (the second block below). The module is the prototype's module with the three changes above, a timeout, a failed start and an unreadable answer turned into `RuntimeError`, `status` read into `Artifact.status`, and `OPENSPEC_TELEMETRY=0` in the call's environment. Step 3's tests check it; Task 7 adds `TASK_LINE` and `box` to it:
+- [ ] **Step 4:** Write `src/earnest/openspec.py`, and add `change_dirs` to `adapters/__init__.py` (the second block below). The module is the prototype's module with the three changes above, a timeout, a failed start and an unreadable answer turned into `PlanError` (`route_cli` raises it itself, with the prefix `earnest needs the openspec CLI to read the route of <change>:`), `status` read into `Artifact.status`, and `OPENSPEC_TELEMETRY=0` in the call's environment. Step 3's tests check it; Task 7 adds `TASK_LINE` and `box` to it:
 
 ```python
 """The OpenSpec host: a change below `openspec/changes/<id>/` as an intent, and its route from the CLI."""
@@ -876,6 +891,8 @@ import shutil
 import subprocess  # noqa: S404
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+
+from earnest.plan import PlanError
 
 _TIMEOUT = 60  # seconds
 
@@ -894,13 +911,14 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
     """Return the artifacts and the schema name of `openspec status --change <id> --json`, run at `root`.
 
     Raises:
-        RuntimeError: `openspec` is not on PATH, cannot start, fails, does not answer in time, or answers no route (#26: fail loud).
+        PlanError: `openspec` is not on PATH, cannot start, fails, does not answer in time, or answers no route (#26: fail loud).
     """
+    name = PurePosixPath(directory).name
+    need = f"earnest needs the openspec CLI to read the route of {name}:"
     exe = shutil.which("openspec")
     if exe is None:
-        msg = "openspec is not on PATH"
-        raise RuntimeError(msg)
-    name = PurePosixPath(directory).name
+        msg = f"{need} openspec is not on PATH"
+        raise PlanError(msg)
     env = {**os.environ, "OPENSPEC_TELEMETRY": "0"}
     try:
         done = subprocess.run(  # noqa: S603
@@ -908,11 +926,11 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
             cwd=root, capture_output=True, text=True, check=False, timeout=_TIMEOUT, env=env,
         )
     except (OSError, subprocess.SubprocessError) as error:  # a timeout, or a start that failed
-        msg = f"openspec status could not run for {name}: {error}"
-        raise RuntimeError(msg) from error
+        msg = f"{need} openspec status could not run: {error}"
+        raise PlanError(msg) from error
     if done.returncode != 0:
-        msg = f"openspec status failed for {name}: {done.stderr.strip()[:200]}"
-        raise RuntimeError(msg)
+        msg = f"{need} openspec status failed: {done.stderr.strip()[:200]}"
+        raise PlanError(msg)
     try:
         data = json.loads(done.stdout)
         artifacts = tuple(
@@ -921,11 +939,11 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
         )
         schema = data["schemaName"]
     except (ValueError, KeyError, TypeError) as error:
-        msg = f"openspec status gave no usable route for {name}: {error}"
-        raise RuntimeError(msg) from error
+        msg = f"{need} openspec status gave no usable route: {error}"
+        raise PlanError(msg) from error
     if not artifacts:  # a route with no stage would read as nothing left to do
-        msg = f"openspec status gave no usable route for {name}: no artifacts"
-        raise RuntimeError(msg)
+        msg = f"{need} openspec status gave no usable route: no artifacts"
+        raise PlanError(msg)
     return artifacts, schema
 ```
 
@@ -985,7 +1003,7 @@ class Host:
 AIDLC = Host("aidlc", lambda intent, stage, path: path.startswith(posixpath.join(intent.directory, stage) + "/"), route_findings)
 ```
 
-`Intent` gains `host: "Host" = field(default_factory=lambda: AIDLC)` (`field` is already imported in `plan.py`). `plan.py` has no `from __future__ import annotations` and a class body evaluates its annotations when it runs, so the order matters: define `Host` after `Intent` (its `Callable[[Intent, ...]]` then resolves), quote the annotation inside `Intent` (`Host` does not exist yet), and define `AIDLC` after `route_findings` (the default factory defers the name `AIDLC`, and `AIDLC`'s own arguments need `route_findings`); `build()`'s item grouping and `stage_of()` call `intent.host.holds(intent, stage, path)`, and `plan_findings` calls `plan.intent.host.route_findings(plan.intent)`, so no function tests which host it has. `PRODUCES` gains the OpenSpec rows (`specs`: `feat` and `req`; `design`: `dsn`; `tasks`: `task`, `impl`, `utest`, `itest`; `proposal`: none; no `stest`). `openspec.py`: `load_openspec` (importing `Host`, `Intent`, `parse_audit`, `_approval`, `_named` and `PlanError` from `plan`) builds the `Intent` from a change directory, with `host=Host("openspec", holds, route_findings)`, where `holds` is `matches(intent.directory, generates[stage], path)` over the route's globs and `route_findings` returns `[]` (a route read from the CLI cannot mismatch a state file), reusing `parse_audit`, `_approval` and `_named` for the `<change>/audit/*.md` rows, giving each existing artifact the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and wrapping `route_cli`'s `RuntimeError` in `PlanError("earnest needs the openspec CLI to read the route of <change>: <cause>")`; the frontier skips a stage whose glob matches nothing while a later stage's matches (answer 7); `adapters/__init__.py`: `change_dirs`, and `scan` adds each change directory to the record directories, so `<change>/audit/` and `.earnest/` stay bookkeeping. `cli._read` lists change directories (`adapters.change_dirs`, which `load_openspec` also calls) beside the state files; the messages of `find_intent` that name `aidlc-state.md` also name `openspec/changes/<id>/`. `cli.py` adds `earnest/no-requirements` (a warning, `RULES` in `reporter.py`) at `openspec/config.yaml` line 1, or at the first main spec's line 1, when `openspec/` exists at the root and the index holds no `req` (answer 5; no file to point at, no finding), and the message says to write an id line under each heading.
+`Intent` gains `host: "Host" = field(default_factory=lambda: AIDLC)` (`field` is already imported in `plan.py`). `plan.py` has no `from __future__ import annotations` and a class body evaluates its annotations when it runs, so the order matters: define `Host` after `Intent` (its `Callable[[Intent, ...]]` then resolves), quote the annotation inside `Intent` (`Host` does not exist yet), and define `AIDLC` after `route_findings` (the default factory defers the name `AIDLC`, and `AIDLC`'s own arguments need `route_findings`); `build()`'s item grouping and `stage_of()` call `intent.host.holds(intent, stage, path)`, and `plan_findings` calls `plan.intent.host.route_findings(plan.intent)`, so no function tests which host it has. `PRODUCES` gains the OpenSpec rows (`specs`: `feat` and `req`; `design`: `dsn`; `tasks`: `task`, `impl`, `utest`, `itest`; `proposal`: none; no `stest`). `openspec.py`: `load_openspec` (importing `Host`, `Intent`, `parse_audit`, `_approval`, `_named` and `PlanError` from `plan`) builds the `Intent` from a change directory, with `host=Host("openspec", holds, route_findings)`, where `holds` is `matches(intent.directory, generates[stage], path)` over the route's globs and `route_findings` returns `[]` (a route read from the CLI cannot mismatch a state file), reusing `parse_audit`, `_approval` and `_named` for the `<change>/audit/*.md` rows, giving each existing artifact the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and letting `route_cli`'s `PlanError` through (`openspec.py` already imports `plan`, so the import adds no cycle); the frontier skips a stage whose glob matches nothing while a later stage's matches (answer 7); `adapters/__init__.py`: `change_dirs`, and `scan` adds each change directory to the record directories, so `<change>/audit/` and `.earnest/` stay bookkeeping. `cli._read` lists change directories (`adapters.change_dirs`, which `load_openspec` also calls) beside the state files; the messages of `find_intent` that name `aidlc-state.md` also name `openspec/changes/<id>/`. `cli.py` adds `earnest/no-requirements` (a warning, `RULES` in `reporter.py`) at `openspec/config.yaml` line 1, or at the first main spec's line 1, when `openspec/` exists at the root and the index holds no `req` (answer 5; no file to point at, no finding), and the message says to write an id line under each heading.
 
 - [ ] **Step 5:** Run Step 3's command: expect `0`. Then add the overlays and bind scenarios 8 and 9. `change/` holds the change of the Fixture section; `approved/` holds the gate row of the Fixture section, which scenario 9 commits after its stage check (the "approved" layer step is the one that commits any layer); `unbumped/` holds the delta with the first requirement's body edited ("...for the lockout window, which starts at the third failure.") and its revision left at 2. Run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "intent or unbumped" -q; echo $?`: expect `0`. Add `test_the_change_approved_and_unbumped_layers_pass_strict_validation` to `tests/integration/test_openspec_ids.py` and run it by path: expect `0`. No spike ran `openspec validate` over an `audit/` directory inside a change (S15), so if OpenSpec rejects it, stop and tell the maintainer; do not move the row without that answer.
 - [ ] **Step 6:** The repository-level check: `rtk proxy uv run --project packages/earnest earnest check 2>&1 >/dev/null | grep -c '^intent '` equals Step 6 of Task 3's count (the fixture's `openspec/` is not at the root). Then the regression run, `mypy --strict`, ruff and vulture: expect `0`, at the Step 1 count plus this task's tests.
@@ -1015,7 +1033,7 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`.
 
 - [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: fail, non-zero.
 - [ ] **Step 3:** Implement, from the patch for `adapters/__init__.py` and `index.py`, and from the text below for `structural.py`:
-  - `adapters/__init__.py`: `_CHANGES = ("openspec", "changes")`, and `layer(path)` returns `DELTA` when `_under(PurePosixPath(path).parts, _CHANGES)` (Task 4's helper, any depth) and `MAIN` otherwise; `scan` sets `Source.layer`.
+  - `adapters/__init__.py`: `layer(path)` returns `DELTA` when `_under(PurePosixPath(path).parts, _CHANGES)` (Task 4's helper, any depth; `_CHANGES` is Task 5's, so skip the lines of the patch that define `_CHANGES` and `_ARCHIVE` again) and `MAIN` otherwise; `scan` sets `Source.layer`.
   - `index.py`: constants `MAIN = "main"` and `DELTA = "delta"`; `Source.layer: str = MAIN`; `Item.layer` as `field(default=MAIN, compare=False)`, set from `source.layer` in `_markdown`. `Index.defined` becomes:
 
   ```python

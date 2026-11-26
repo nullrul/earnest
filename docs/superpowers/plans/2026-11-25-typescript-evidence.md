@@ -442,7 +442,7 @@ The scenario titles are PROPOSED, and Task 0 writes them into `04`. The clause c
 | `.github/workflows/ci.yml`                                                                                                                           | the Node setup steps of `test-python`                                                                                                                                    | 1    |
 | `.gitignore`, `.markdownlint-cli2.jsonc`                                                                                                             | `.stryker-tmp/` and `reports/mutation/`; `**/node_modules/**`                                                                                                            | 1    |
 | `packages/earnest/tests/fixtures/ts-evidence/`                                                                                                       | the fixture: `requirements.md`, `src/limits.ts`, `tests/limits.test.ts`, `jest.config.js`, `tsconfig.json`, `stryker.config.json`, `evidence-verdicts.json`, `README.md` | 2    |
-| `packages/earnest/tests/node.py`                                                                                                                     | the one Node helper, shared with M9: the Node tools' `PATH`, `require_tools(*names)` (fails, never skips), `without_node_tools` (a PATH of `git` alone), `openspec_env`  | 2    |
+| `packages/earnest/tests/node.py`                                                                                                                     | the one Node helper, shared with M9: the Node tools' `PATH`, `require_tools(*names)` (fails, never skips), `without_node_tools` (a PATH of `git` alone)                  | 2    |
 | `packages/earnest/tests/unit/test_node.py`                                                                                                           | fail-not-skip and PATH tests                                                                                                                                             | 2    |
 | `packages/earnest/tests/features/typescript_evidence.feature`                                                                                        | M8's 7 scenarios, verbatim from `04`                                                                                                                                     | 2    |
 | `packages/earnest/tests/steps/test_typescript_evidence.py`                                                                                           | the steps; the exit command                                                                                                                                              | 2    |
@@ -715,13 +715,12 @@ The commands below are for pnpm (question 1, decided).
 
   Copy the real report to `tests/unit/stryker-report-<version>.json`. The step creates one scratch directory and removes only that one.
 
-- [ ] **Step 3:** Write the failing tests of `tests/unit/test_node.py`, then `tests/node.py`. This is the one helper of the Node toolchain: M9's Task 2 refers here and adds no helper of its own (if M9 landed first, the file exists with `PACKAGE`, `tools_path`, `require_tools` and `openspec_env`, and this step adds `without_node_tools`). Each test uses a temporary package directory with fake `node_modules/.bin` scripts:
+- [ ] **Step 3:** Write the failing tests of `tests/unit/test_node.py`, then `tests/node.py`. This is the one helper of the Node toolchain: M9's Task 2 refers here and adds no helper of its own (if M9 landed first, the file exists with `PACKAGE`, `tools_path` and `require_tools`, and this step adds `without_node_tools`). Each test uses a temporary package directory with fake `node_modules/.bin` scripts:
   - `tools_path(path)` puts `<package>/node_modules/.bin` first on a PATH string;
   - `require_tools(*names)` calls `pytest.fail` (the test asserts `pytest.fail.Exception`, never `pytest.skip.Exception`) when `node` is not on the PATH, and again when `node_modules/.bin/<name>` is not a file for any name given. The message names the missing piece and says `make node-install`. M8's steps call `require_tools("stryker", "jest")`, M9's `require_tools("openspec")`. The pin is `node-check`'s to enforce, which `make test` runs before pytest; the helper checks presence;
   - `without_node_tools(directory)` fills `directory` with one symlink, to `git`, and returns it as the whole PATH string. Earnest needs `git` and nothing else, and no `node` or `stryker` is then reachable on any host, whichever directory a distribution keeps them in;
-  - `openspec_env(home)` (M9) keeps OpenSpec's telemetry off and its configuration below `home`.
 
-  The module, as a sketch that the four tests check:
+  The module, as a sketch that the three tests check:
 
   ```python
   """The Node tools under `packages/earnest/node_modules`, for the tests: found by path, and a failure, never a skip."""
@@ -757,19 +756,6 @@ The commands below are for pnpm (question 1, decided).
       (directory / "git").symlink_to(git)
       return str(directory)
 
-
-  def openspec_env(home: Path) -> dict[str, str]:
-      """Return an environment that keeps OpenSpec's telemetry off and its configuration and data below `home`."""
-      return {
-          **os.environ,
-          "OPENSPEC_TELEMETRY": "0",
-          "DO_NOT_TRACK": "1",
-          "CI": "1",
-          "NO_COLOR": "1",
-          "XDG_CONFIG_HOME": str(home / "config"),
-          "XDG_DATA_HOME": str(home / "data"),
-          "XDG_CACHE_HOME": str(home / "cache"),
-      }
   ```
 
 - [ ] **Step 4:** Copy the Gherkin of `04`'s M8 section into `typescript_evidence.feature` verbatim. Write the step module:

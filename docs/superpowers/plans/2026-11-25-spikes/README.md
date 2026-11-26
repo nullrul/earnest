@@ -16,6 +16,18 @@ variable, a constant route, REMOVED handling) that the plan drops or defers.
 | `spike-d-prototype-src.patch` | 5, 7 | `openspec.py`, the change loader, the boxes, the two rules |
 | `spike-d-prototype-tests.patch` | 5, 7 | the 25 tests of spike D |
 
+Where each applies (`git apply --check` passes at HEAD of this branch; the
+tests diffs add new files, so a wrong directory still "applies" but puts them
+in the wrong place):
+
+- `spike-c-design-c.src.diff` and `spike-c-design-c.tests.diff`:
+  `git apply -p1` from the repository root.
+- `m9-delta-over-delta.diff`: `git apply -p1` from `packages/earnest/`, and only
+  after `spike-c-design-c.src.diff`; it is a delta over design C, so treat it as
+  read-only otherwise.
+- `spike-d-prototype-src.patch` and `spike-d-prototype-tests.patch`:
+  `git apply -p1` from `packages/earnest/` only (from the root they fail).
+
 Content: synthetic fixtures and upstream OpenSpec behavior only. Nothing in
 these files comes from a private repository.
 
