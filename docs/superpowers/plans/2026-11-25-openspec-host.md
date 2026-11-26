@@ -188,7 +188,7 @@ Row as asked: which copy of a requirement defines it while a change is in flight
 - **Archive, A:** skip `openspec/changes/archive/**` at any depth (spike C, decision 2). Skipping avoids 299 of 318 corpus requirements colliding with their archive copy, and the paths are fixed relative to the store root (S6, S7). Ruled out: reading it as history.
 - **Overlay, B:** design C plus the stacked-change extension. A delta at a higher revision overlays main, a delta at the same revision loses to main, a lower one is `outdated`, and two changes at one revision are `duplicate`; and among delta copies the higher revision overlays the lower silently, and only an equal revision is `duplicate`. Ruled out: design C alone, and design B (projection by heading, +196/-19).
 
-Evidence: S8, and X1: two of apartment-twin's changes define 7 requirements between them, and design C raises 7 errors for them. The extension is two lines (`Index.defined` takes `item.layer == DELTA` as a reason to compare revisions, and `_duplicates` skips a delta copy behind another delta), and was measured with `docs/superpowers/plans/2026-11-25-spikes/m9-delta-over-delta.diff`: 7 down to 0 on the repository's injected copy, the same layer tests green, and an equal revision (MODIFIED without a bump) still `duplicate`.
+Evidence: S8, and X1: two of apartment-twin's changes define 7 requirements between them, and design C raises 7 errors for them. The extension is two lines (`Index.defined` takes `item.layer == DELTA` as a reason to compare revisions, and `_duplicates` compares a delta copy with the first delta copy at its own revision, so a base behind a stacked delta is no finding), and was measured with `docs/superpowers/plans/2026-11-25-spikes/m9-delta-over-delta.diff`: 7 down to 0 on the repository's injected copy, the same layer tests green, and an equal revision (MODIFIED without a bump) still `duplicate`.
 
 Decided as recommended. Task 6 writes the stacked-change test first.
 
@@ -557,7 +557,7 @@ The `approved` overlay is the approval of the `specs` stage with its two items n
 - **Fail, not skip.** `tests/unit/test_node.py` (written by M8 Task 2 Step 3, or by Task 2 here if M9 lands first) asserts `pytest.fail.Exception` for a missing Node and for a missing tool.
 - **The bare run stays Node-free.** `addopts` leaves the step module and `tests/integration/test_openspec_ids.py` out until Task 9 (P5), and no test of the unit tier runs the real CLI.
 - **`unbumped-change` rests on an approval row.** The scenario commits the `approved` overlay before the edit; the artifact's own approval "by openspec" names no item and freezes nothing. In use the row is written by the agent after the human approves (answer 6).
-- **The overlay does not depend on order.** The result is the same for the sources in any order (spike C's test), and an equal revision across two changes is still `duplicate`. A delta never hides a duplicate among the main copies, and a stale delta is compared with the main copy, not with the winner, so the stacked-change reading never hides a missing bump.
+- **The overlay does not depend on order.** The result is the same for the sources in any order (spike C's test), and an equal revision across two changes is still `duplicate`. A delta never hides a duplicate among the main copies, a stale delta is compared with the main copy, not with the winner, and a delta copy with the first delta copy at its own revision, not with the winner, so the stacked-change reading never hides a missing bump.
 - **Two rules about where `openspec/` is.** The archive skip applies at any depth (Task 4); a change is an intent only below a root `openspec/changes/` (answer 11). A fixture of this repository that holds its own `openspec/` must not become an intent of this repository, which Task 5's `earnest check` run on the repository root checks.
 - **A tick is not an edit, a changed title is.** The task body hash ignores the box and nothing else.
 - **No CLI for non-OpenSpec repositories.** `earnest check` and `plan` on the existing fixtures never call `openspec`. A test runs the whole suite with no `openspec` on `PATH`.
@@ -1006,7 +1006,8 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`.
   - `test_two_changes_that_define_one_id_at_one_revision_are_duplicates`;
   - `test_a_change_stacked_on_another_overlays_it_at_a_higher_revision_and_is_no_duplicate` (answer 8, option B: an ADDED copy at revision 1 in one change and a MODIFIED copy at revision 2 in another give no finding, and the id resolves to revision 2);
   - `test_two_main_copies_stay_duplicate_while_a_delta_overlays_them` (two main specs define `req~x~1` and a change holds `req~x~2`: the second main copy is still `duplicate`, against the first main copy);
-  - `test_a_delta_behind_main_stays_outdated_when_another_change_stacks_above_it` (main at revision 2, change A holds revision 1, change B holds revision 3: A's copy is `outdated`, against the main copy).
+  - `test_a_delta_behind_main_stays_outdated_when_another_change_stacks_above_it` (main at revision 2, change A holds revision 1, change B holds revision 3: A's copy is `outdated`, against the main copy);
+  - `test_two_changes_at_one_revision_stay_duplicate_when_a_third_stacks_above_them` (no main copy; changes A and B hold `req~x~1` and change C holds `req~x~2`: B's copy is `duplicate`, against A's, and A's and C's copies give no finding).
 
 - [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: fail, non-zero.
 - [ ] **Step 3:** Implement, from the patch:
@@ -1023,16 +1024,18 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`.
   ```
 
   with `_overlay(item)` returning `(item.id.revision, item.layer != DELTA)`, so main wins a tie against a delta, and an earlier-sorted delta wins a tie against a later one. The `item.layer == DELTA` clause is the extension: without it a stacked change's copy is compared with nothing.
-  - `structural.py`: `_duplicates` gains the layer branch, and compares each copy with the copy of its own layer, never with the overlay winner alone. A main copy other than the first main copy yields `duplicate`, whatever delta overlays them. A delta copy that sits behind the main copy yields `earnest/outdated` against the main copy, whichever delta wins. A delta copy that is not behind main yields `duplicate` only against a delta winner at its own revision (a delta copy behind the winner is the base of a stacked change), so the function reads:
+  - `structural.py`: `_duplicates` gains the layer branch, and compares each copy with the copy of its own layer, never with the overlay winner alone. A main copy other than the first main copy yields `duplicate`, whatever delta overlays them. A delta copy that sits behind the main copy yields `earnest/outdated` against the main copy, whichever delta wins. A delta copy above main, or with no main copy, yields `duplicate` against the first delta copy at its own revision, whatever delta overlays them (a lone copy at a lower revision is the base of a stacked change). A delta copy at the main revision gives no finding (main stands). The function reads:
 
   ```python
   def _duplicates(index: Index) -> Iterator[Finding]:
       mains: dict[tuple[str, str], Item] = {}
+      deltas: dict[tuple[tuple[str, str], int], Item] = {}
       for item in index.items:
           if item.layer == MAIN:
               mains.setdefault(item.id.key, item)  # the copy that every other main copy is compared with
+          else:
+              deltas.setdefault((item.id.key, item.id.revision), item)  # likewise for the delta copies of one revision
       for item in index.items:
-          first = index.defined[item.id.key]
           if item.layer == MAIN:
               main = mains[item.id.key]
               if item != main:
@@ -1041,14 +1044,16 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`.
           elif (main := mains.get(item.id.key)) is not None and item.id.revision < main.id.revision:
               message = f"`{item.id}` is behind `{main.id}` in {main.path}:{main.line}: rebase the change onto it"
               yield Finding(item.path, item.line, "earnest/outdated", str(item.id), message)
-          elif first.layer == DELTA and item != first and item.id.revision == first.id.revision:  # not a stacked base
-              message = f"`{item.id}` is already defined at {first.path}:{first.line}: give one of them another name"
-              yield Finding(item.path, item.line, "earnest/duplicate", str(item.id), message)
+          elif main is None or item.id.revision > main.id.revision:  # a delta at the main revision lets main stand
+              first = deltas[(item.id.key, item.id.revision)]
+              if item != first:
+                  message = f"`{item.id}` is already defined at {first.path}:{first.line}: give one of them another name"
+                  yield Finding(item.path, item.line, "earnest/duplicate", str(item.id), message)
   ```
 
 - [ ] **Step 4:** Run Step 2's command: expect `0`. Then bind scenario 7 and run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "supersedes" -q; echo $?`: expect `0`, with `outdated` at `src/lockout.py:6` and `tests/test_lockout.py:6` and no `duplicate`.
 - [ ] **Step 5:** The stacked-change check against the real repository stays outside this repository's commits. If the maintainer approves it again, run `m9/scripts/matrix.sh` on a fresh injected copy and record only the count of `duplicate` (7 down to 0, R8). Otherwise cite R8.
-- [ ] **Step 6:** `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 8 and 1. The order-independence test is the check for the order of sources.
+- [ ] **Step 6:** `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 9 and 1. The order-independence test is the check for the order of sources.
 - [ ] **Step 7:** Commit `feat: a requirement in a change in flight overlays its main copy, and a stacked change its base`.
 
 **Done when** (#23): on the fixture, with a main spec, an in-flight MODIFIED delta and an archived change, there is no `duplicate`, the items linked to the superseded revision are flagged (SC5), and two runs give identical SARIF.
