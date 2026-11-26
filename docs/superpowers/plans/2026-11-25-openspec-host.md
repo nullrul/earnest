@@ -732,7 +732,7 @@ _EARS = re.compile(
 The `parse` docstring says "a `shall` or `SHALL` with no system before it". The message in `findings` ends with the suffix "(the keyword is `shall` or `SHALL`)" after the templates, as one more string in the f-string's parentheses. `TEMPLATES` stays as it is.
 
 - [ ] **Step 5:** Run Step 3's command, then `rtk proxy uv run mypy --strict src/; echo $?`, `rtk proxy uv run ruff check src/ tests/; echo $?`, `rtk proxy uv run ruff format --check src/ tests/; echo $?`, `rtk proxy uv run vulture; echo $?` and the regression run. Expected: `0` from each, at Step 1's count plus 21 (7 and 4 parametrized rows, 1 test, 8 rows, 1 judge test; the message assertion adds none).
-- [ ] **Step 6:** The docs, from `recommended-docs.patch`. The maintainer decided on 2026-11-25 that the scope is the exact keyword, no `MUST` (answer 1, A), and ratified M9 (answer 14), so the `01` edits below carry no PROPOSED mark; the wording of D2's Decision, Alternatives and Rationale sentences and of the Grammar line is still this plan's, for him to read in the commit. In `01`: the Grammar line becomes `"the" , system , ( "shall" | "SHALL" ) , response , "." ;`; after "those spans are what the judge asks about." add "The keyword is `shall` or `SHALL`, so a body written the OpenSpec way parses; any other case (`Shall`) and `MUST` are not the keyword, and every other word keeps its case rule. The parse keeps the case the author wrote, so the judge reads the sentence as the file has it."; the findings-table row for `earnest/req-not-ears` ends "the message lists the five templates and says the keyword is `shall` or `SHALL`"; D2's Decision gains "The message adds that the keyword is `shall` or `SHALL`.", its Alternatives "read the keyword in any letter case.", and its Rationale "The keyword takes `SHALL` as well as `shall` because OpenSpec's validator requires `SHALL` in that exact case, and no other case, so one body satisfies both tools; `MUST` stays out until a corpus needs it." In `04`: the table row 19 of the M4 `seeded-change` list reads "not EARS: no `shall` or `SHALL`; `req-not-ears` at line 17"; the Messages bullet says the message "lists the five templates of D2 in that order, and says the keyword is `shall` or `SHALL`"; the unit-tier bullet starts "each EARS template with `shall` and with `SHALL`, and its spans, a keyword in another case or `MUST` (not EARS), a body broken over lines, ...". Find each place with `grep -n`, since line numbers have moved. The five templates in D2 and in `04`'s scenario table stay lowercase.
+- [ ] **Step 6:** The docs. The maintainer decided on 2026-11-25 that the scope is the exact keyword, no `MUST` (answer 1, A), and ratified M9 (answer 14), so the `01` edits below carry no PROPOSED mark; the wording of D2's Decision, Alternatives and Rationale sentences and of the Grammar line is still this plan's, for him to read in the commit. In `01`: the Grammar line becomes `"the" , system , ( "shall" | "SHALL" ) , response , "." ;`; after "those spans are what the judge asks about." add "The keyword is `shall` or `SHALL`, so a body written the OpenSpec way parses; any other case (`Shall`) and `MUST` are not the keyword, and every other word keeps its case rule. The parse keeps the case the author wrote, so the judge reads the sentence as the file has it."; the findings-table row for `earnest/req-not-ears` ends "the message lists the five templates and says the keyword is `shall` or `SHALL`"; D2's Decision gains "The message adds that the keyword is `shall` or `SHALL`.", its Alternatives "read the keyword in any letter case.", and its Rationale "The keyword takes `SHALL` as well as `shall` because OpenSpec's validator requires `SHALL` in that exact case, and no other case, so one body satisfies both tools; `MUST` stays out until a corpus needs it." In `04`: the table row 19 of the M4 `seeded-change` list reads "not EARS: no `shall` or `SHALL`; `req-not-ears` at line 17"; the Messages bullet says the message "lists the five templates of D2 in that order, and says the keyword is `shall` or `SHALL`"; the unit-tier bullet starts "each EARS template with `shall` and with `SHALL`, and its spans, a keyword in another case or `MUST` (not EARS), a body broken over lines, ...". Find each place with `grep -n`, since line numbers have moved. The five templates in D2 and in `04`'s scenario table stay lowercase.
 - [ ] **Step 7:** Run `LINT_FILE=<path> make lint-file` on both docs, and commit `feat: accept SHALL as the EARS keyword, as OpenSpec writes it`.
 
 **Done when:** `test_ears.py` covers every template with `SHALL`, the lowercase tests stay green, and `make test` is green. `01`'s edits carry no PROPOSED mark, as Step 6 says: the maintainer ratified M9 on 2026-11-25.
@@ -881,7 +881,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 from earnest import impact
-from earnest.plan import PlanError
+from earnest.plan import Intent, PlanError
 
 _TIMEOUT = 60  # seconds
 
@@ -1012,7 +1012,7 @@ AIDLC = Host(lambda intent, stage, path: path.startswith(posixpath.join(intent.d
 
 The shared `PRODUCES` dict stays AI-DLC's, and `test_a_host_with_its_own_produces_leaves_the_aidlc_table_alone` (in `tests/unit/test_plan.py`) pins that `PRODUCES` holds no `specs` key while an OpenSpec intent's `specs` stage produces `feat` and `req`.
 
-`openspec.py` holds the OpenSpec `Host` and the loader (add `import posixpath`, `from collections.abc import Mapping, Sequence`, `from earnest import adapters`, and from `earnest.plan` `AUDIT`, `Approval`, `Host`, `_approval`, `_events`, `_named` and `counting` beside `Intent` and `PlanError`). The loader buckets the listed paths once by change directory, so each change reads its own bucket for its `audit/` rows and for its artifact globs, not the whole list per change and per artifact. Each existing artifact gets the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and the rows of the change's `audit/*.md`, read with AI-DLC's own `_events`, `counting`, `_approval` and `_named`, override it. A stage with no artifact before a later stage's artifact is left off the route, as AI-DLC leaves off a skipped stage, so the frontier passes it (answer 7). `route_cli`'s `PlanError` goes through (`openspec.py` already imports `plan`, so the import adds no cycle), and the route check returns `[]`, because a route read from the CLI cannot mismatch a state file:
+`openspec.py` holds the OpenSpec `Host` and the loader (add `import posixpath`, `from collections.abc import Mapping, Sequence`, `from earnest import adapters`, and `AUDIT`, `Approval`, `Host`, `_approval`, `_events`, `_named` and `counting` to the header's `earnest.plan` import, which holds `Intent` and `PlanError`). The loader buckets the listed paths once by change directory, so each change reads its own bucket for its `audit/` rows and for its artifact globs, not the whole list per change and per artifact. Each existing artifact gets the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and the rows of the change's `audit/*.md`, read with AI-DLC's own `_events`, `counting`, `_approval` and `_named`, override it. A stage with no artifact before a later stage's artifact is left off the route, as AI-DLC leaves off a skipped stage, so the frontier passes it (answer 7). `route_cli`'s `PlanError` goes through (`openspec.py` already imports `plan`, so the import adds no cycle), and the route check returns `[]`, because a route read from the CLI cannot mismatch a state file:
 
 ```python
 _PRODUCES = {  # the item types a stage's artifacts hold: `proposal` holds none, and no stage holds an `stest`
@@ -1181,7 +1181,7 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`. The 
 
 **Files:** Modify `packages/earnest/src/earnest/openspec.py`, `plan.py` (`Box`, `Boxes`, `Plan.boxes`; `current_task` is unchanged, so its `tests/unit/test_plan.py` callers need none), `cli.py` (its `current_task` call site gains the `openspec.in_flight` fallback), `index.py`, `reporter.py`. Test `packages/earnest/tests/unit/test_openspec.py`, `tests/unit/test_reporter.py` and `tests/integration/test_openspec_ids.py`. Modify `packages/earnest/tests/steps/test_openspec_host.py`.
 
-Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests are this task's). Step 3 inlines the code. `boxes`, `checked_findings`, `untracked`, `untracked_findings` and `in_flight` (the prototype's `_in_flight`) go into `openspec.py`; `Box` and `Boxes`, which `Plan.boxes` holds for `statuses` and `properties` to read, stay in `plan.py`, and so do the first-stage change and the plan line of `reporter.py`. The prototype's `boxes`, `loose` and `marks` parameters of `statuses`, `properties` and `current_task` are not taken, and `current_task` stays as it is. The box regex is defined once, as `_BOX` in `index.py`, and `openspec.py` imports it (`openspec` imports `plan`, which imports `index`, so there is no cycle). This task runs after Task 6, which also edits `index.py`.
+Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests are this task's). Step 3 inlines the code. `boxes`, `checked_findings`, `untracked`, `untracked_findings` and `in_flight` (the prototype's `_in_flight`) go into `openspec.py`; `Box` and `Boxes`, which `Plan.boxes` holds for `statuses` and `properties` to read, stay in `plan.py`, and so do the first-stage change and the plan line of `reporter.py`. The prototype's `boxes`, `loose` and `marks` parameters of `statuses`, `properties` and `current_task` are not taken, and `current_task` stays as it is. The box regex is defined once, as `_BOX` in `index.py`, and `openspec.py` imports it, with the `_HEADING` and `_ID_LINE` patterns that end a task's span as `index._spans` ends an item (`openspec` imports `plan`, which imports `index`, so there is no cycle). This task runs after Task 6, which also edits `index.py`.
 
 - [ ] **Step 1:** Write the failing tests:
   - `test_a_box_reads_as_upstream_counts_it`, rows: `- [x] a`, `- [X] a`, `* [x] a`, `1. [x] a` are checked; `- [ ] a`, `- [  ] a`, `- [ ](link)` and `- [-] a` are unchecked; `- [x](link)` and `- [x][ref]` are no box;
@@ -1191,8 +1191,10 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
   - `test_a_plain_check_raises_no_checked_unevidenced` (P8: the same tree, no `--stage`);
   - `test_an_unchecked_task_raises_no_checked_unevidenced`;
   - `test_a_box_with_no_task_id_line_is_untracked_and_keeps_the_tasks_stage_open`;
+  - `test_a_nested_sub_box_under_a_task_is_claimed_and_is_not_untracked` (a task id line, its box and an indented sub-box under it, ticked or not: `boxes.loose["tasks"]` is empty and no `untracked-box` finding is raised, so the tasks stage can be done; a box under a heading, or above the first id line, is still untracked);
   - `test_the_current_task_is_the_first_unchecked_box_of_the_one_change_that_has_one` (answer 10: a change with every box ticked is not counted);
   - `test_there_is_no_current_task_when_two_changes_have_unchecked_boxes`;
+  - `test_an_aidlc_only_check_with_no_current_task_keeps_the_reason_of_current_task` (through `cli.main` on an AI-DLC fixture whose state file names no task: the stderr reason is `current_task`'s, not "no OpenSpec task is unchecked"; this fails if `cli.py` calls `in_flight` whatever the hosts);
   - `test_check_takes_the_first_unchecked_box_as_the_current_task` (through `cli.main` on the fixture with the fake `openspec`, no `--task`: the stderr task-change line names that box's task, and the out-of-task check runs; this fails if `cli.py` never passes the boxes to `openspec.in_flight`);
   - `test_check_with_a_task_flag_on_two_changes_holding_unchecked_boxes_uses_it_and_states_no_current_task_line` (the two-change fixture with `--task task~<name>~1`: the stderr task-change line names the given task, the out-of-task check runs, and no `no current task` line appears; this fails if `cli.py` calls `in_flight` before the flag or prints that line despite it);
   - `test_check_with_a_task_flag_beats_the_one_in_flight_unchecked_box` (a single change with an unchecked box and `--task` naming a different task: the given task wins, not the box's);
@@ -1221,7 +1223,7 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
       return digest("\n".join(kept).encode("utf-8"))
   ```
 
-  In `openspec.py` (add `from collections.abc import Sequence` and `from earnest.index import _BOX`), the first box among a task's `(number, text)` lines:
+  In `openspec.py` (add `from collections.abc import Sequence` and `from earnest.index import _BOX`, to which the next block adds `_HEADING` and `_ID_LINE`), the first box among a task's `(number, text)` lines:
 
   ```python
   def box(lines: Sequence[tuple[int, str]]) -> tuple[int, bool] | None:
@@ -1275,22 +1277,28 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
       )
   ```
 
-  `openspec.py` (add `from earnest.plan import AIDLC, Box, Boxes, inside, stage_of`, `from earnest.reporter import Finding` and `Index`, `Source` to the `earnest.index` import) reads the boxes of one change, the findings they raise, and the current task:
+  `openspec.py` (add `from earnest.index import Index, Item, Source`, which ruff's isort merges with Step 3's `_BOX` import into `from earnest.index import _BOX, _HEADING, _ID_LINE, Index, Item, Source`; add `AIDLC`, `Box`, `Boxes`, `inside`, `stage_of` and `Plan` to the `earnest.plan` import and `from earnest.reporter import Finding`) reads the boxes of one change, the findings they raise, and the current task:
 
   ```python
-  _ITEM_END = re.compile(r" {0,3}(?:#{1,6}(?:[ \t]|$)|`[A-Za-z]+~)")  # an ATX heading or an id line ends the item above
   _UNTRACKED = (
       "this checkbox has no task id line above it, so earnest cannot compute whether the task is done: write a"
       " `task~<name>~1` line and `Delivers: req~<name>~<n>` directly above it"
   )
 
 
+  def _ends(text: str) -> bool:
+      """Return whether a line ends the item above it, as `index._spans` reads it: a heading or an id line."""
+      text = text.rstrip()
+      return _HEADING.match(text) is not None or _ID_LINE.fullmatch(text) is not None
+
+
   def boxes(sources: Sequence[Source], index: Index, intent: Intent) -> Boxes:
-      """Return each task's first checkbox after its id line, and the checkboxes of the `tasks` artifact that no task claims."""
+      """Return each task's first checkbox after its id line, and the checkboxes of the `tasks` artifact that no task's span holds."""
       if intent.host is AIDLC:
           return Boxes()
       by_path = {each.path: each for each in sources}
       marks: dict[str, Box] = {}
+      claimed: set[tuple[str, int]] = set()  # every line of every task's span, so a nested sub-box is no stray box
       for item in index.defined.values():
           source = by_path.get(item.path)
           if item.id.type != "task" or source is None or not inside(intent, item.path):
@@ -1299,17 +1307,17 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
           for line in source.lines:
               if line.number <= item.line:
                   continue
-              if line.number not in source.fenced and _ITEM_END.match(line.text):
+              if line.number not in source.fenced and _ends(line.text):
                   break
               span.append((line.number, line.text))
+          claimed.update((item.path, number) for number, _ in span)
           if (found := box(span)) is not None:
               marks[str(item.id)] = Box(item.path, found[0], found[1])
-      return Boxes(marks, {"tasks": untracked(sources, intent, marks)})
+      return Boxes(marks, {"tasks": untracked(sources, intent, claimed)})
 
 
-  def untracked(sources: Sequence[Source], intent: Intent, marks: Mapping[str, Box]) -> tuple[Box, ...]:
-      """Return each checkbox of the change's `tasks` artifact that no task item claims."""
-      claimed = {(each.path, each.line) for each in marks.values()}
+  def untracked(sources: Sequence[Source], intent: Intent, claimed: set[tuple[str, int]]) -> tuple[Box, ...]:
+      """Return each checkbox of the change's `tasks` artifact on a line that no task's span holds."""
       found: list[Box] = []
       for source in sources:
           if stage_of(intent, source.path) != "tasks":
@@ -1370,7 +1378,7 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
       return min(pending, key=lambda task: (task.path, task.line)), None
   ```
 
-  (`Item` joins the `earnest.index` import and `Plan` the `earnest.plan` one.) A box with no `task` id line directly above it is untracked. `cli.py` calls them: straight after `plan.build`, `_analyse` replaces each plan with `dataclasses.replace(each, boxes=openspec.boxes(world.sources, index, each.intent))`; it takes the `--stage` text (`_analyse(..., stage=args.stage)` at both call sites) and, with the other structural findings, adds
+  A box outside every task's span is untracked: a span runs from the task's id line to the next ATX heading or id line, `box` takes its first box as the task's mark, and a nested sub-box inside it belongs to the task too. `cli.py` calls them: straight after `plan.build`, `_analyse` replaces each plan with `dataclasses.replace(each, boxes=openspec.boxes(world.sources, index, each.intent))`; it takes the `--stage` text (`_analyse(..., stage=args.stage)` at both call sites) and, with the other structural findings, adds
 
   ```python
       checked += [found for each in plans for found in openspec.untracked_findings(each.intent, each.boxes)]
@@ -1383,12 +1391,13 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
   ```python
       tasks = plan.plan_tasks(analysis.index, world.intents)
       task, reason = plan.current_task(tasks, world.intents, option)  # `--task`, else the one Current Task line
-      if task is None and not any(each.current for each in world.intents):  # no state file names one
+      changes = any(each.host is not plan.AIDLC for each in world.intents)  # AI-DLC alone keeps `current_task`'s reason
+      if task is None and changes and not any(each.current for each in world.intents):  # no state file names one
           marks = {name: mark for each in analysis.plans for name, mark in each.boxes.marks.items()}
           task, reason = openspec.in_flight(tasks, world.intents, marks)
   ```
 
-  So the current task is the first unchecked box in file order of the one change that has any, else `no current task, as several changes have an unchecked task (<changes>): name one with --task`. `reporter.py`: `RULES` gains `earnest/checked-unevidenced` and `earnest/untracked-box`, both `warning` (and the `RuleId` literal both names). The messages are written for the agent (T6):
+  So the current task is the first unchecked box in file order of the one change that has any, else `no current task, as several changes have an unchecked task (<changes>): name one with --task`. The fallback runs only when some intent is not an AI-DLC one: on an AI-DLC-only run `current_task`'s own reason stands, and `in_flight`'s "no state file names one, and no OpenSpec task is unchecked" speaks only for a run that holds an OpenSpec change. `reporter.py`: `RULES` gains `earnest/checked-unevidenced` and `earnest/untracked-box`, both `warning` (and the `RuleId` literal both names). The messages are written for the agent (T6):
   - `checked-unevidenced`: `<task> is checked in tasks.md, but <req> is <level>, not evidenced: uncheck the box, or tag and test the requirement until earnest check --judge --evidence reports it evidenced`;
   - `untracked-box`: "this checkbox has no task id line above it, so earnest cannot compute whether the task is done: write a `` `task~<name>~1` `` line and `Delivers: req~<name>~<n>` directly above it".
 
@@ -1471,9 +1480,9 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
       assert found == []
   ```
 
-  and a fourth, `test_a_tag_on_a_requirement_a_change_removes_is_orphaned_and_names_the_heading` (answer 9): the first test's tree, with the message of the `orphaned` finding at `CODE` naming `` `req~greet~1` `` and the removal's file and line.
+  a fourth, `test_a_tag_on_a_requirement_a_change_removes_is_orphaned_and_names_the_heading` (answer 9): the first test's tree, with the message of the `orphaned` finding at `CODE` naming `` `req~greet~1` `` and the removal's file and line; and a fifth, `test_a_removed_heading_drops_only_the_requirement_of_the_root_main_spec_it_names` (the root-only rule): `MAIN_PATH` holds `Greet` as `req~greet~1`; two more main files hold a `Greet` heading under other ids, `packages/x/tests/fixtures/openspec/specs/greeting/spec.md` (`req~nested-greet~1`) and `docs/greeting/spec.md` (`req~doc-greet~1`); `DELTA_PATH` removes `Greet`. Assert that `("req", "greet")` is not in `index.defined` and that the other two are. It fails if `heads` is keyed by the spec's folder name alone, because the last file of that folder name then takes the heading and the wrong id goes.
 
-- [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: the four fail, non-zero.
+- [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: the five fail, non-zero.
 - [ ] **Step 3:** Implement. In `index.py` (add `from pathlib import PurePosixPath`): the two patterns, `Removal` (a requirement heading under `## REMOVED Requirements`, which may carry no id line), and the two fields of `Item` that say where its id line sits (`heading`, the `### Requirement:` heading above it, and `section`, the first word of the second-level heading above it: `ADDED`, `MODIFIED`, `REMOVED` or `RENAMED`):
 
   ```python
@@ -1495,21 +1504,32 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
   section: str | None = field(default=None, compare=False)  # the first word of the `## ` heading above it
   ```
 
-  `Index` gains `removals: tuple[Removal, ...] = ()` after `regions`, and `removed`, which maps the type and name of each main-spec requirement that an in-flight change removes to its heading (a requirement is found by its capability, the folder of its spec, and its heading):
+  `Index` gains `removals: tuple[Removal, ...] = ()` after `regions`, and `removed`, which maps the type and name of each requirement of a root main spec that an in-flight change removes to its removal. A requirement is found by the path of its spec below the root `openspec/specs/` and by its heading, and a removal by its path below `openspec/changes/<id>/specs/` and its name, so a same-named heading in a nested fixture's `openspec/specs/` or in another document is never dropped (the root-only rule):
 
   ```python
       @cached_property
       def removed(self) -> dict[tuple[str, str], Removal]:
-          heads = {(_capability(item.path), item.heading): item for item in self.items if item.layer == MAIN}
+          """Map the id key of each root main-spec requirement that a change lists as REMOVED to its removal."""
+          heads = {
+              (key, item.heading): item
+              for item in self.items
+              if item.layer == MAIN and (key := _spec_key(item.path)) is not None
+          }
           return {
               heads[at].id.key: removal
               for removal in self.removals
-              if (at := (_capability(removal.path), removal.name)) in heads
+              if (key := _spec_key(removal.path)) is not None and (at := (key, removal.name)) in heads
           }
 
 
-  def _capability(path: str) -> str:
-      return PurePosixPath(path).parent.name
+  def _spec_key(path: str) -> PurePosixPath | None:
+      """Return a spec file's path below the root `openspec/specs/` or `openspec/changes/<id>/specs/`, else None."""
+      parts = PurePosixPath(path).parts
+      if parts[:2] == ("openspec", "specs"):
+          return PurePosixPath(*parts[2:])
+      if parts[:2] == ("openspec", "changes") and parts[3:4] == ("specs",):
+          return PurePosixPath(*parts[4:])
+      return None
   ```
 
   In `Index.defined`, add the two lines that Task 6 left out: `if item.section == "REMOVED": continue` at the top of the loop (a tombstone that kept its id line defines nothing), and `return {key: item for key, item in found.items() if key not in self.removed}`. The parser tracks the heading and the section; `_Parsed` and `_spans` return the removals too, and `build_index` keeps those of delta sources:
@@ -1561,7 +1581,7 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
               continue
   ```
 
-- [ ] **Step 4:** Run Step 2's command: expect `0`. Then `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 4.
+- [ ] **Step 4:** Run Step 2's command: expect `0`. Then `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 5.
 - [ ] **Step 5:** Commit `feat: a requirement that a change removes defines nothing, and a tag on it is orphaned`.
 
 **Done when** (#23, rest): a requirement removed in a change in flight is out of the definitions, and a tag on it is `orphaned` and names the heading. RENAMED needs nothing while ids are stable (answer 9).

@@ -676,7 +676,7 @@ What the real run needs:
 
 ### Task 7b: The `claude-code:` model, through Claude Code on Bedrock
 
-DECIDED (user, 2026-11-25): the SC4 run uses no `ANTHROPIC_API_KEY`. The judge calls Claude through Claude Code, `claude -p`, and the run happens on this host, where Claude Code authenticates to Amazon Bedrock. A passing `claude-code:` calibration SATISFIES SC4. Spike G prototyped the backend on 2026-11-25 in a scratch copy of earnest at `ae4136c`: 88 lines in `judge/__init__.py`, 29 tests against a fake `claude` on `PATH` (29 passed; `ruff check`, `ruff format --check`, `mypy --strict` and `vulture` are clean on that copy, checked again 2026-11-25), and two real calls that both failed at the provider (Change 1 and Step 5 say why). The live-check script is kept in [2026-11-25-spikes/](2026-11-25-spikes/README.md). This task takes its design with three changes, marked below. Gating answer 3 stands (Opus 5.5, effort `high`, `prompt.txt` as M4 wrote it); only the transport differs, so the model id differs. An earlier draft put a `harness` member on `Model`; that draft was built in a scratch copy on 2026-11-25 (the full suite ran 1,108 passed and 1 failed, the demo-transcript test of `test_judge.py`, which reads `docs/`, absent from the scratch copy; `mypy --strict` and `vulture` clean). The id-based design below replaces it, changes far less, and has not been built: Step 3's counts are its proof. No model was called.
+DECIDED (user, 2026-11-25): the SC4 run uses no `ANTHROPIC_API_KEY`. The judge calls Claude through Claude Code, `claude -p`, and the run happens on this host, where Claude Code authenticates to Amazon Bedrock. A passing `claude-code:` calibration SATISFIES SC4. Spike G prototyped the backend on 2026-11-25 in a scratch copy of earnest at `ae4136c`: 88 lines in `judge/__init__.py`, 29 tests against a fake `claude` on `PATH` (29 passed), and two real calls that both failed at the provider (Change 1 and Step 5 say why). The live-check script is kept in [2026-11-25-spikes/](2026-11-25-spikes/README.md). This task takes its design with three changes, marked below. Gating answer 3 stands (Opus 5.5, effort `high`, `prompt.txt` as M4 wrote it); only the transport differs, so the model id differs. An earlier draft put a `harness` member on `Model`; that draft was built in a scratch copy on 2026-11-25 (the full suite ran 1,108 passed and 1 failed, the demo-transcript test of `test_judge.py`, which reads `docs/`, absent from the scratch copy; `mypy --strict` and `vulture` clean). The id-based design below replaces it, changes far less, and has not been built: Step 3's counts are its proof. No model was called.
 
 #### Design
 
@@ -728,13 +728,13 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
 **Shared decoding (extracted from `Claude.ask`).** `ClaudeCode.ask` would repeat the tail of `Claude.ask`, so both call two helpers in `judge/__init__.py`:
 
 - `_decode(id, asked, read)`: `try: return _verdict(_from_line_one(read()))`, and on `(ValueError, TypeError, KeyError, RecursionError)` raise `JudgeError` `the model {id} gave a malformed answer to {asked}: {error}`. `read` is a zero-argument callable (`lambda: json.loads(text)` for `Claude`, `lambda: reply["structured_output"]` for `ClaudeCode`), because both parse steps raise the errors the helper catches; a parsed payload would raise outside its `try`.
-- `_bound(kind, id, asked, name, answered)`: when `answered != [name]`, raise `JudgeError` `the model {id} answered {asked} as {names}: set EARNEST_JUDGE={kind}:{that}`, where `names` is the sorted answerers joined by commas (or `no model`) and `that` is the one answerer, else `<that id>`. For `Claude` (`kind` `anthropic`, `answered` `[reply.model]`) the text equals today's message, which `test_judge_anthropic.py` pins; for `ClaudeCode` (`answered` the sorted keys of `modelUsage`) a single wrong key now names itself in the message, as Step 5 says.
+- `_bound(kind, id, asked, name, answered)`: when `answered != [name]`, raise `JudgeError` `the model {id} answered {asked} as {names}: set EARNEST_JUDGE={kind}:{that}`, where `names` is the sorted answerers joined by commas (or `no model`) and `that` is the one answerer, else `<that id>`. For `Claude` (`kind` `anthropic`, `answered` `[reply.model]`) the text equals today's message, which `test_judge_anthropic.py` pins; for `ClaudeCode` (`answered` the sorted keys of `modelUsage` when that is a dict, and none otherwise, so a missing or non-dict `modelUsage` reads as `no model`) a single wrong key now names itself in the message, as Step 5 says.
 
 **Files:** Create `packages/earnest/tests/unit/test_judge_claude_code.py` (Step 1 lists it) and `docs/superpowers/plans/2026-11-25-spikes/spike-g-live-check.sh` (already written with this plan); Modify `packages/earnest/src/earnest/judge/__init__.py` (the model, `_decode`, `_bound`, `load_model`'s two messages and docstring), `packages/earnest/src/earnest/cli.py` (`_keep_calibration` only), `packages/earnest/tests/conftest.py` (`fake_executable`, hoisted from `fake_python`; the first plan to land does the hoist, and a later one uses it) and `packages/earnest/tests/unit/test_impact.py` (`fake_python` goes; its callers call `fake_executable`); Test `packages/earnest/tests/unit/test_cli.py`, `packages/earnest/tests/unit/test_judge_anthropic.py` (one message pattern, and its existing tests are the proof of `_decode` and `_bound`); Doc `docs/demo/m6-calibrate.md`, `.claude/skills/verify-earnest/features/judge.md`, `docs/design/01-logic-design.md`. `pyproject.toml` and `uv.lock` do not change: `os`, `shutil`, `subprocess` and `tempfile` are standard library.
 
 **Interfaces:**
 
-- Consumes: `load_model(value, root)`, `question_text`, `_SCHEMA`, `_verdict`, `_from_line_one`, `MAX_TOKENS`, `JudgeError`, and `digest` and `canonical` (already imported from `earnest.reporter`).
+- Consumes: `load_model(value, root)`, `question_text`, `_SCHEMA`, `_verdict`, `_from_line_one`, `MAX_TOKENS`, `JudgeError`, and `digest` (from `earnest.index`) and `canonical` (from `earnest.reporter`), both already imported.
 - Produces: `@dataclass(frozen=True) class ClaudeCode` with `id` (the harness-bearing id above), `model` (the bare name, for `--model` and the `modelUsage` check), `root`, `claude` (the executable's path) and `ask(question) -> Verdict`; `_claude_code(value, root)`, which finds `claude` with `shutil.which`, runs `claude --version` (30 seconds, the same environment) and builds the id; `_claude_env()`, the allowlisted environment that the version call and `ask` share; `_decode` and `_bound` above; the constants `_CLAUDE_ENV`, `_CLAUDE_PIN`, `_CLAUDE_SYSTEM`, `_CLAUDE_FLAGS`, `_CLAUDE_TIMEOUT` and `_CLAUDE_VERSION_TIMEOUT`; a `load_model` branch for `claude-code:<name>` beside `anthropic:`.
 
 **Spike artifact:**
@@ -764,6 +764,7 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
   from tests.conftest import fake_executable
   from tests.unit.test_judge_anthropic import VERDICT, question
 
+
   NAME = "claude-opus-5-5"
   MODEL = f"claude-code:{NAME}"
   FAKE = """\
@@ -792,7 +793,7 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
           """Keep the folder that holds the executable, its spec and its record."""
           self.folder = folder
 
-      def says(  # noqa: PLR0913
+      def says(
           self, stdout: object = "", *, exit: int = 0, stderr: str = "", sleep: float = 0,  # noqa: A002
           version: str = "claude 9.9.9 (fake)", version_exit: int = 0, version_sleep: float = 0,
       ) -> None:  # fmt: skip
@@ -945,8 +946,14 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
   @pytest.mark.parametrize(
       ("used", "said"),
       [
-          ({"claude-opus-5-5-20270101": {}}, "as claude-opus-5-5-20270101: set EARNEST_JUDGE=claude-code:claude-opus-5-5-20270101"),
-          ({NAME: {}, "claude-haiku-5-5": {}}, "as claude-haiku-5-5, claude-opus-5-5: set EARNEST_JUDGE=claude-code:<that id>"),
+          (
+              {"claude-opus-5-5-20270101": {}},
+              "as claude-opus-5-5-20270101: set EARNEST_JUDGE=claude-code:claude-opus-5-5-20270101",
+          ),
+          (
+              {NAME: {}, "claude-haiku-5-5": {}},
+              "as claude-haiku-5-5, claude-opus-5-5: set EARNEST_JUDGE=claude-code:<that id>",
+          ),
           ({}, "as no model:"),
           (None, "as no model:"),
       ],
@@ -1026,8 +1033,9 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
   Then, after `Claude`, and before `question_text`:
 
   ```python
-  # `claude-code:<model>`: the verdict comes from `claude -p`, logged in as the user. Only these variables reach it, so no
-  # ANTHROPIC_API_KEY or other CLAUDE_CODE_* of the calling session changes who is billed.
+  # `claude-code:<model>`: the verdict comes from `claude -p`, logged in as the user. Only these variables reach it, so
+  # billing follows the Bedrock and AWS variables below and the `env` block of the user settings, and no
+  # ANTHROPIC_API_KEY of the calling session can redirect it.
   _CLAUDE_ENV = (
       "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "CLAUDE_CONFIG_DIR",
       "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
@@ -1067,7 +1075,12 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
           raise JudgeError(msg)
       try:
           done = subprocess.run(  # noqa: S603  # argv is a list
-              [path, "--version"], capture_output=True, text=True, env=_claude_env(), timeout=_CLAUDE_VERSION_TIMEOUT, check=False
+              [path, "--version"],
+              capture_output=True,
+              text=True,
+              env=_claude_env(),
+              timeout=_CLAUDE_VERSION_TIMEOUT,
+              check=False,
           )
       except (OSError, subprocess.SubprocessError) as error:  # TimeoutExpired is a SubprocessError, not an OSError
           msg = f"the model {value} cannot start: {error}"
@@ -1125,10 +1138,13 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
                   if isinstance(reply, dict)
                   else done.stderr
               )
-              msg = f"the model {self.id} cannot answer {asked}: claude exited {done.returncode}: {str(why).strip()[:300]}"
+              msg = (
+                  f"the model {self.id} cannot answer {asked}: claude exited {done.returncode}: {str(why).strip()[:300]}"
+              )
               raise JudgeError(msg)
           used = reply.get("modelUsage")
-          if not isinstance(used, dict) or set(used) != {self.model}:  # an alias, or a fallback: bind to the models that answer
+          # an alias, or a fallback: bind to the models that answer
+          if not isinstance(used, dict) or set(used) != {self.model}:
               answered = ", ".join(sorted(used)) if isinstance(used, dict) and used else "no model"
               msg = f"the model {self.id} answered {asked} as {answered}: set EARNEST_JUDGE=claude-code:<that id>"
               raise JudgeError(msg)
@@ -1139,11 +1155,11 @@ One place changes, `cli._keep_calibration`. It drops a finished run's earlier an
               raise JudgeError(msg) from error
   ```
 
-  `digest` and `canonical` are already imported from `earnest.reporter`; `digest` takes bytes, hence `.encode()`. The flags start `--effort high`, so the test's `argv[:5]` holds. The last two blocks of `ask` (the `modelUsage` check and the decoding) are what Step 3 replaces with `_bound` and `_decode`; until then the alias message always says `<that id>`.
+  `digest` (from `earnest.index`) and `canonical` (from `earnest.reporter`) are already imported; `digest` takes bytes, hence `.encode()`. The flags start `--effort high`, so the test's `argv[:5]` holds. The last two blocks of `ask` (the `modelUsage` check and the decoding) are what Step 3 replaces with `_bound` and `_decode`; until then the alias message always says `<that id>`.
 
-  Run the same four test files. Expected: the Step 1 tests pass, except the one-key row of the alias test (the message names the answerer only after Step 3) and the pruning test, which fail until Step 3.
+  Run the same four test files. Expected: the Step 1 tests pass, except the one-key row of the alias test (the message names the answerer only after Step 3) and the pruning test, which fail until Step 3, and the two message tests of Step 1 (`test_cli.py:951` and `test_judge_anthropic.py:209`), which fail until Step 4.
 
-- [ ] **Step 3 [agent]:** Extract `_decode` and `_bound` from `Claude.ask` and call them from both models, as the section above says; then `cli._keep_calibration`'s lineage prune. Run the four files, then the regression run (`uv run pytest --ignore=tests/steps/test_calibration_gate.py`) and `uv run pytest tests/steps/test_calibration_gate.py`. Expected: all green, with no existing test changed beyond Step 1's; record the exact counts against the same runs before the task. `git diff --stat` for `Model`, `Stub`, `Cache`, `Calibration`, `slot`, `calibrated` and `_comparison` shows no change.
+- [ ] **Step 3 [agent]:** Extract `_decode` and `_bound` from `Claude.ask` and call them from both models, as the section above says; then `cli._keep_calibration`'s lineage prune. Run the four files, then the regression run (`uv run pytest --ignore=tests/steps/test_calibration_gate.py`) and `uv run pytest tests/steps/test_calibration_gate.py`. Expected: all green except the two message tests of Step 1 (`test_cli.py:951` and `test_judge_anthropic.py:209`), which only Step 4 makes pass, with no existing test changed beyond Step 1's; record the exact counts against the same runs before the task. `git diff --stat` for `Model`, `Stub`, `Cache`, `Calibration`, `slot`, `calibrated` and `_comparison` shows no change.
 - [ ] **Step 4 [agent]:** The two `load_model` messages and its docstring. The unset one becomes `earnest needs a model: set EARNEST_JUDGE to anthropic:<model>, claude-code:<model> or stub:<path of a canned-verdict file>`, and the unknown one `EARNEST_JUDGE names no model Earnest knows: {value!r}; use anthropic:<model>, claude-code:<model> or stub:<path>`. A `claude-code:` value with no name after the colon falls to the unknown-model message, as `anthropic:` does (the spike has `test_a_claude_code_value_without_a_model_name_cannot_run`).
 - [ ] **Step 5 [agent, on this host]:** The live check, ONE real call and the step before the 20-call run. It bills one question to the account of "Billing", and it is covered by Decision 1. The spike's two real calls reached Bedrock and neither got an answer: call 2 was refused with a 403 for the host's EC2 instance profile role because `--restricted` had dropped the user settings (the `env` block and `awsCredentialExport`; see Change 1). Separately, the agent's permission classifier stripped provider variables from call 2's environment (it held only `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, `HOME`, `LANG` and `PATH`). If the classifier blocks this call, the maintainer runs the command. From `packages/earnest/`, on a host where Claude Code is logged in to Bedrock:
 

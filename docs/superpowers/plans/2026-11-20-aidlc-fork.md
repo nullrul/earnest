@@ -94,7 +94,7 @@ Spike F checked the 17 gating answers against the fork's code and against Earnes
 | --- | --- | --- | --- |
 | E1 | `earnest plan` on the units fixture, with the gate row's `Unit` as `u1` (a, the id rule) and as `u1-limiter` (b, the directory) | 0, 0 | (a) approves `u1-limiter/functional-design`; (b) approves nothing and prints no finding about it |
 | E2 | A solo row with no `Unit` (a), with only `Unit: u1` (b), and with only `Unit: u1-limiter` (c) | 0, 0, 0 | (a) approves no per-unit stage; (b) approves `u1-limiter/functional-design`; (c) approves nothing |
-| P-E1, P-E2 | The same five runs with the prototype of Task 2 | 0 x5 | `u1` and `u1-limiter` both approve, alone or with only `Unit` in the row; the row with no `Unit` still approves nothing |
+| P-E1, P-E2 | The same five runs with spike F's prototype, which translated the id-rule name and so took both spellings; it is not the directory-keyed `_expand` of Task 2 | 0 x5 | `u1` and `u1-limiter` both approved, alone or with only `Unit` in the row; the row with no `Unit` still approved nothing. Task 2's `_expand` takes the directory alone, so `Unit: u1` approves nothing there (P-E1a is dropped); no run has measured that |
 | E3 | `check --stage requirements-analysis` five times: clean (a); a stage file added and left uncommitted (b); the same bytes committed (c); the fork's gate-start bookkeeping imitated by hand (d); a second stage file added (e) | 0 x5 | (b) `dirty` true, `commit` 89f3937; (c) `dirty` false, `commit` 38c6ea2, the hash of (b); (d) the hash of (c); (e) a new hash |
 | E5 | `check --stage requirements-analysis` with `FR1.2` absent (a), as a suffix `(FR1.2).` (b), as a prefix `FR1.2:` (c) and inside a clause (d) | 1 x4 | Each carries the same two `earnest/orphaned` errors, which fix the code at 1; only (c) adds `earnest/req-not-ears` |
 | E6 | `check --stage construction/u2-notice/functional-design` before and after a prose file with `NFR3.1`, `NFR3.2` and `FR1.2` is added there | 0, 0 | No results either time |
@@ -369,9 +369,9 @@ The alternative is for the fork to map upstream's name to the id-rule name at it
 
 **Evidence (Spike F):**
 
-- **Class:** settled by code. E1, E2 and the prototype ran Earnest's side.
+- **Class:** settled by code. E1 and E2 ran Earnest's side as it stands; spike F's prototype (P-E1, P-E2) is not Task 2's `_expand`.
 - **Evidence:** upstream's unit name is the construction directory: `core/knowledge/aidlc-shared/verification.md:23` ("Unit name (its construction directory)"), `core/aidlc-common/stages/inception/units-generation.md:104`, and `aidlc-state.ts:6380`, which joins it into `construction/<unit>/`. `teamGateFields` writes it as `Unit` (`:6525`). E1b: a gate row with `Unit: u1-limiter` approves nothing today. The run exits 0, `u1-limiter/functional-design` stays "not done, approval none", and no finding names the row, so the failure is silent. E1a, the id-rule spelling, approves it.
-- **Starting code:** `_expand` (`plan.py:622`) written with the directory join, as Task 2 gives it. With it, the five runs of P-E1 and P-E2 exit 0.
+- **Starting code:** `_expand` (`plan.py:622`) written with the directory join, as Task 2 gives it. Unmeasured: spike F's five runs of P-E1 and P-E2 used its translation prototype, so Task 2's tests are this code's first run.
 - **Recommended answer:** accepted (DECIDED, user, 2026-11-25).
 
 ### 15. The fork commit the gate pins, and CI (new, from F2 and F18)
@@ -437,7 +437,7 @@ The alternative is for the fork to map upstream's name to the id-rule name at it
 **Evidence (Spike F):**
 
 - **Class:** maintainer-only. The evidence prices A and adds a third option.
-- **Evidence:** E2 on Earnest's side: a solo row with no `Unit` approves no per-unit stage (E2a). A solo row with only `Unit` joins, with no `Gate Scope`, `Gate Stages` or `Attempt Generation`: E2b with the id-rule spelling today, and E2c with the directory spelling once answer 14 lands (P-E2c). So option A's rows need only the `Unit` field on top of what the solo path writes.
+- **Evidence:** E2 on Earnest's side: a solo row with no `Unit` approves no per-unit stage (E2a). A solo row with only `Unit` joins, with no `Gate Scope`, `Gate Stages` or `Attempt Generation`: E2b with the id-rule spelling today, and E2c with the directory spelling once answer 14 lands (P-E2c, run on spike F's prototype, not on Task 2's `_expand`). So option A's rows need only the `Unit` field on top of what the solo path writes.
 - **Unlisted fork work under A:** the two pieces named in A above, the `--unit` rejection outside team mode and the unscoped sensor firing. Neither is in the plan's Interface contract or in `02`'s Fork delta.
 - **Recommended answer:** A, with its fork work priced. Accepted as recommended (DECIDED, user, 2026-11-25).
 
@@ -901,7 +901,7 @@ Answer 14 is decided as proposed (DECIDED, user, 2026-11-25), so this task runs.
 - Consumes: the unit table's join, which gives each unit's name and directory (`01`, lines 640-647).
 - Produces: no new function or parameter. `stage_ids` and `lanes` (`plan.py:637-642`) key by `unit.directory` instead of `unit.name`, and `floors` follows `lanes`. `_gate_keys`, `_generation`, `_voids`, `_unit_approval` and `_unit_named` then compare a row's `Unit` with a directory, unchanged. No signature grows: `_unit_approval` already takes five parameters, the `max-args` ruff allows in `src/`. `_gate_keys`, `_generation` and `_voids` name the key `directory`, and all five docstrings say unit directory.
 
-**Starting code.** Spike F prototyped the join in `_expand` (`plan.py:622`). `_expand` reads as follows after the change:
+**Starting code (unmeasured).** Spike F prototyped a translation in `_expand` (`plan.py:622`) that took both spellings of `Unit`; it did not run the code below, which joins by directory alone. `_expand` reads as follows after the change:
 
 ```python
 def _expand(intent: Intent, units: Sequence[Unit]) -> Intent:
@@ -940,7 +940,7 @@ def _expand(intent: Intent, units: Sequence[Unit]) -> Intent:
     )
 ```
 
-Starting code keys `stage_ids`, `lanes` and `floors` by directory, because answer 14 says the directory replaces the id-rule name, so a row with the id-rule spelling joins nothing (P-E1a is dropped). The five runs of P-E1 and P-E2 exit 0 with it (spike F, answer 14).
+Starting code keys `stage_ids`, `lanes` and `floors` by directory, because answer 14 says the directory replaces the id-rule name, so a row with the id-rule spelling joins nothing (P-E1a is dropped). Spike F's five runs of P-E1 and P-E2 ran the translation prototype, not this code, so Step 4 is its first run.
 
 - [ ] **Step 1:** From `packages/earnest/`, run `grep -rn 'Unit' src/earnest/plan.py tests/ --include='*.py' --include='*.md' --include='*.feature'`. List in this task every hit that reads or writes a gate row's `Unit`; skip `Unit Progress`, `Unit Ownership` and unit-table ids. Correct the Files list if it misses one.
 - [ ] **Step 2:** Write the failing tests in `test_plan.py`:

@@ -5,7 +5,7 @@ The spikes of 2026-11-25 ran in scratch copies of earnest at `ae4136c`, which do
 ([2026-10-25-calibration-gate.md](../2026-10-25-calibration-gate.md)) inline the code that their tasks build on, so
 this folder holds no diffs or patches. It keeps the one script that Task 7b of the M6 plan runs.
 
-Content: synthetic fixtures and upstream OpenSpec behavior only. Nothing in these files comes from a private repository.
+Content: one script, which asks the synthetic `calibration-dev` fixture one question. Nothing in it comes from a private repository.
 
 ## Spike G, for the M6 plan
 
