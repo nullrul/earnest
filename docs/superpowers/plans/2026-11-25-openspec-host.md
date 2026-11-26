@@ -20,7 +20,7 @@ Along the way the feature also pins what #20 to #25 each settle: a change as an 
 
 - Specs carry earnest ids inline (#20, option A, with the corrections of answer 3): each `### Requirement:` heading is followed at once by a `` `req~<name>~<n>` `` line and a `Covers:` line. The `feat`, `goal` and `tenet` items live in one earnest-owned file, `docs/intent.md`, because a capability that exists only in a delta has no place for a `feat` line that passes `openspec validate --strict` (R7). Earnest keeps reading the Markdown itself, because `openspec show --json` carries no line numbers and SC2 needs file and line.
 - `ears.py` accepts `SHALL` beside `shall` through one constant (Task 1; spike B, the recommended scope of answer 1). Nothing else loosens.
-- `adapters/__init__.py` skips `openspec/changes/archive/` (Task 4), and tags each source with its layer, `main` or `delta`. `index.py` and `structural.py` let a delta copy at a higher revision overlay the copy beneath it, main or another change's (Task 6; spike C's design C, plus the two-line stacked-change extension of Q8).
+- `adapters/__init__.py` skips `openspec/changes/archive/` (Task 4), and tags each source with its layer, `main` or `delta`; `index.py` holds the one rule that says which change a file belongs to, `change_of` (Task 5). `index.py` and `structural.py` let a delta copy at a higher revision overlay the copy beneath it, main or another change's (Task 6; spike C's design C, plus the two-line stacked-change extension of Q8).
 - `openspec.py` (new) names the changes, builds the intent of a change (`load_openspec`), runs `openspec status --change <id> --json` for the route, reads the boxes of `tasks.md` as upstream counts them, and fails with exit 2 when the CLI is missing (Tasks 5 and 7; spike D). `plan.py` gains a stage-to-glob mapping, so the flat OpenSpec files belong to stages. `reporter.py` gains two rule ids.
 - `integrations/openspec/` holds the guidance that `openspec/config.yaml` carries into OpenSpec's apply step (Task 8).
 - The tests: a synthetic fixture `tests/fixtures/openspec-change/` with overlays, `openspec_host.feature` and its step module, `tests/node.py` (M8 Task 2 Step 3's helper for the Node tools, to which Task 2 adds `openspec_env`), and unit tests that keep the CLI out of the unit tier with a fake `openspec` script from the shared `fake_executable` (L5). The tests that run the real CLI sit in `tests/integration/test_openspec_ids.py`, which `addopts` leaves out of a bare run until Task 9 (P5).
@@ -225,7 +225,7 @@ Decided as recommended. Notes only for the rules would have made T4 a label.
 
 ### 11. Where `openspec/` is (spike D, decision 5)
 
-**DECIDED (user, 2026-11-25), A):** `openspec/` at the repository root only. Spike D found a false intent in upstream's own test fixtures at any depth. apartment-twin has it at the root. Task 5's `change_dirs` therefore tests that a path begins at `openspec/changes/`, where the prototype matched any depth, and the archive skip (Task 4) and `layer` (Task 6) use the same root-only rule, so one rule says where `openspec/` is. Ruled out: any depth.
+**DECIDED (user, 2026-11-25), A):** `openspec/` at the repository root only. Spike D found a false intent in upstream's own test fixtures at any depth. apartment-twin has it at the root. Task 5's `change_of` therefore tests that a path begins at `openspec/changes/`, where the prototype matched any depth, and the archive skip (Task 4) and `layer` (Task 6) use the same root-only rule, so one rule says where `openspec/` is. Ruled out: any depth.
 
 ### 12. The pin, Node, and failing when the CLI is missing (#26)
 
@@ -291,7 +291,7 @@ These are this plan's own readings, open to the maintainer's objection when revi
 - **P3. The `feat`, `goal` and `tenet` items sit in `docs/intent.md`** of the fixture, as answers 3 and 4 recommend.
 - **P4. Earnest adds nothing to OpenSpec's files except id lines and `Covers:` lines** under a requirement heading, and an id line and `Delivers:` line above a checkbox. `openspec/config.yaml` changes only through the snippet of Task 8.
 - **P5. The gate and the real-CLI tests stay out of a bare `pytest` until Task 9,** by `--ignore=tests/steps/test_openspec_host.py` and `--ignore=tests/integration/test_openspec_ids.py` in `addopts`, as M7's Task 3 does for its module (E7 there). `test_openspec_ids.py` holds every test that runs the real CLI (strict validation of the fixture, `openspec list`), so the unit tier and a bare run stay Node-free. Run by path, either file still runs: checked on this branch's pytest with a scratch `addopts --ignore` and an explicit path. M7 (in v1) lands first and adds `addopts` to `pyproject.toml` as a list, so Task 3 extends that list to `addopts = ["--ignore=tests/steps/test_aidlc_fork.py", "--ignore=tests/steps/test_openspec_host.py", "--ignore=tests/integration/test_openspec_ids.py"]`. Task 9 removes M9's two entries, because the Node toolchain then belongs to `make test`, and leaves M7's.
-- **P6. `openspec.py` is new and small.** `plan.py` is 1597 lines and `index.py` 466 already, so the OpenSpec logic goes in its own module, as the spike prototyped it (112 lines), and `plan.py` gains one seam, not a host flag tested in several functions: `Host` (`holds(intent, stage, path)`, `route_findings(intent)` and `produces`, the item types each stage slug holds), `AIDLC` (the directory-prefix `holds`, the existing `route_findings` and `PRODUCES`), and `Intent.host`, which defaults to `AIDLC` and which `stage_of`, `build` and `plan_findings` call without asking which host it is. Box state is one precomputed value, `Boxes` (`marks`: the `Box` of each task id; `loose`: the count of boxes no task id line claims, by stage; both empty for an AI-DLC intent), carried on `Plan.boxes`, so `statuses` and `properties` read it from the plan they already take and no signature grows. `produces` is per-host data: the OpenSpec rows sit in the OpenSpec `Host`, the shared AI-DLC `PRODUCES` dict keeps only AI-DLC's, and `produces()` and the gap placer read `intent.host.produces`. The `tasks` first stage is data. `current_task` is unchanged: `cli.py` asks `openspec.in_flight` when it returns no task and no state file names one. `Box` and `Boxes` are value types in `plan.py`. The loader (with the `Host` it builds), `matches` (with `_glob`, the one glob matcher), `box`, `boxes`, `in_flight`, `checked_findings`, `untracked` and `untracked_findings` live in `openspec.py`, which imports `Host`, `Intent`, `Box`, `Boxes`, `parse_audit`, `_approval` and `_named` from `plan`. `plan.py` never imports `openspec.py`, and `adapters` imports neither, so `change_dirs` lives in `adapters/__init__.py` and no import cycle arises (`plan` imports `adapters`).
+- **P6. `openspec.py` is new and small.** `plan.py` is 1597 lines and `index.py` 466 already, so the OpenSpec logic goes in its own module, as the spike prototyped it (112 lines), and `plan.py` gains one seam, not a host flag tested in several functions: `Host` (`holds(intent, stage, path)`, `route_findings(intent)` and `produces`, the item types each stage slug holds, and from Task 7 `boxes(sources, intent)` and an optional `current_task(tasks, plans)` hook), `AIDLC` (the directory-prefix `holds`, the existing `route_findings` and `PRODUCES`, and the defaults of the last two: no boxes and no hook), and `Intent.host`, which defaults to `AIDLC` and which `stage_of`, `build`, `plan_findings` and `cli.py` call without asking which host it is. Box state is one precomputed value, `Boxes` (`marks`: the `Box` of each task id; `loose`: the boxes no task id line claims; both empty for an AI-DLC intent, whose host reads no boxes), carried on `Plan.boxes`, so `statuses` and `properties` read it from the plan they already take and no signature grows. `produces` is per-host data: the OpenSpec rows sit in the OpenSpec `Host`, the shared AI-DLC `PRODUCES` dict keeps only AI-DLC's, and `produces()` and the gap placer read `intent.host.produces`. The `tasks` first stage is data. `current_task` is unchanged: when it returns no task and no state file names one, `cli.py` calls the hook that an intent's host carries (`Host.current_task`, which is `openspec.in_flight` for OpenSpec and absent for AI-DLC, whose own reason then stands). `Box` and `Boxes` are value types in `plan.py`. The loader (with the `Host` it builds), `matches` (with `_glob`, the one glob matcher), `box`, `boxes`, `in_flight`, `checked_findings` and `untracked_findings` live in `openspec.py`, which imports `Host`, `Intent`, `Box`, `Boxes`, `parse_audit`, `_approval` and `_named` from `plan`. `plan.py` never imports `openspec.py`, and neither `adapters` nor `index` imports it or `plan`, so `change_of`, the one rule that says which change a file belongs to, lives in `index.py` (where `adapters` and `openspec` both read it, and where Task 10's `_spec_key` needs it), `change_dirs` in `adapters/__init__.py`, and no import cycle arises (`plan` imports `adapters`).
 - **P7. One commit per task,** each staging its task's paths by name.
 - **P8. `checked-unevidenced` runs under `--stage tasks` only.** A tick is a claim made at the `tasks` stage, so the stage check judges it. Raised by a plain `check`, the rule would add two warnings to the exact four-row table of the "supersedes" scenario, which goes green at Task 6 and must stay green at Task 7; the other fix, two more rows in that table, ties an overlay scenario to the box rule. `earnest plan` still shows each box beside its computed status, and `untracked-box` runs in every check: a box with no id line never reaches a stage.
 
@@ -592,27 +592,27 @@ Order. Task 1 needs no wait (answer 1 is accepted) and runs beside Task 0. Task 
 
 ## File Structure
 
-| Path                                                                                                                                    | Responsibility                                                                                                                                                                                                                                                                                                                                                       | Task       |
-| --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| `docs/superpowers/plans/2026-11-25-openspec-host.md`                                                                                    | this plan: the decisions (Task 0), then each task's counts and notes                                                                                                                                                                                                                                                                                                 | 0 to 9     |
-| `docs/design/00-project-intent.md`, `01-logic-design.md`, `02-structural-design.md`, `03-implementation-plan.md`, `04-bdd-test-plan.md` | the ratification, "Adopting OpenSpec", the module rows, M9 in `03`, `04`'s M9 section                                                                                                                                                                                                                                                                                | 0, 1       |
-| `packages/earnest/src/earnest/ears.py`                                                                                                  | `_SHALL`, the message suffix                                                                                                                                                                                                                                                                                                                                         | 1          |
-| `packages/earnest/tests/unit/test_ears.py`, `tests/unit/test_judge.py`                                                                  | the `SHALL` rows and the judge's span                                                                                                                                                                                                                                                                                                                                | 1          |
-| `CLAUDE.md`                                                                                                                             | the Build section: the M9 feature runs the pinned `openspec` and needs Node 22.20 or later (M8 Task 6 Step 4 words the Node line)                                                                                                                                                                                                                                    | 2          |
-| `packages/earnest/tests/node.py`, `tests/unit/test_node.py`                                                                             | `openspec_env` and its test; the rest of the helper is M8 Task 2 Step 3's                                                                                                                                                                                                                                                                                            | 2          |
-| `packages/earnest/tests/fixtures/openspec-change/`                                                                                      | the base and the overlays `defects`, `archive`, `change`, `approved`, `unbumped`, and `judge-verdicts.json`                                                                                                                                                                                                                                                          | 3 to 8     |
-| `packages/earnest/tests/conftest.py`                                                                                                    | the overlay names `defects`, `archive`, `approved` and `unbumped` added to `_OVERLAYS` (`change` and `judge-verdicts.json` are there already); no new builder, the steps use `fixture_repo` and `commit_on_main`                                                                                                                                                     | 3          |
-| `packages/earnest/tests/integration/test_openspec_ids.py`                                                                               | the tests that run the real CLI: strict validation and `check` on the base and `defects` layers, and `openspec list` against the box count; left out of a bare run by `addopts` until Task 9                                                                                                                                                                         | 3, 7       |
-| `packages/earnest/tests/features/openspec_host.feature`                                                                                 | the 11 scenarios, copied verbatim from `04`                                                                                                                                                                                                                                                                                                                          | 3          |
-| `packages/earnest/tests/steps/test_openspec_host.py`                                                                                    | the steps; the exit command                                                                                                                                                                                                                                                                                                                                          | 3 to 9     |
-| `packages/earnest/pyproject.toml`                                                                                                       | M9's two `--ignore` entries in `addopts` (merged with M7's), added and then removed                                                                                                                                                                                                                                                                                  | 3, 9       |
-| `packages/earnest/src/earnest/adapters/__init__.py`                                                                                     | `skipped` for the archive, `layer`, `change_dirs` and the change directories as record directories                                                                                                                                                                                                                                                                   | 4, 5, 6    |
-| `packages/earnest/src/earnest/openspec.py`                                                                                              | `route_cli`, `matches`, `load_openspec` (and its `Host`, with the OpenSpec `produces` rows), `box`, `boxes`, `in_flight`, `checked_findings`, `untracked`, `untracked_findings`                                                                                                                                                                                      | 5, 7       |
-| `packages/earnest/src/earnest/plan.py`, `cli.py`                                                                                        | `Host` (with `produces`), `AIDLC`, `Intent.host` (read by `stage_of`, `build`, `plan_findings`, `produces`), `Box`, `Boxes`, `Plan.boxes` (read by `statuses`, `properties`), the `tasks` first stage, the `aidlc-state.md` messages; in `cli.py` the `openspec.in_flight` fallback for the current task and the `--stage tasks` scope of `checked-unevidenced` (P8) | 5, 7       |
-| `packages/earnest/src/earnest/index.py`, `structural.py`                                                                                | the layer overlay and `_duplicates` (Task 6), `_BOX` and `_body_hash` (Task 7); `Removal`, `Item.heading`, `Item.section`, `Index.removed` and the REMOVED branches of `defined`, `_duplicates` and `_links` (Task 10)                                                                                                                                               | 6, 7, 10   |
-| `packages/earnest/src/earnest/reporter.py`                                                                                              | `earnest/checked-unevidenced`, `earnest/untracked-box`, `earnest/no-requirements` in `RULES`                                                                                                                                                                                                                                                                         | 5, 7       |
-| `packages/earnest/tests/unit/test_openspec_layers.py`, `tests/unit/test_openspec.py`                                                    | skip, layers (REMOVED in Task 10); change directories, route, boxes                                                                                                                                                                                                                                                                                                  | 4 to 7, 10 |
-| `integrations/openspec/`                                                                                                                | `config.snippet.yaml` and `README.md`                                                                                                                                                                                                                                                                                                                                | 8          |
+| Path                                                                                                                                    | Responsibility                                                                                                                                                                                                                                                                                                                                                                               | Task       |
+| --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `docs/superpowers/plans/2026-11-25-openspec-host.md`                                                                                    | this plan: the decisions (Task 0), then each task's counts and notes                                                                                                                                                                                                                                                                                                                         | 0 to 9     |
+| `docs/design/00-project-intent.md`, `01-logic-design.md`, `02-structural-design.md`, `03-implementation-plan.md`, `04-bdd-test-plan.md` | the ratification, "Adopting OpenSpec", the module rows, M9 in `03`, `04`'s M9 section                                                                                                                                                                                                                                                                                                        | 0, 1       |
+| `packages/earnest/src/earnest/ears.py`                                                                                                  | `_SHALL`, the message suffix                                                                                                                                                                                                                                                                                                                                                                 | 1          |
+| `packages/earnest/tests/unit/test_ears.py`, `tests/unit/test_judge.py`                                                                  | the `SHALL` rows and the judge's span                                                                                                                                                                                                                                                                                                                                                        | 1          |
+| `CLAUDE.md`                                                                                                                             | the Build section: the M9 feature runs the pinned `openspec` and needs Node 22.20 or later (M8 Task 6 Step 4 words the Node line)                                                                                                                                                                                                                                                            | 2          |
+| `packages/earnest/tests/node.py`, `tests/unit/test_node.py`                                                                             | `openspec_env` and its test; the rest of the helper is M8 Task 2 Step 3's                                                                                                                                                                                                                                                                                                                    | 2          |
+| `packages/earnest/tests/fixtures/openspec-change/`                                                                                      | the base and the overlays `defects`, `archive`, `change`, `approved`, `unbumped`, and `judge-verdicts.json`                                                                                                                                                                                                                                                                                  | 3 to 8     |
+| `packages/earnest/tests/conftest.py`                                                                                                    | the overlay names `defects`, `archive`, `approved` and `unbumped` added to `_OVERLAYS` (`change` and `judge-verdicts.json` are there already); no new builder, the steps use `fixture_repo` and `commit_on_main`                                                                                                                                                                             | 3          |
+| `packages/earnest/tests/integration/test_openspec_ids.py`                                                                               | the tests that run the real CLI: strict validation and `check` on the base and `defects` layers, and `openspec list` against the box count; left out of a bare run by `addopts` until Task 9                                                                                                                                                                                                 | 3, 7       |
+| `packages/earnest/tests/features/openspec_host.feature`                                                                                 | the 11 scenarios, copied verbatim from `04`                                                                                                                                                                                                                                                                                                                                                  | 3          |
+| `packages/earnest/tests/steps/test_openspec_host.py`                                                                                    | the steps; the exit command                                                                                                                                                                                                                                                                                                                                                                  | 3 to 9     |
+| `packages/earnest/pyproject.toml`                                                                                                       | M9's two `--ignore` entries in `addopts` (merged with M7's), added and then removed                                                                                                                                                                                                                                                                                                          | 3, 9       |
+| `packages/earnest/src/earnest/adapters/__init__.py`                                                                                     | `skipped` for the archive, `layer`, `change_dirs` (from `index.change_of`) and the change directories as record directories                                                                                                                                                                                                                                                                  | 4, 5, 6    |
+| `packages/earnest/src/earnest/openspec.py`                                                                                              | `route_cli`, `matches`, `load_openspec` (and its `Host`, with the OpenSpec `produces` rows, `boxes` and `in_flight`), `box`, `boxes`, `in_flight`, `checked_findings`, `untracked_findings`                                                                                                                                                                                                  | 5, 7       |
+| `packages/earnest/src/earnest/plan.py`, `cli.py`                                                                                        | `Host` (with `produces`; Task 7: `boxes`, `current_task`), `AIDLC`, `Intent.host` (read by `stage_of`, `build`, `plan_findings`, `produces`), `Box`, `Boxes`, `Plan.boxes` (read by `statuses`, `properties`), the `tasks` first stage, the `aidlc-state.md` messages; in `cli.py` the boxes, the host's `current_task` fallback and the `--stage tasks` scope of `checked-unevidenced` (P8) | 5, 7       |
+| `packages/earnest/src/earnest/index.py`, `structural.py`                                                                                | `archived` (Task 4) and `change_of` (Task 5), the layer overlay and `_duplicates` (Task 6), `_BOX` and `_body_hash` (Task 7); `Removal`, `Item.heading`, `Item.section`, `Index.removed` and the REMOVED branches of `defined`, `_duplicates` and `_links` (Task 10)                                                                                                                         | 6, 7, 10   |
+| `packages/earnest/src/earnest/reporter.py`                                                                                              | `earnest/checked-unevidenced`, `earnest/untracked-box`, `earnest/no-requirements` in `RULES`                                                                                                                                                                                                                                                                                                 | 5, 7       |
+| `packages/earnest/tests/unit/test_openspec_layers.py`, `tests/unit/test_openspec.py`                                                    | skip, layers (REMOVED in Task 10); change directories, route, boxes                                                                                                                                                                                                                                                                                                                          | 4 to 7, 10 |
+| `integrations/openspec/`                                                                                                                | `config.snippet.yaml` and `README.md`                                                                                                                                                                                                                                                                                                                                                        | 8          |
 
 ## Known limits
 
@@ -790,7 +790,7 @@ M8 lands first, so its files exist. M8 Task 1 made the manifest with `@fission-a
 
 ### Task 4: Skip the archive (#23, first half)
 
-**Files:** Modify `packages/earnest/src/earnest/adapters/__init__.py`. Create `packages/earnest/tests/unit/test_openspec_layers.py`. Create the fixture overlay `packages/earnest/tests/fixtures/openspec-change/archive/`. Modify `packages/earnest/tests/steps/test_openspec_host.py`.
+**Files:** Modify `packages/earnest/src/earnest/index.py` and `packages/earnest/src/earnest/adapters/__init__.py`. Create `packages/earnest/tests/unit/test_openspec_layers.py`. Create the fixture overlay `packages/earnest/tests/fixtures/openspec-change/archive/`. Modify `packages/earnest/tests/steps/test_openspec_host.py`.
 
 Built on spike C's design A and C, measured on 2026-11-25 (the code below is its skip half, narrowed to the root (answer 11); `layer` waits for Task 6). The archived copy of a requirement is the main copy's own history, and 299 of 318 corpus requirements have one (S6), so skipping it is what turns 393 corpus duplicates into 0. On the drafted fixture, base plus the archive, spike B's tree gives exit 1 and 2 `duplicate`, and the same tree with the skip gives exit 0 and no finding.
 
@@ -814,22 +814,25 @@ def test_only_files_below_the_root_openspec_archive_are_skipped(path, skipped):
 ```
 
 - [ ] **Step 2:** Add the fixture overlay `archive/openspec/changes/archive/2026-11-01-add-lockout/` from the Fixture section, and bind scenario 6's steps: Given the repository with the `archive` layer; When the coding agent runs `earnest check`; Then the check exits zero, the SARIF log holds no finding, and the summary leads with "traced 100%, judged 0%, evidenced 0%; requirements: 2". Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py tests/steps/test_openspec_host.py -k "archive" -q; echo $?`. Expected: the two `True` rows fail, the scenario fails with 2 `duplicate` findings (the red measured above), and a non-zero code.
-- [ ] **Step 3:** In `adapters/__init__.py`:
+- [ ] **Step 3:** In `index.py` (add `from pathlib import PurePosixPath` to its imports), beside the module's constants:
 
 ```python
-_CHANGES = ("openspec", "changes")  # the root only (answer 11), for `skipped`, `change_dirs` and `layer` alike
+_CHANGES = ("openspec", "changes")  # the root only (answer 11): `archived` and Task 5's `change_of` both read it
 _ARCHIVE = (*_CHANGES, "archive")
+
+
+def archived(path: str) -> bool:
+    """Return whether path lies in `openspec/changes/archive/`, where `openspec archive` moves a change it has applied."""
+    return PurePosixPath(path).parts[: len(_ARCHIVE)] == _ARCHIVE
 ```
 
-and `skipped` returns:
+and in `adapters/__init__.py` (add `archived` to its `earnest.index` import) `skipped` returns:
 
 ```python
-    return parts[: len(_ARCHIVE)] == _ARCHIVE or any(
-        parts[: len(base)] == base and _is_bookkeeping(parts[len(base) :]) for base in bases
-    )
+    return archived(path) or any(parts[: len(base)] == base and _is_bookkeeping(parts[len(base) :]) for base in bases)
 ```
 
-The skip begins at the repository root, as `change_dirs` and `layer` do (answer 11), so one rule says where `openspec/` is. A nested `openspec/` is plain files, as this repository's own fixtures are to its repository-level check, which already exits 1 with `duplicate` findings among them (18 on 2026-11-26).
+The skip begins at the repository root, as `change_of` (Task 5) and `layer` (Task 6) do (answer 11), so one rule says where `openspec/` is. A nested `openspec/` is plain files, as this repository's own fixtures are to its repository-level check, which already exits 1 with `duplicate` findings among them (18 on 2026-11-26).
 
 - [ ] **Step 4:** Run Step 2's command again: expect `0`.
 - [ ] **Step 5:** Run `rtk proxy uv run mypy --strict src/; echo $?`, ruff, vulture and the regression run. Expected `0`, at the recorded count plus 7 and 1.
@@ -839,13 +842,13 @@ The skip begins at the repository root, as `change_dirs` and `layer` do (answer 
 
 ### Task 5: A change as an intent (#22)
 
-**Files:** Create `packages/earnest/src/earnest/openspec.py` and `packages/earnest/tests/unit/test_openspec.py`. Modify `packages/earnest/src/earnest/adapters/__init__.py`, `impact.py`, `plan.py`, `cli.py`, `reporter.py`, `tests/unit/test_impact.py`, `tests/unit/test_reporter.py`, `tests/unit/test_plan.py`, `tests/integration/test_openspec_ids.py` and `tests/steps/test_openspec_host.py`. Create the fixture overlays `change/`, `approved/` and `unbumped/` (their names are in `_OVERLAYS` since Task 3).
+**Files:** Create `packages/earnest/src/earnest/openspec.py` and `packages/earnest/tests/unit/test_openspec.py`. Modify `packages/earnest/src/earnest/index.py`, `adapters/__init__.py`, `impact.py`, `plan.py`, `cli.py`, `reporter.py`, `tests/unit/test_impact.py`, `tests/unit/test_reporter.py`, `tests/unit/test_plan.py`, `tests/integration/test_openspec_ids.py` and `tests/steps/test_openspec_host.py`. Create the fixture overlays `change/`, `approved/` and `unbumped/` (their names are in `_OVERLAYS` since Task 3).
 
-Built on spike D, measured on 2026-11-25 (+265/-18 over 7 files, a 112-line `openspec.py`, 25 tests). The prototype put the loader and the boxes in `plan.py` and imported `openspec` from `adapters`. This task keeps OpenSpec out of `plan.py` behind a `Host` seam (Step 4), because `openspec.py` imports `plan`, `plan` imports `adapters`, and `adapters` importing `openspec` would be a circular import: `change_dirs` therefore goes in `adapters/__init__.py`, beside `skipped`. `matches` and `_glob` stay in `openspec.py`, behind the `Host` it builds, so `plan.py` holds no glob. Task 7 adds the boxes and the two rules in `reporter.py`; the prototype's `EARNEST_OPENSPEC_ROUTE` and `EARNEST_OPENSPEC_APPROVAL` variables of `cli.py` are spike devices and are not carried over. The module is inlined in Step 4. Three changes from the prototype, each an answer: `change_dirs` matches below the root only (answer 11); the default approval is the hybrid (answer 6, no environment variable); a stage with no artifact before a later artifact is skipped (answer 7). The prototype's `RuntimeError` for a missing CLI becomes `PlanError`, which `cli.py` already turns into exit 2.
+Built on spike D, measured on 2026-11-25 (+265/-18 over 7 files, a 112-line `openspec.py`, 25 tests). The prototype put the loader and the boxes in `plan.py` and imported `openspec` from `adapters`. This task keeps OpenSpec out of `plan.py` behind a `Host` seam (Step 4), because `openspec.py` imports `plan`, `plan` imports `adapters`, and `adapters` importing `openspec` would be a circular import: `change_of` therefore goes in `index.py`, beside Task 4's `archived`, which `adapters` and `openspec` both import, and `change_dirs`, derived from it, in `adapters/__init__.py`, beside `skipped`. `matches` and `_glob` stay in `openspec.py`, behind the `Host` it builds, so `plan.py` holds no glob. Task 7 adds the boxes and the two rules in `reporter.py`; the prototype's `EARNEST_OPENSPEC_ROUTE` and `EARNEST_OPENSPEC_APPROVAL` variables of `cli.py` are spike devices and are not carried over. The module is inlined in Step 4. Three changes from the prototype, each an answer: `change_of` matches below the root only (answer 11); the default approval is the hybrid (answer 6, no environment variable); a stage with no artifact before a later artifact is skipped (answer 7). The prototype's `RuntimeError` for a missing CLI becomes `PlanError`, which `cli.py` already turns into exit 2.
 
 - [ ] **Step 1:** Run `rtk proxy uv run pytest -q; echo $?` with no `openspec` on `PATH` and record the count: the suite must need no Node here, and it still must not after this task.
 - [ ] **Step 2:** Write the failing tests in `tests/unit/test_openspec.py`, with a fake `openspec` from `fake_executable` in `tmp_path` that prints a canned `status --json` for `spec-driven` and appends each call, with its `OPENSPEC_TELEMETRY`, to a log:
-  - `test_a_change_is_a_directory_below_the_root_changes_outside_archive_and_hidden_ones`, calls `adapters.change_dirs`, rows: `openspec/changes/a/proposal.md` gives `{"openspec/changes/a"}`; `openspec/changes/archive/x/proposal.md`, `openspec/changes/.hidden/p.md`, `pkg/openspec/changes/a/p.md` (answer 11) and `openspec/specs/x/spec.md` give none;
+  - `test_a_change_is_a_directory_below_the_root_changes_outside_archive_and_hidden_ones`, calls `index.change_of` and `adapters.change_dirs`, rows: `openspec/changes/a/proposal.md` gives `openspec/changes/a` (and `change_dirs` `{"openspec/changes/a"}`); `openspec/changes/archive/x/proposal.md`, `openspec/changes/.hidden/p.md`, `openspec/changes/a` and `openspec/changes/README.md` (no file inside a change), `pkg/openspec/changes/a/p.md` (answer 11) and `openspec/specs/x/spec.md` give none;
   - `test_an_artifact_glob_matches_nested_specs_only_inside_its_change` (calls `openspec.matches`);
   - `test_stage_of_asks_the_host_the_intent_carries` (an `Intent` whose `host` is a stub `Host` with its own `holds`: `plan.stage_of` returns the stage that `holds` accepts, and a plain AI-DLC intent still reads the directory prefix);
   - `test_a_change_directory_bookkeeping_is_never_scanned` (`<change>/audit/` and `.earnest/`);
@@ -868,7 +871,7 @@ Built on spike D, measured on 2026-11-25 (+265/-18 over 7 files, a 112-line `ope
   - `test_find_intent_messages_name_an_openspec_change_beside_aidlc_state` (in `tests/unit/test_plan.py`; the existing tests there match only the `aidlc-state\.md` part, so they pass with or without the new wording), rows: `plan.find_intent([], None)` and `plan.find_intent([two intents], None)` each raise a `PlanError` whose text matches `openspec/changes/` and still names `aidlc-state.md`.
 
 - [ ] **Step 3:** Run `rtk proxy uv run pytest tests/unit/test_openspec.py tests/unit/test_reporter.py tests/unit/test_plan.py::test_find_intent_messages_name_an_openspec_change_beside_aidlc_state tests/unit/test_impact.py::test_a_process_takes_its_own_timeout -q; echo $?`. Expected: the `test_openspec.py` tests fail on the missing module, the impact test on the missing argument, the reporter test on the missing rule and the `find_intent` test on the old message wording, non-zero.
-- [ ] **Step 4:** Write `src/earnest/openspec.py`, and add `change_dirs` to `adapters/__init__.py` (the second block below). The module is the prototype's module with the three changes above, a timeout, a failed start and an unreadable answer turned into `PlanError` (`route_cli` raises it itself, with the prefix `earnest needs the openspec CLI to read the route of <change>:`), `status` read into `Artifact.status`, and the call routed through `impact._process` under `impact._environment()` plus `OPENSPEC_TELEMETRY=0`, so it has the process-group kill and the environment filter of Earnest's other runs, not a second `subprocess.run`. The prerequisite edit is in `impact.py`: `_process` gains `timeout: float | None = None` and calls `child.communicate(timeout=MAP_TIMEOUT if timeout is None else timeout)`, and its docstring reads "for at most `timeout` seconds, `MAP_TIMEOUT` by default". The default is read when the function runs, not bound where it is defined, because `test_impact.py` patches `impact.MAP_TIMEOUT` (lines 110 and 132) and a bound default would ignore the patch. Step 3's tests check it; Task 7 adds `box` to it:
+- [ ] **Step 4:** Write `src/earnest/openspec.py`, add `change_of` to `index.py` and `change_dirs` to `adapters/__init__.py` (the block after it). The module is the prototype's module with the three changes above, a timeout, a failed start and an unreadable answer turned into `PlanError` (`route_cli` raises it itself, with the prefix `earnest needs the openspec CLI to read the route of <change>:`), `status` read into `Artifact.status`, and the call routed through `impact._process` under `impact._environment()` plus `OPENSPEC_TELEMETRY=0`, so it has the process-group kill and the environment filter of Earnest's other runs, not a second `subprocess.run`. The prerequisite edit is in `impact.py`: `_process` gains `timeout: float | None = None` and calls `child.communicate(timeout=MAP_TIMEOUT if timeout is None else timeout)`, and its docstring reads "for at most `timeout` seconds, `MAP_TIMEOUT` by default". The default is read when the function runs, not bound where it is defined, because `test_impact.py` patches `impact.MAP_TIMEOUT` (lines 110 and 132) and a bound default would ignore the patch. Step 3's tests check it; Task 7 adds `box` to it:
 
 ```python
 """The OpenSpec host: a change below `openspec/changes/<id>/` as an intent, and its route from the CLI."""
@@ -938,19 +941,28 @@ def route_cli(directory: str, root: str) -> tuple[tuple[Artifact, ...], str]:
     return artifacts, schema
 ```
 
-In `adapters/__init__.py`, which imports neither `openspec` nor `plan`, `change_dirs` sits beside Task 4's `_CHANGES` and `_ARCHIVE` (`Iterable` and `PurePosixPath` are imported there already):
+In `index.py`, beside Task 4's `archived`, `change_of` is the one rule that says which change a file belongs to:
+
+```python
+def change_of(path: str) -> str | None:
+    """Return `openspec/changes/<id>` when path is a file of a change, else None.
+
+    A change is a directory directly below the root `openspec/changes/` (answer 11), other than `archive/` and a hidden
+    one, as upstream's `getActiveChangeIds` has it.
+    """
+    parts = PurePosixPath(path).parts
+    change = parts[: len(_CHANGES) + 1]  # `openspec/changes/<id>`, when the path goes that deep
+    if len(parts) == len(change) or change[:-1] != _CHANGES or change[-1].startswith(".") or archived(path):
+        return None  # a path no deeper than the change is no file of it
+    return "/".join(change)
+```
+
+`adapters/__init__.py` (add `change_of` to its `earnest.index` import; `Iterable` is imported there already) derives `change_dirs` beside `skipped`. `index.py` imports neither `adapters`, `plan` nor `openspec`, so there is no cycle:
 
 ```python
 def change_dirs(paths: Iterable[str]) -> frozenset[str]:
-    """Return `openspec/changes/<id>` for each change among the paths: below the root, outside `archive/`, not hidden."""
-    found: set[str] = set()
-    for path in paths:
-        parts = PurePosixPath(path).parts
-        if len(parts) > len(_CHANGES) + 1 and parts[: len(_CHANGES)] == _CHANGES:
-            name = parts[len(_CHANGES)]
-            if name != _ARCHIVE[-1] and not name.startswith("."):
-                found.add("/".join(parts[: len(_CHANGES) + 1]))
-    return frozenset(found)
+    """Return `openspec/changes/<id>` for each change among the paths."""
+    return frozenset(found for path in paths if (found := change_of(path)) is not None)
 ```
 
 `openspec.py` also holds `matches` and `_glob` (the prototype's, kept there; `plan.py` holds no glob). `_glob` is cached, because `matches` asks it for the same few patterns once per path:
@@ -989,10 +1001,12 @@ class Host:
     produces: Mapping[str, frozenset[str]]  # stage slug -> the item types its artifacts hold
 
 
-AIDLC = Host(lambda intent, stage, path: path.startswith(posixpath.join(intent.directory, stage) + "/"), route_findings, PRODUCES)
+AIDLC: Host = Host(
+    lambda intent, stage, path: path.startswith(posixpath.join(intent.directory, stage) + "/"), route_findings, PRODUCES
+)
 ```
 
-`Intent` gains `host: "Host" = field(default_factory=lambda: AIDLC)` (`field` is already imported in `plan.py`). `plan.py` has no `from __future__ import annotations` and a class body evaluates its annotations when it runs, so the order matters: define `Host` after `Intent` (its `Callable[[Intent, ...]]` then resolves), quote the annotation inside `Intent` (`Host` does not exist yet), and define `AIDLC` after `route_findings` and `PRODUCES` (the default factory defers the name `AIDLC`, and `AIDLC`'s own arguments need both). No function tests which host it has; each of these four sites asks the intent's own:
+`Intent` gains `host: "Host" = field(default_factory=lambda: AIDLC)` (`field` is already imported in `plan.py`). `plan.py` has no `from __future__ import annotations` and a class body evaluates its annotations when it runs, so the order matters: define `Host` after `Plan` (its `Callable[[Intent, ...]]` then resolves, and so does Task 7's hook, which names `Plan`), quote the annotation inside `Intent` (`Host` does not exist yet), and define `AIDLC` after `route_findings` and `PRODUCES` (the default factory defers the name `AIDLC`, and `AIDLC`'s own arguments need both), annotated as `AIDLC: Host`, because `mypy --strict` cannot infer the type of a name that the factory reads above its assignment. No function tests which host it has; each of these four sites asks the intent's own:
 
 ```python
 # build(), the item grouping (the line that tests `item.path.startswith(posixpath.join(intent.directory, stage) + "/")`)
@@ -1007,12 +1021,14 @@ AIDLC = Host(lambda intent, stage, path: path.startswith(posixpath.join(intent.d
 
 # produces(), and the `wanted` line of the gap placer, which read `PRODUCES` today
         *(current.host.produces.get(_slug(stage), frozenset()) for current in intents for stage in current.executed)
-    wanted = (stage for stage in owner.intent.executed if finding.child in owner.intent.host.produces.get(_slug(stage), ()))
+    wanted = (
+        stage for stage in owner.intent.executed if finding.child in owner.intent.host.produces.get(_slug(stage), ())
+    )
 ```
 
 The shared `PRODUCES` dict stays AI-DLC's, and `test_a_host_with_its_own_produces_leaves_the_aidlc_table_alone` (in `tests/unit/test_plan.py`) pins that `PRODUCES` holds no `specs` key while an OpenSpec intent's `specs` stage produces `feat` and `req`.
 
-`openspec.py` holds the OpenSpec `Host` and the loader (add `import posixpath`, `from collections.abc import Mapping, Sequence`, `from earnest import adapters`, and `AUDIT`, `Approval`, `Host`, `_approval`, `_events`, `_named` and `counting` to the header's `earnest.plan` import, which holds `Intent` and `PlanError`). The loader buckets the listed paths once by change directory, so each change reads its own bucket for its `audit/` rows and for its artifact globs, not the whole list per change and per artifact. Each existing artifact gets the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and the rows of the change's `audit/*.md`, read with AI-DLC's own `_events`, `counting`, `_approval` and `_named`, override it. A stage with no artifact before a later stage's artifact is left off the route, as AI-DLC leaves off a skipped stage, so the frontier passes it (answer 7). `route_cli`'s `PlanError` goes through (`openspec.py` already imports `plan`, so the import adds no cycle), and the route check returns `[]`, because a route read from the CLI cannot mismatch a state file:
+`openspec.py` holds the OpenSpec `Host` and the loader (add `import posixpath`, `from collections.abc import Mapping, Sequence`, `from earnest.index import change_of`, and `AUDIT`, `Approval`, `Host`, `_approval`, `_events`, `_named` and `counting` to the header's `earnest.plan` import, which holds `Intent` and `PlanError`). The loader buckets the listed paths once by change directory, so each change reads its own bucket for its `audit/` rows and for its artifact globs, not the whole list per change and per artifact. Each existing artifact gets the approval `current, openspec` with no items named (so `_named` is empty and nothing is frozen: `unbumped-change` needs a `GATE_APPROVED` row with `Items`, which the `approved` overlay holds), and the rows of the change's `audit/*.md`, read with AI-DLC's own `_events`, `counting`, `_approval` and `_named`, override it. A stage with no artifact before a later stage's artifact is left off the route, as AI-DLC leaves off a skipped stage, so the frontier passes it (answer 7). `route_cli`'s `PlanError` goes through (`openspec.py` already imports `plan`, so the import adds no cycle), and the route check returns `[]`, because a route read from the CLI cannot mismatch a state file:
 
 ```python
 _PRODUCES = {  # the item types a stage's artifacts hold: `proposal` holds none, and no stage holds an `stest`
@@ -1028,30 +1044,33 @@ def _host(globs: Mapping[str, str]) -> Host:
 
 def load_openspec(root: Path, files: Sequence[str]) -> list[Intent]:
     """Read each change below the root `openspec/changes/` among the listed files as an intent, its route from the CLI."""
-    owned: dict[str, list[str]] = {directory: [] for directory in adapters.change_dirs(files)}
+    owned: dict[str, list[str]] = {}
     for path in files:
-        if (directory := "/".join(PurePosixPath(path).parts[:3])) in owned:
-            owned[directory].append(path)
+        if (directory := change_of(path)) is not None:
+            owned.setdefault(directory, []).append(path)
     found: list[Intent] = []
     for directory, own in sorted(owned.items()):
         artifacts, _ = route_cli(directory, str(root))
-        held = [any(matches(directory, each.generates, path) for path in own) for each in artifacts]
-        last = max((at for at, has in enumerate(held) if has), default=-1)
-        route = tuple(each.id for at, each in enumerate(artifacts) if held[at] or at > last)
+        present = [each for each in artifacts if any(matches(directory, each.generates, path) for path in own)]
+        # a stage with no artifact stays on the route only past the last artifact, where the frontier can reach it
+        after = artifacts[artifacts.index(present[-1]) + 1 :] if present else artifacts
+        route = tuple(each.id for each in (*present, *after))
         audit = posixpath.join(directory, AUDIT)
         shards = [path for path in own if posixpath.dirname(path) == audit and path.endswith(".md")]
         events = counting(sorted(event for shard in shards for event in _events(root, shard)), ())
         gates = [event for event in events if event.name in {"GATE_APPROVED", "GATE_REJECTED"}]
-        approvals = {each.id: Approval(each.id, None, "openspec", None) for at, each in enumerate(artifacts) if held[at]}
+        approvals = {each.id: Approval(each.id, None, "openspec", None) for each in present}
         approvals |= {stage: row for stage in route if (row := _approval(stage, gates)) is not None}
         host = _host({each.id: each.generates for each in artifacts})
         found.append(
-            Intent(directory, "", (), route, approvals, _named(gates), (), executed=route, events=tuple(events), host=host)
+            Intent(
+                directory, "", (), route, approvals, _named(gates), (), executed=route, events=tuple(events), host=host
+            )
         )
     return found
 ```
 
-`adapters/__init__.py`: `scan` adds each change directory to the record directories, so `<change>/audit/` and `.earnest/` stay bookkeeping: `directories = record_directories(listed) | change_dirs(listed)`. `cli._read` loads the changes beside the state files, `intents += openspec.load_openspec(root, files)` after the `plan.intent(record)` line (`adapters.change_dirs`, which `load_openspec` also calls, lists them); the messages of `find_intent` that name `aidlc-state.md` also name `openspec/changes/<id>/`. `cli.py` adds `earnest/no-requirements` (a warning, `RULES` in `reporter.py`) at `openspec/config.yaml` line 1, or at the first main spec's line 1, when `openspec/` exists at the root and the index holds no `req` (answer 5; no file to point at, no finding), and the message says to write an id line under each heading.
+`adapters/__init__.py`: `scan` adds each change directory to the record directories, so `<change>/audit/` and `.earnest/` stay bookkeeping: `directories = record_directories(listed) | change_dirs(listed)`. `cli._read` loads the changes beside the state files, `intents += openspec.load_openspec(root, files)` after the `plan.intent(record)` line; the messages of `find_intent` that name `aidlc-state.md` also name `openspec/changes/<id>/`. `cli.py` adds `earnest/no-requirements` (a warning, `RULES` in `reporter.py`) at `openspec/config.yaml` line 1, or at the first main spec's line 1, when `openspec/` exists at the root and the index holds no `req` (answer 5; no file to point at, no finding), and the message says to write an id line under each heading.
 
 - [ ] **Step 5:** Run Step 3's command: expect `0`. Then add the overlays and bind scenarios 8 and 9. `change/` holds the change of the Fixture section; `approved/` holds the gate row of the Fixture section, which scenario 9 commits after its stage check (the "approved" layer step is the one that commits any layer); `unbumped/` holds the delta with the first requirement's body edited ("...for the lockout window, which starts at the third failure.") and its revision left at 2. Run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "intent or unbumped" -q; echo $?`: expect `0`. Add `test_the_change_approved_and_unbumped_layers_pass_strict_validation` to `tests/integration/test_openspec_ids.py` and run it by path: expect `0`. No spike ran `openspec validate` over an `audit/` directory inside a change (S15), so if OpenSpec rejects it, stop and tell the maintainer; do not move the row without that answer.
 - [ ] **Step 6:** The repository-level check: `rtk proxy uv run --project packages/earnest earnest check 2>&1 >/dev/null | grep -c '^intent '` equals Step 6 of Task 3's count (the fixture's `openspec/` is not at the root). Then the regression run, `mypy --strict`, ruff and vulture: expect `0`, at the Step 1 count plus this task's tests.
@@ -1120,16 +1139,17 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`. The 
   - `test_a_change_stacked_on_another_overlays_it_at_a_higher_revision_and_is_no_duplicate` (answer 8, option B: an ADDED copy at revision 1 in one change and a MODIFIED copy at revision 2 in another give no finding, and the id resolves to revision 2);
   - `test_two_main_copies_stay_duplicate_while_a_delta_overlays_them` (two main specs define `req~x~1` and a change holds `req~x~2`: the second main copy is still `duplicate`, against the first main copy);
   - `test_a_delta_behind_main_stays_outdated_when_another_change_stacks_above_it` (main at revision 2, change A holds revision 1, change B holds revision 3: A's copy is `outdated`, against the main copy);
-  - `test_two_changes_at_one_revision_stay_duplicate_when_a_third_stacks_above_them` (no main copy; changes A and B hold `req~x~1` and change C holds `req~x~2`: B's copy is `duplicate`, against A's, and A's and C's copies give no finding).
+  - `test_two_changes_at_one_revision_stay_duplicate_when_a_third_stacks_above_them` (no main copy; changes A and B hold `req~x~1` and change C holds `req~x~2`: B's copy is `duplicate`, against A's, and A's and C's copies give no finding);
+  - `test_the_layer_is_delta_only_for_a_file_inside_a_change` (rows: `openspec/changes/a/specs/x/spec.md` is `delta`; `openspec/specs/x/spec.md`, `openspec/changes/.hidden/specs/x/spec.md`, `openspec/changes/README.md` and `pkg/openspec/changes/a/specs/x/spec.md` are `main`).
 
 - [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: fail, non-zero.
 - [ ] **Step 3:** Implement:
-  - `adapters/__init__.py` (import `DELTA` and `MAIN` from `earnest.index` beside `Source`): `layer(path)` returns `DELTA` when `PurePosixPath(path).parts[: len(_CHANGES)] == _CHANGES` (the root only, answer 11; Task 4 defines `_CHANGES`) and `MAIN` otherwise, and `source` passes `layer=layer(path)` to the `Source` it builds, which is how `scan` sets it:
+  - `adapters/__init__.py` (import `DELTA`, `MAIN` and `change_of` from `earnest.index` beside `Source`): `layer(path)` returns `DELTA` when `change_of(path)` names a change (Task 5; the root only, answer 11, so neither `archive/` nor a hidden directory is one) and `MAIN` otherwise, and `source` passes `layer=layer(path)` to the `Source` it builds, which is how `scan` sets it:
 
   ```python
   def layer(path: str) -> str:
       """Return `delta` for a file of an in-flight OpenSpec change, else `main`: the layers an id's copies overlay in."""
-      return DELTA if PurePosixPath(path).parts[: len(_CHANGES)] == _CHANGES else MAIN
+      return MAIN if change_of(path) is None else DELTA
   ```
 
   - `index.py`: constants `MAIN = "main"` and `DELTA = "delta"  # a copy in an in-flight OpenSpec change, which overlays the main copy of its id`; `Source.layer: str = MAIN`; `Item.layer: str = field(default=MAIN, compare=False)`, set from `source.layer` in `_markdown` (`items.append(Item(item_id, source.path, number, needs, _body_hash(lines, source.fenced), body, overrides, source.layer))`). `Index.defined` becomes:
@@ -1172,16 +1192,16 @@ This task runs after Task 5 and before Task 7, which also edits `index.py`. The 
   ```
 
 - [ ] **Step 4:** Run Step 2's command: expect `0`. Then bind scenario 7 and run `rtk proxy uv run pytest tests/steps/test_openspec_host.py -k "supersedes" -q; echo $?`: expect `0`, with `outdated` at `src/lockout.py:6` and `tests/test_lockout.py:6` and no `duplicate`.
-- [ ] **Step 5:** `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 10 and 1. The order-independence test checks a set with no tie; the sorted-path test checks the tie.
+- [ ] **Step 5:** `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 11 and 1. The order-independence test checks a set with no tie; the sorted-path test checks the tie.
 - [ ] **Step 6:** Commit `feat: a requirement in a change in flight overlays its main copy, and a stacked change its base`.
 
 **Done when** (#23): on the fixture, with a main spec, an in-flight MODIFIED delta and an archived change, there is no `duplicate`, the items linked to the superseded revision are flagged (SC5), and two runs give identical SARIF.
 
 ### Task 7: Done-status from `tasks.md` (#24)
 
-**Files:** Modify `packages/earnest/src/earnest/openspec.py`, `plan.py` (`Box`, `Boxes`, `Plan.boxes`; `current_task` is unchanged, so its `tests/unit/test_plan.py` callers need none), `cli.py` (its `current_task` call site gains the `openspec.in_flight` fallback), `index.py`, `reporter.py`. Test `packages/earnest/tests/unit/test_openspec.py`, `tests/unit/test_reporter.py` and `tests/integration/test_openspec_ids.py`. Modify `packages/earnest/tests/steps/test_openspec_host.py`.
+**Files:** Modify `packages/earnest/src/earnest/openspec.py`, `plan.py` (`Box`, `Boxes`, `Plan.boxes`, and the `boxes` and `current_task` fields of `Host`; `current_task` is unchanged, so its `tests/unit/test_plan.py` callers need none), `cli.py` (`_analyse` reads the boxes, and its `current_task` call site gains the host's fallback), `index.py`, `reporter.py`. Test `packages/earnest/tests/unit/test_openspec.py`, `tests/unit/test_reporter.py` and `tests/integration/test_openspec_ids.py`. Modify `packages/earnest/tests/steps/test_openspec_host.py`.
 
-Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests are this task's). Step 3 inlines the code. `boxes`, `checked_findings`, `untracked`, `untracked_findings` and `in_flight` (the prototype's `_in_flight`) go into `openspec.py`; `Box` and `Boxes`, which `Plan.boxes` holds for `statuses` and `properties` to read, stay in `plan.py`, and so do the first-stage change and the plan line of `reporter.py`. The prototype's `boxes`, `loose` and `marks` parameters of `statuses`, `properties` and `current_task` are not taken, and `current_task` stays as it is. The box regex is defined once, as `_BOX` in `index.py`, and `openspec.py` imports it, with the `_HEADING` and `_ID_LINE` patterns that end a task's span as `index._spans` ends an item (`openspec` imports `plan`, which imports `index`, so there is no cycle). This task runs after Task 6, which also edits `index.py`.
+Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests are this task's). Step 3 inlines the code. `boxes`, `checked_findings`, `untracked_findings` and `in_flight` (the prototype's `_in_flight`) go into `openspec.py`; `Box` and `Boxes`, which `Plan.boxes` holds for `statuses` and `properties` to read, stay in `plan.py` with the two fields that `Host` gains (the OpenSpec host fills them, and AI-DLC keeps their defaults, so no function tests which host it has), and so do the first-stage change and the plan line of `reporter.py`. The prototype's `boxes`, `loose` and `marks` parameters of `statuses`, `properties` and `current_task` are not taken, and `current_task` stays as it is. The box regex is defined once, as `_BOX` in `index.py`, and `openspec.py` imports it, with `_spans`, which gives each item's lines as the index reads them, so a task's span is the index's own (`openspec` imports `plan`, which imports `index`, so there is no cycle). This task runs after Task 6, which also edits `index.py`.
 
 - [ ] **Step 1:** Write the failing tests:
   - `test_a_box_reads_as_upstream_counts_it`, rows: `- [x] a`, `- [X] a`, `* [x] a`, `1. [x] a` are checked; `- [ ] a`, `- [  ] a`, `- [ ](link)` and `- [-] a` are unchecked; `- [x](link)` and `- [x][ref]` are no box;
@@ -1190,11 +1210,13 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
   - `test_a_checked_task_whose_requirement_is_below_evidenced_raises_the_finding_at_its_box` (a stage check of `tasks`);
   - `test_a_plain_check_raises_no_checked_unevidenced` (P8: the same tree, no `--stage`);
   - `test_an_unchecked_task_raises_no_checked_unevidenced`;
+  - `test_a_checked_task_whose_design_has_no_impl_raises_the_finding_without_naming_a_requirement` (`task_done` is false for a delivered `dsn` with no `impl`, so the box is flagged and the message says what it delivers is not done); `test_a_checked_task_that_is_done_raises_none`;
   - `test_a_box_with_no_task_id_line_is_untracked_and_keeps_the_tasks_stage_open`;
-  - `test_a_nested_sub_box_under_a_task_is_claimed_and_is_not_untracked` (a task id line, its box and an indented sub-box under it, ticked or not: `boxes.loose["tasks"]` is empty and no `untracked-box` finding is raised, so the tasks stage can be done; a box under a heading, or above the first id line, is still untracked);
+  - `test_a_nested_sub_box_under_a_task_is_claimed_and_is_not_untracked` (a task id line, its box and an indented sub-box under it, ticked or not: `boxes.loose` is empty and no `untracked-box` finding is raised, so the tasks stage can be done; a box under a heading, or above the first id line, is still untracked);
   - `test_the_current_task_is_the_first_unchecked_box_of_the_one_change_that_has_one` (answer 10: a change with every box ticked is not counted);
   - `test_there_is_no_current_task_when_two_changes_have_unchecked_boxes`;
-  - `test_an_aidlc_only_check_with_no_current_task_keeps_the_reason_of_current_task` (through `cli.main` on an AI-DLC fixture whose state file names no task: the stderr reason is `current_task`'s, not "no OpenSpec task is unchecked"; this fails if `cli.py` calls `in_flight` whatever the hosts);
+  - `test_an_aidlc_intent_at_the_repository_root_is_no_second_holder_of_a_change_task` (`openspec.in_flight` over the plan of an AI-DLC intent with directory `""` and the plan of a change with one unchecked box: the box's task comes back, not "several changes"; this fails if a holder is any intent whose directory contains the task's path, which the root directory does for every file);
+  - `test_an_aidlc_only_check_with_no_current_task_keeps_the_reason_of_current_task` (through `cli.main` on an AI-DLC fixture whose state file names no task: the stderr reason is `current_task`'s, not "no OpenSpec task is unchecked"; this fails if the AI-DLC host carried a `current_task` hook);
   - `test_check_takes_the_first_unchecked_box_as_the_current_task` (through `cli.main` on the fixture with the fake `openspec`, no `--task`: the stderr task-change line names that box's task, and the out-of-task check runs; this fails if `cli.py` never passes the boxes to `openspec.in_flight`);
   - `test_check_with_a_task_flag_on_two_changes_holding_unchecked_boxes_uses_it_and_states_no_current_task_line` (the two-change fixture with `--task task~<name>~1`: the stderr task-change line names the given task, the out-of-task check runs, and no `no current task` line appears; this fails if `cli.py` calls `in_flight` before the flag or prints that line despite it);
   - `test_check_with_a_task_flag_beats_the_one_in_flight_unchecked_box` (a single change with an unchecked box and `--task` naming a different task: the given task wins, not the box's);
@@ -1223,21 +1245,20 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
       return digest("\n".join(kept).encode("utf-8"))
   ```
 
-  In `openspec.py` (add `from collections.abc import Sequence` and `from earnest.index import _BOX`, to which the next block adds `_HEADING` and `_ID_LINE`), the first box among a task's `(number, text)` lines:
+  In `openspec.py` (add `from collections.abc import Iterable` and `from earnest.index import _BOX, Line`; the `openspec.py` block below adds the rest), the first box among a task's lines:
 
   ```python
-  def box(lines: Sequence[tuple[int, str]]) -> tuple[int, bool] | None:
-      """Return the line and state of the first checkbox among the (number, text) lines, or None: `x`/`X` is checked."""
-      for number, text in lines:
-          found = _BOX.match(text)
-          if found:
-              return number, (found.group(2) or "").lower() == "x"
+  def box(path: str, lines: Iterable[Line]) -> Box | None:
+      """Return the first checkbox among the lines of a file, or None: `x` or `X` is checked."""
+      for line in lines:
+          if found := _BOX.match(line.text):
+              return Box(path, line.number, (found.group(2) or "").lower() == "x")
       return None
   ```
 
   (Keep the function's `stripped` line as it is. Add to its docstring that for a task item (`boxes`) the marker inside the leading checkbox is blanked, so ticking a box leaves the hash as it was, and reword "so only what Git and an editor add at a line's end leaves the hash as it was" so it no longer excludes that case.)
 
-  `plan.py` gains two value types, so it imports nothing from `openspec.py`, and `Plan` gains `boxes: Boxes = field(default_factory=Boxes)` (define both before `Plan`):
+  `plan.py` gains two value types, so it imports nothing from `openspec.py`, and `Plan` gains `boxes: Boxes = field(default_factory=Boxes)` (define both, and `_no_boxes`, before `Plan`):
 
   ```python
   @dataclass(frozen=True)
@@ -1251,17 +1272,30 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
 
   @dataclass(frozen=True)
   class Boxes:
-      """The checkboxes of one change: each task's by id, and by stage those that no task id line claims."""
+      """The checkboxes of one change: each task's by id, and those that no task id line claims."""
 
       marks: Mapping[str, Box] = field(default_factory=dict)
-      loose: Mapping[str, tuple[Box, ...]] = field(default_factory=dict)
+      loose: tuple[Box, ...] = ()
+
+
+  def _no_boxes(_sources: Sequence[Source], _intent: Intent) -> Boxes:
+      return Boxes()
+  ```
+
+  `Host` (Task 5) gains the two fields that read them, after `produces` and with defaults, so `AIDLC` keeps its three arguments, with no boxes and no hook. The hook takes the plans, not the intents, because a plan knows which boxes are its own, where a record directory of `""` contains every path:
+
+  ```python
+      boxes: Callable[[Sequence[Source], Intent], Boxes] = _no_boxes  # the intent's checkboxes
+      # the fallback for a current task, asked when no state file names one
+      current_task: Callable[[Sequence[Item], Sequence[Plan]], tuple[Item | None, str | None]] | None = None
   ```
 
   `plan.py` reads them in three places, and `reporter.py` in one:
 
   ```python
-  # statuses(), after `open_tasks = sum(...)`: a box with no task id line keeps its stage open
-          open_tasks += len(plan.boxes.loose.get(state.stage, ()))
+  # statuses(), after `open_tasks = sum(...)`: a box with no task id line keeps the `tasks` stage open
+          if state.stage == "tasks":
+              open_tasks += len(plan.boxes.loose)
 
   # properties(), in each task's entry, with `marks = current.boxes.marks` set above the comprehension
                   {"id": str(item.id), "status": "done" if task_done(item, index, levels) else "not done"}
@@ -1277,7 +1311,7 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
       )
   ```
 
-  `openspec.py` (add `from earnest.index import Index, Item, Source`, which ruff's isort merges with Step 3's `_BOX` import into `from earnest.index import _BOX, _HEADING, _ID_LINE, Index, Item, Source`; add `AIDLC`, `Box`, `Boxes`, `inside`, `stage_of` and `Plan` to the `earnest.plan` import and `from earnest.reporter import Finding`) reads the boxes of one change, the findings they raise, and the current task:
+  `openspec.py` (add `Id`, `Index`, `Item`, `Source` and `_spans` to the `earnest.index` import that the `box` block began with `_BOX` and `Line`; add `Box`, `Boxes`, `Plan`, `stage_of` and `task_done` to the `earnest.plan` import, and `from earnest.reporter import Finding`) reads the boxes of one change, the findings they raise, and the current task:
 
   ```python
   _UNTRACKED = (
@@ -1286,99 +1320,107 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
   )
 
 
-  def _ends(text: str) -> bool:
-      """Return whether a line ends the item above it, as `index._spans` reads it: a heading or an id line."""
-      text = text.rstrip()
-      return _HEADING.match(text) is not None or _ID_LINE.fullmatch(text) is not None
-
-
-  def boxes(sources: Sequence[Source], index: Index, intent: Intent) -> Boxes:
-      """Return each task's first checkbox after its id line, and the checkboxes of the `tasks` artifact that no task's span holds."""
-      if intent.host is AIDLC:
-          return Boxes()
-      by_path = {each.path: each for each in sources}
+  def boxes(sources: Sequence[Source], intent: Intent) -> Boxes:
+      """Return the checkboxes of the change's `tasks` artifact: each task's first, and those that no task's span holds."""
       marks: dict[str, Box] = {}
-      claimed: set[tuple[str, int]] = set()  # every line of every task's span, so a nested sub-box is no stray box
-      for item in index.defined.values():
-          source = by_path.get(item.path)
-          if item.id.type != "task" or source is None or not inside(intent, item.path):
-              continue
-          span: list[tuple[int, str]] = []
-          for line in source.lines:
-              if line.number <= item.line:
-                  continue
-              if line.number not in source.fenced and _ends(line.text):
-                  break
-              span.append((line.number, line.text))
-          claimed.update((item.path, number) for number, _ in span)
-          if (found := box(span)) is not None:
-              marks[str(item.id)] = Box(item.path, found[0], found[1])
-      return Boxes(marks, {"tasks": untracked(sources, intent, claimed)})
-
-
-  def untracked(sources: Sequence[Source], intent: Intent, claimed: set[tuple[str, int]]) -> tuple[Box, ...]:
-      """Return each checkbox of the change's `tasks` artifact on a line that no task's span holds."""
-      found: list[Box] = []
+      loose: list[Box] = []
       for source in sources:
           if stage_of(intent, source.path) != "tasks":
               continue
-          for line in source.lines:
-              if line.number in source.fenced or (source.path, line.number) in claimed:
-                  continue
-              if (hit := box([(line.number, line.text)])) is not None:
-                  found.append(Box(source.path, hit[0], hit[1]))
-      return tuple(found)
+          tasks = [(item_id, body) for item_id, _number, body, *_rest in _spans(source)[0] if item_id.type == "task"]
+          held = source.fenced.union(line.number for _, body in tasks for line in body)  # a nested sub-box is its task's
+          for item_id, body in tasks:
+              if (found := box(source.path, body)) is not None:
+                  marks.setdefault(str(item_id), found)
+          loose += [
+              found
+              for line in source.lines
+              if line.number not in held and (found := box(source.path, [line])) is not None
+          ]
+      return Boxes(marks, tuple(loose))
 
 
   def untracked_findings(intent: Intent, found: Boxes) -> list[Finding]:
       """Return an `untracked-box` finding at each checkbox that no task item claims."""
       return [
-          Finding(each.path, each.line, "earnest/untracked-box", f"{each.path}:{each.line}", _UNTRACKED, stage=stage, intent=intent.directory)
-          for stage, held in found.loose.items()
-          for each in held
+          Finding(
+              each.path,
+              each.line,
+              "earnest/untracked-box",
+              f"{each.path}:{each.line}",
+              _UNTRACKED,
+              stage="tasks",
+              intent=intent.directory,
+          )
+          for each in found.loose
       ]
 
 
   def checked_findings(plans: Sequence[Plan], index: Index, levels: Mapping[str, str]) -> list[Finding]:
-      """Return a `checked-unevidenced` finding at the box of each checked task whose delivered `req` is below evidenced."""
+      """Return a `checked-unevidenced` finding at the box of each checked task that is not done (`plan.task_done`)."""
+      short: dict[Id, list[str]] = {}  # each task's delivered requirements below evidenced, from one pass over the links
+      for link in index.links:
+          level = levels.get(str(link.target))
+          if link.key == "Delivers" and link.owner is not None and link.target.type == "req" and level != "evidenced":
+              short.setdefault(link.owner, []).append(f"`{link.target}` is {level or 'untraced'}")
       found: list[Finding] = []
       for current in plans:
           for state in current.stages:
               for item in state.items:
                   mark = current.boxes.marks.get(str(item.id))
-                  if item.id.type != "task" or mark is None or not mark.checked:
+                  if mark is None or not mark.checked or task_done(item, index, levels):
                       continue
-                  short = sorted(
-                      f"`{link.target}` is {levels.get(str(link.target), 'untraced')}"
-                      for link in index.links
-                      if link.key == "Delivers"
-                      and link.owner == item.id
-                      and link.target.type == "req"
-                      and levels.get(str(link.target)) != "evidenced"
+                  why = (
+                      f"{'; '.join(sorted(short[item.id]))}, not evidenced"
+                      if item.id in short
+                      else "what it delivers is not done"
                   )
-                  if short:
-                      message = (
-                          f"`{item.id}` is checked in tasks.md, but {'; '.join(short)}, not evidenced: uncheck the box,"
-                          " or tag and test the requirement until earnest check --judge --evidence reports it evidenced"
+                  message = (
+                      f"`{item.id}` is checked in tasks.md, but {why}: uncheck the box,"
+                      " or tag and test the requirement until earnest check --judge --evidence reports it evidenced"
+                  )
+                  found.append(
+                      Finding(
+                          mark.path,
+                          mark.line,
+                          "earnest/checked-unevidenced",
+                          str(item.id),
+                          message,
+                          stage=state.stage,
+                          intent=current.intent.directory,
                       )
-                      found.append(
-                          Finding(mark.path, mark.line, "earnest/checked-unevidenced", str(item.id), message, stage=state.stage, intent=current.intent.directory)
-                      )
+                  )
       return found
 
 
-  def in_flight(tasks: Sequence[Item], intents: Sequence[Intent], marks: Mapping[str, Box]) -> tuple[Item | None, str | None]:
-      """Return the first unchecked task, in file order, of the one OpenSpec change that has an unchecked task."""
-      pending = [task for task in tasks if (found := marks.get(str(task.id))) is not None and not found.checked]
-      holders = {each.directory for each in intents if each.host is not AIDLC for task in pending if inside(each, task.path)}
+  def in_flight(tasks: Sequence[Item], plans: Sequence[Plan]) -> tuple[Item | None, str | None]:
+      """Return the first unchecked task, in file order, of the one change that has an unchecked task."""
+      open_boxes = {
+          each.intent.directory: {name for name, mark in each.boxes.marks.items() if not mark.checked} for each in plans
+      }
+      holders = sorted(directory for directory, names in open_boxes.items() if names)
       if len(holders) > 1:
-          return None, f"several changes have an unchecked task ({', '.join(sorted(holders))}): name one with --task"
+          return None, f"several changes have an unchecked task ({', '.join(holders)}): name one with --task"
+      pending = [task for task in tasks if any(str(task.id) in names for names in open_boxes.values())]
       if not pending:
           return None, "no state file names one, and no OpenSpec task is unchecked"
       return min(pending, key=lambda task: (task.path, task.line)), None
   ```
 
-  A box outside every task's span is untracked: a span runs from the task's id line to the next ATX heading or id line, `box` takes its first box as the task's mark, and a nested sub-box inside it belongs to the task too. `cli.py` calls them: straight after `plan.build`, `_analyse` replaces each plan with `dataclasses.replace(each, boxes=openspec.boxes(world.sources, index, each.intent))`; it takes the `--stage` text (`_analyse(..., stage=args.stage)` at both call sites) and, with the other structural findings, adds
+  `_host` (Task 5) now passes the two hooks:
+
+  ```python
+  def _host(globs: Mapping[str, str]) -> Host:
+      return Host(
+          lambda intent, stage, path: matches(intent.directory, globs[stage], path),
+          lambda _: [],
+          _PRODUCES,
+          boxes,
+          in_flight,
+      )
+  ```
+
+  A box outside every task's span is untracked: `_spans` gives a task the lines from its id line to the next ATX heading or id line, `box` takes its first box as the task's mark, and a nested sub-box inside it belongs to the task too (`_spans(source)[0]` and the `*_rest` of its unpacking stay valid when Task 10 widens the tuples that `_spans` returns). `checked_findings` asks `plan.task_done`, the rule that `statuses` and `properties` use, so a box is flagged when the plan line beside it reads `not done`: a delivered requirement below evidenced (the case the message names), and also a delivered `dsn` with no `impl`, which answer 10's wording leaves out. `cli.py` calls them: straight after `plan.build`, `_analyse` replaces each plan with `dataclasses.replace(each, boxes=each.intent.host.boxes(world.sources, each.intent))`; it takes the `--stage` text (`_analyse(..., stage=args.stage)` at both call sites) and, with the other structural findings, adds
 
   ```python
       checked += [found for each in plans for found in openspec.untracked_findings(each.intent, each.boxes)]
@@ -1391,13 +1433,13 @@ Built on spike D, measured on 2026-11-25 (findings 5 to 11; 10 of its 25 tests a
   ```python
       tasks = plan.plan_tasks(analysis.index, world.intents)
       task, reason = plan.current_task(tasks, world.intents, option)  # `--task`, else the one Current Task line
-      changes = any(each.host is not plan.AIDLC for each in world.intents)  # AI-DLC alone keeps `current_task`'s reason
-      if task is None and changes and not any(each.current for each in world.intents):  # no state file names one
-          marks = {name: mark for each in analysis.plans for name, mark in each.boxes.marks.items()}
-          task, reason = openspec.in_flight(tasks, world.intents, marks)
+      fallback = next((hook for each in world.intents if (hook := each.host.current_task) is not None), None)
+      unnamed = not any(each.current for each in world.intents)  # no state file names one
+      if task is None and fallback is not None and unnamed:
+          task, reason = fallback(tasks, analysis.plans)
   ```
 
-  So the current task is the first unchecked box in file order of the one change that has any, else `no current task, as several changes have an unchecked task (<changes>): name one with --task`. The fallback runs only when some intent is not an AI-DLC one: on an AI-DLC-only run `current_task`'s own reason stands, and `in_flight`'s "no state file names one, and no OpenSpec task is unchecked" speaks only for a run that holds an OpenSpec change. `reporter.py`: `RULES` gains `earnest/checked-unevidenced` and `earnest/untracked-box`, both `warning` (and the `RuleId` literal both names). The messages are written for the agent (T6):
+  So the current task is the first unchecked box in file order of the one change that has any, else `no current task, as several changes have an unchecked task (<changes>): name one with --task`. The fallback is the hook of an intent's host, so it runs only when some intent has one: on an AI-DLC-only run `current_task`'s own reason stands, and `in_flight`'s "no state file names one, and no OpenSpec task is unchecked" speaks only for a run that holds an OpenSpec change. `reporter.py`: `RULES` gains `earnest/checked-unevidenced` and `earnest/untracked-box`, both `warning` (and the `RuleId` literal both names). The messages are written for the agent (T6):
   - `checked-unevidenced`: `<task> is checked in tasks.md, but <req> is <level>, not evidenced: uncheck the box, or tag and test the requirement until earnest check --judge --evidence reports it evidenced`;
   - `untracked-box`: "this checkbox has no task id line above it, so earnest cannot compute whether the task is done: write a `` `task~<name>~1` `` line and `Delivers: req~<name>~<n>` directly above it".
 
@@ -1480,10 +1522,10 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
       assert found == []
   ```
 
-  a fourth, `test_a_tag_on_a_requirement_a_change_removes_is_orphaned_and_names_the_heading` (answer 9): the first test's tree, with the message of the `orphaned` finding at `CODE` naming `` `req~greet~1` `` and the removal's file and line; and a fifth, `test_a_removed_heading_drops_only_the_requirement_of_the_root_main_spec_it_names` (the root-only rule): `MAIN_PATH` holds `Greet` as `req~greet~1`; two more main files hold a `Greet` heading under other ids, `packages/x/tests/fixtures/openspec/specs/greeting/spec.md` (`req~nested-greet~1`) and `docs/greeting/spec.md` (`req~doc-greet~1`); `DELTA_PATH` removes `Greet`. Assert that `("req", "greet")` is not in `index.defined` and that the other two are. It fails if `heads` is keyed by the spec's folder name alone, because the last file of that folder name then takes the heading and the wrong id goes.
+  a fourth, `test_a_tag_on_a_requirement_a_change_removes_is_orphaned_and_names_the_heading` (answer 9): the first test's tree, with the message of the `orphaned` finding at `CODE` naming `` `req~greet~1` `` and the removal's file and line; and a fifth, `test_a_removed_heading_drops_only_the_requirement_of_the_root_main_spec_it_names` (the root-only rule): `MAIN_PATH` holds `Greet` as `req~greet~1`; two more main files hold a `Greet` heading under other ids, `packages/x/tests/fixtures/openspec/specs/greeting/spec.md` (`req~nested-greet~1`) and `docs/greeting/spec.md` (`req~doc-greet~1`); `DELTA_PATH` removes `Greet`. Assert that `("req", "greet")` is not in `index.defined` and that the other two are. It fails if `heads` is keyed by the spec's folder name alone, because the last file of that folder name then takes the heading and the wrong id goes; and a sixth, `test_a_removed_heading_under_a_hidden_directory_below_changes_removes_nothing` (a `REMOVED` heading in `openspec/changes/.hidden/specs/greeting/spec.md`, which is no change, so `change_of` and `_spec_key` give none: `Greet` stays defined).
 
-- [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: the five fail, non-zero.
-- [ ] **Step 3:** Implement. In `index.py` (add `from pathlib import PurePosixPath`): the two patterns, `Removal` (a requirement heading under `## REMOVED Requirements`, which may carry no id line), and the two fields of `Item` that say where its id line sits (`heading`, the `### Requirement:` heading above it, and `section`, the first word of the second-level heading above it: `ADDED`, `MODIFIED`, `REMOVED` or `RENAMED`):
+- [ ] **Step 2:** Run `rtk proxy uv run pytest tests/unit/test_openspec_layers.py -q; echo $?`. Expected: the six fail, non-zero.
+- [ ] **Step 3:** Implement. In `index.py` (`PurePosixPath` is imported since Task 4): the two patterns, `Removal` (a requirement heading under `## REMOVED Requirements`, which may carry no id line), and the two fields of `Item` that say where its id line sits (`heading`, the `### Requirement:` heading above it, and `section`, the first word of the second-level heading above it: `ADDED`, `MODIFIED`, `REMOVED` or `RENAMED`):
 
   ```python
   _REQ_HEADING = re.compile(r"###[ \t]*Requirement:[ \t]*(.+?)(?:[ \t]+#+)?", re.IGNORECASE)
@@ -1522,13 +1564,18 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
           }
 
 
+  _SPECS = ("openspec", "specs")  # the root only, beside `_CHANGES`
+
+
   def _spec_key(path: str) -> PurePosixPath | None:
-      """Return a spec file's path below the root `openspec/specs/` or `openspec/changes/<id>/specs/`, else None."""
+      """Return a spec file's path below the root `openspec/specs/` or a change's `specs/`, else None."""
       parts = PurePosixPath(path).parts
-      if parts[:2] == ("openspec", "specs"):
-          return PurePosixPath(*parts[2:])
-      if parts[:2] == ("openspec", "changes") and parts[3:4] == ("specs",):
-          return PurePosixPath(*parts[4:])
+      if parts[: len(_SPECS)] == _SPECS:
+          return PurePosixPath(*parts[len(_SPECS) :])
+      if (change := change_of(path)) is not None:
+          below = PurePosixPath(path).relative_to(change).parts
+          if below[:1] == ("specs",):
+              return PurePosixPath(*below[1:])
       return None
   ```
 
@@ -1581,7 +1628,7 @@ Outside the exit path. `03` defers REMOVED and RENAMED in the exit fixture, no b
               continue
   ```
 
-- [ ] **Step 4:** Run Step 2's command: expect `0`. Then `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 5.
+- [ ] **Step 4:** Run Step 2's command: expect `0`. Then `mypy --strict`, ruff, vulture and the regression run: expect `0`, at the recorded count plus 6.
 - [ ] **Step 5:** Commit `feat: a requirement that a change removes defines nothing, and a tag on it is orphaned`.
 
 **Done when** (#23, rest): a requirement removed in a change in flight is out of the definitions, and a tag on it is `orphaned` and names the heading. RENAMED needs nothing while ids are stable (answer 9).
