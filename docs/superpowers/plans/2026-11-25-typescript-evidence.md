@@ -494,7 +494,7 @@ Outside the package, only Task 0's docs, `ci.yml`, `.gitignore`, `.markdownlint-
   - `01`, Open questions: the row "A TypeScript fixture for evidence through StrykerJS and Jest" is resolved by this plan, with the date. If plan choice P4 stands, add one sentence to the Evidence rule: for TypeScript a failing test stops the StrykerJS run, which exits 2.
   - `02`, L5: Node tools enter the package's tests through a committed lockfile under `packages/earnest/`, for the TypeScript evidence fixture of M8 and the `openspec` CLI of M9. The unit tier stays Node-free, with a fake `stryker` script. Its rationale sentence about the Cucumber scaffold still stands.
   - `02`, L4's table row "Coverage, tests and mutants": it gains `subprocess` running StrykerJS and `json` reading its report.
-  - `02`, the File and directory tree: `package.json`, the lockfile, `.nvmrc` and `.npmrc` under `packages/earnest/`, `tests/node.py`, and `fixtures/ts-evidence/`.
+  - `02`, the File and directory tree: `package.json`, the lockfile, `.nvmrc` and `.npmrc` under `packages/earnest/`, `tests/node.py`, and `fixtures/ts-evidence/`; and `package.json` and `pnpm-lock.yaml` at the repository root, which the tree lists neither of today.
   - `03`, M8: drop the gating row, add the toolchain and `tests/node.py` to the deliverable, and link this plan on the task-plan line.
   - Tell the maintainer that #26 is to reference the recorded decision. The comment on the issue is a GitHub write, so the maintainer approves it.
 - [ ] **Step 4:** Run `LINT_FILE=<path> make lint-file` on each changed file and check the exit code with `rtk proxy`. Commit `docs: M8 typescript_evidence plan and gating answers`.
