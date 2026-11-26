@@ -7,7 +7,8 @@
 #
 # It prints the harness, the argv, the NAMES (never the values) of the variables that reach `claude`, the exit and wall
 # time, the `modelUsage` keys that answered, the token usage, the verdict beside the maintainer's, and the path of the
-# raw `claude` stdout. Exit 0 when `claude` returned a verdict (whatever it was), 1 on a JudgeError, 2 on a bad call.
+# raw `claude` stdout. Exit 0 when `claude` returned a verdict (whatever it was), 1 on a JudgeError (the model
+# did not load, `claude` did not start or did not answer), 2 on a bad call, or a verdict with no `claude` call behind it.
 # It reads and writes no record, and it calls the model once.
 set -u
 case "${EARNEST_JUDGE:-}" in
@@ -31,7 +32,10 @@ SUBJECT, KIND = "req~daily-cap~1", "implemented"
 fixture = Path("tests/fixtures/calibration-dev").resolve()
 index = build_index(adapters.scan(fixture, git.work_tree_files(fixture)))
 (asked,) = [q for q in judge.questions(index, structural.traced(index)) if (q.subject, q.kind) == (SUBJECT, KIND)]
-model = judge.load_model(os.environ["EARNEST_JUDGE"], fixture)
+try:
+    model = judge.load_model(os.environ["EARNEST_JUDGE"], fixture)
+except judge.JudgeError as error:
+    sys.exit(f"JudgeError: {error}")  # exit 1, one line, no traceback
 out = Path(tempfile.mkdtemp(prefix="earnest-live-check-"))
 print(f"model    {model.id}\nharness  {model.harness}")
 
@@ -61,7 +65,7 @@ else:
 
 if "argv" not in seen:
     print("no claude call was made")
-    sys.exit(2)
+    sys.exit(status or 2)
 shown = ["<schema>" if arg.startswith("{") else arg for arg in seen["argv"]]
 print(f"argv     {shown}\nenv names {seen['env']}")
 if "done" not in seen:
