@@ -19,6 +19,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `package`, `clean`. `LINT_FILE=<path> make lint-file` lints one file. The only sub-project is
 `packages/earnest` (Python 3.12+, `uv`); its settings live in its `pyproject.toml`.
 
+`make lint` covers only the Python package (ruff, ruff format, mypy, vulture). Markdown and YAML
+are linted by `LINT_FILE=<path> make lint-file`, one file at a time, and in CI by `lint-docs`
+(`.github/workflows/ci.yml`). After editing docs, run `make lint-file` on each changed `.md` and
+`.yml`. It needs pnpm and yamllint, pinned in the repo-root `mise.toml`; add a missing tool with
+`mise use --path <repo>/mise.toml <tool>@<ver>`, never globally, and never fall back to npx or a
+direct tool call. The root `package.json` only pins prettier 3.10.1 for `.prettierrc`; no make
+target or CI step runs it.
+
 Single test or scenario, from `packages/earnest`:
 
 ```bash
@@ -42,8 +50,8 @@ Non-obvious rules:
 
 - An override sha resolves by object, never by ref (`git rev-parse --disambiguate`).
 - Any `aidlc-state.md` in the work tree marks an intent.
-- The judge's only model is `EARNEST_JUDGE=stub:<verdicts.json>`. Its cache key includes the code
-  and test regions, so editing either re-asks.
+- `EARNEST_JUDGE` is `stub:<path>` or `anthropic:<model>`; tests fake the `anthropic:` client and never call a real model. The judge's
+  cache key includes the code and test regions, so editing either re-asks.
 - `tests/conftest.py` pins the git identity and dates so fixture commit shas stay stable.
 
 ## Project hooks
@@ -56,7 +64,7 @@ Non-obvious rules:
   `..`, are skipped. The path travels only through the environment, never as a
   make variable, so it cannot inject shell or make code. Symlinks are skipped.
   Bash heredoc writes bypass this hook; the git pre-commit hook still catches
-  those.
+  those. It fails with `pnpm: command not found` unless the `mise.toml` tools are installed.
 - PostToolUse on Agent: reminds the orchestrator to update the Task List and
   dispatch the next pending task after a subagent finishes.
 - PreToolUse on Bash, pre-PR review gate: blocks `gh pr create`/`new`/`ready`
@@ -83,6 +91,16 @@ purpose; re-stage and commit again.
 
 Markdown is linted with `markdownlint-cli2` (MD013 off, config
 `.markdownlint-cli2.jsonc`), YAML with `yamllint` (config `.yamllint.yml`).
+
+Never commit `.diff` or `.patch` files: a plan either has the change made or writes the exact code
+into its task steps. A milestone run's `scope.paths` input
+(`.pi/workflows/milestone.workflow.ts`) sets the allowed paths, and paths changed outside it end the
+run `needs_approval`; the workflow never opens the plan file. Copy the plan's `## Scope paths` JSON
+block into `scope.paths` when you start the run, and keep that block in the plan. The M6 plan has
+one; the M7, M8 and M9 plans do not yet. The unfinished milestones' plans, in
+`docs/superpowers/plans/`, are M6 `2026-10-25-calibration-gate.md`, M7 `2026-11-20-aidlc-fork.md`,
+M8 `2026-11-25-typescript-evidence.md` and M9 `2026-11-25-openspec-host.md`. Decisions are recorded
+as `DECIDED (user, 2026-11-25)`. The order is in `03`'s "Critical path (2026-11-25)"; M9 is outside v1.
 
 ## CI/CD
 
